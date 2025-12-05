@@ -7,6 +7,26 @@ import { api } from "./api";
 import { getApprovalRequestsForWorkflow, isCompanyAdmin } from "./cross-company-utils";
 
 /**
+ * Calculate progress from actions array (no API call)
+ */
+function calculateProgressFromActions(actions: any[]): number {
+  if (actions.length === 0) {
+    return 0;
+  }
+  
+  // Count completed actions (including document_uploaded and response_received as progress)
+  const completedActions = actions.filter((action: any) => {
+    const status = action.status;
+    return status === "completed" || 
+           status === "document_uploaded" || 
+           status === "response_received";
+  });
+  
+  // Calculate progress percentage
+  return Math.round((completedActions.length / actions.length) * 100);
+}
+
+/**
  * Calculate workflow progress based on actions
  */
 export async function calculateWorkflowProgress(workflowId: string): Promise<number> {
@@ -18,20 +38,7 @@ export async function calculateWorkflowProgress(workflowId: string): Promise<num
     const workflowActions = [...allActions, ...localActions]
       .filter((action: any) => action.workflowId === workflowId);
     
-    if (workflowActions.length === 0) {
-      return 0;
-    }
-    
-    // Count completed actions (including document_uploaded and response_received as progress)
-    const completedActions = workflowActions.filter((action: any) => {
-      const status = action.status;
-      return status === "completed" || 
-             status === "document_uploaded" || 
-             status === "response_received";
-    });
-    
-    // Calculate progress percentage
-    return Math.round((completedActions.length / workflowActions.length) * 100);
+    return calculateProgressFromActions(workflowActions);
   } catch (error) {
     console.error("Failed to calculate workflow progress:", error);
     return 0;
@@ -60,13 +67,28 @@ export async function getWorkflowActions(workflowId: string): Promise<any[]> {
   }
 }
 
+// Track if update is in progress to prevent loops
+const updateInProgress = new Set<string>();
+
 /**
  * Update workflow progress and status based on actions
+ * @param workflowId - The workflow ID
+ * @param skipEventDispatch - If true, don't dispatch workflowsUpdated event (prevents loops)
  */
-export async function updateWorkflowProgress(workflowId: string): Promise<void> {
+export async function updateWorkflowProgress(workflowId: string, skipEventDispatch = false): Promise<void> {
+  // Prevent concurrent updates for the same workflow
+  if (updateInProgress.has(workflowId)) {
+    return;
+  }
+  
+  updateInProgress.add(workflowId);
+  
   try {
+    // Get actions once - we'll calculate progress from this
     const actions = await getWorkflowActions(workflowId);
-    const progress = await calculateWorkflowProgress(workflowId);
+    
+    // Calculate progress directly from actions (no redundant API call)
+    const progress = calculateProgressFromActions(actions);
     
     // Check if all actions are completed
     const allCompleted = actions.length > 0 && actions.every((action: any) => {
@@ -74,7 +96,7 @@ export async function updateWorkflowProgress(workflowId: string): Promise<void> 
       return status === "completed";
     });
     
-    // Update workflow
+    // Get workflows (needed to update status)
     const workflows = await api.getWorkflows();
     const localWorkflows = JSON.parse(localStorage.getItem("workflows") || "[]");
     const allWorkflows = [...workflows, ...localWorkflows];
@@ -109,10 +131,17 @@ export async function updateWorkflowProgress(workflowId: string): Promise<void> 
       localStorage.setItem("workflows", JSON.stringify(localWorkflows));
     }
     
-    // Dispatch event
-    window.dispatchEvent(new CustomEvent("workflowsUpdated"));
+    // Only dispatch event if not skipped (prevents circular loops)
+    if (!skipEventDispatch) {
+      window.dispatchEvent(new CustomEvent("workflowsUpdated"));
+    }
   } catch (error) {
     console.error("Failed to update workflow progress:", error);
+  } finally {
+    // Remove from in-progress set after a short delay to allow event to propagate
+    setTimeout(() => {
+      updateInProgress.delete(workflowId);
+    }, 100);
   }
 }
 

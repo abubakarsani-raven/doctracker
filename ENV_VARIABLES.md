@@ -43,3 +43,4 @@ NEXT_PUBLIC_API_URL=http://localhost:4003
 - Never commit `.env` or `.env.local` files to version control
 - Update `CORS_ORIGIN` in backend after deploying frontend to allow cross-origin requests
 
+

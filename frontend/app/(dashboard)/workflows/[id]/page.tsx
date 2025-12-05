@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -50,28 +50,50 @@ export default function WorkflowDetailPage() {
   const [routingSheetOpen, setRoutingSheetOpen] = useState(false);
   const [addFileDialogOpen, setAddFileDialogOpen] = useState(false);
   const [createActionDialogOpen, setCreateActionDialogOpen] = useState(false);
+  
+  // Debounce timers to prevent rapid-fire API calls
+  const workflowUpdateTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const actionUpdateTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     loadWorkflow();
     
-    // Listen for workflow updates
+    // Listen for workflow updates - just reload workflow (no progress update to avoid loop)
     const handleWorkflowUpdate = () => {
-      loadWorkflow();
-      // Update progress when workflow or actions change
-      updateWorkflowProgress(workflowId);
+      // Debounce to prevent rapid-fire calls
+      if (workflowUpdateTimerRef.current) {
+        clearTimeout(workflowUpdateTimerRef.current);
+      }
+      workflowUpdateTimerRef.current = setTimeout(() => {
+        loadWorkflow();
+      }, 300);
     };
     
     // Listen for action updates to recalculate progress
     const handleActionUpdate = () => {
-      updateWorkflowProgress(workflowId).then(() => {
+      // Debounce to prevent rapid-fire calls
+      if (actionUpdateTimerRef.current) {
+        clearTimeout(actionUpdateTimerRef.current);
+      }
+      actionUpdateTimerRef.current = setTimeout(async () => {
+        // Update progress but skip event dispatch to prevent circular loop
+        await updateWorkflowProgress(workflowId, true);
+        // Then reload workflow to reflect changes
         loadWorkflow();
-      });
+      }, 300);
     };
     
     window.addEventListener("workflowsUpdated", handleWorkflowUpdate);
     window.addEventListener("actionsUpdated", handleActionUpdate);
     
     return () => {
+      // Cleanup timers
+      if (workflowUpdateTimerRef.current) {
+        clearTimeout(workflowUpdateTimerRef.current);
+      }
+      if (actionUpdateTimerRef.current) {
+        clearTimeout(actionUpdateTimerRef.current);
+      }
       window.removeEventListener("workflowsUpdated", handleWorkflowUpdate);
       window.removeEventListener("actionsUpdated", handleActionUpdate);
     };

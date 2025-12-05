@@ -34,6 +34,7 @@
     "typescript": "^5.9.3"
   },
   "scripts": {
+    "postinstall": "prisma generate",
     "build": "nest build",
     "start": "nest start",
     "start:dev": "nest start --watch",
