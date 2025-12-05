@@ -1,0 +1,436 @@
+// Prisma Schema for Document Repository System
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ============ CORE TABLES ============
+
+model Company {
+  id        String   @id @default(uuid())
+  name      String
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  users          User[]
+  departments    Department[]
+  folders        Folder[]
+  files          File[]
+  workflows      Workflow[]
+  userRoles      UserRole[]
+  actions        Action[]        @relation("ActionCompany")
+  notifications  Notification[]
+  accessRequests AccessRequest[]
+
+  @@map("companies")
+}
+
+model User {
+  id            String   @id @default(uuid())
+  email         String   @unique
+  passwordHash  String   @map("password_hash")
+  name          String?
+  phone         String?
+  status        String   @default("active") // active, inactive
+  avatar        String?
+  companyId     String?  @map("company_id")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  company        Company?            @relation(fields: [companyId], references: [id])
+  userRoles      UserRole[]
+  userDepartments UserDepartment[]
+  userDivisions  UserDivision[]
+  createdFiles   File[]              @relation("FileCreator")
+  createdFolders Folder[]            @relation("FolderCreator")
+  workflows      Workflow[]          @relation("WorkflowCreator")
+  actions        Action[]            @relation("ActionCreator")
+
+  @@map("users")
+}
+
+model Role {
+  id                   String   @id @default(uuid())
+  name                 String   @unique
+  permissionsJson      Json     @map("permissions_json")
+  canAssignDocuments   Boolean  @default(false) @map("can_assign_documents")
+  createdAt            DateTime @default(now()) @map("created_at")
+
+  // Relations
+  userRoles UserRole[]
+
+  @@map("roles")
+}
+
+model UserRole {
+  userId    String   @map("user_id")
+  roleId    String   @map("role_id")
+  companyId String   @map("company_id")
+  assignedAt DateTime @default(now()) @map("assigned_at")
+
+  // Relations
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role    Role    @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@id([userId, roleId, companyId])
+  @@map("user_roles")
+}
+
+model Department {
+  id          String   @id @default(uuid())
+  companyId   String   @map("company_id")
+  name        String
+  description String?
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  // Relations
+  company      Company    @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  divisions    Division[]
+  userDepartments UserDepartment[]
+
+  @@map("departments")
+}
+
+model Division {
+  id           String   @id @default(uuid())
+  departmentId String   @map("department_id")
+  name         String
+  description  String?
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  // Relations
+  department     Department     @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+  userDivisions  UserDivision[]
+
+  @@map("divisions")
+}
+
+model UserDepartment {
+  userId       String @map("user_id")
+  departmentId String @map("department_id")
+  roleInDept   String? @map("role_in_dept")
+
+  // Relations
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  department Department @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+
+  @@id([userId, departmentId])
+  @@map("user_departments")
+}
+
+model UserDivision {
+  userId     String @map("user_id")
+  divisionId String @map("division_id")
+
+  // Relations
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  division Division @relation(fields: [divisionId], references: [id], onDelete: Cascade)
+
+  @@id([userId, divisionId])
+  @@map("user_divisions")
+}
+
+// ============ DOCUMENT TABLES ============
+
+model Folder {
+  id            String   @id @default(uuid())
+  companyId     String   @map("company_id")
+  parentFolderId String? @map("parent_folder_id")
+  name          String
+  description   String?
+  scopeLevel    String   @map("scope_level") // company, department, division
+  departmentId  String?  @map("department_id")
+  divisionId    String?  @map("division_id")
+  createdBy     String   @map("created_by")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  company       Company?  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  parentFolder  Folder?   @relation("FolderHierarchy", fields: [parentFolderId], references: [id])
+  subFolders    Folder[]  @relation("FolderHierarchy")
+  creator       User      @relation("FolderCreator", fields: [createdBy], references: [id])
+  fileFolderLinks FileFolderLink[]
+
+  @@map("folders")
+}
+
+model File {
+  id          String   @id @default(uuid())
+  companyId   String   @map("company_id")
+  fileName    String   @map("file_name")
+  fileType    String   @map("file_type")
+  storagePath String   @map("storage_path")
+  scopeLevel  String   @map("scope_level") // company, department, division
+  departmentId String? @map("department_id")
+  divisionId  String?  @map("division_id")
+  createdBy   String   @map("created_by")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  company         Company?            @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  creator         User                @relation("FileCreator", fields: [createdBy], references: [id])
+  fileFolderLinks FileFolderLink[]
+  fileVersions    FileVersion[]
+  richTextDoc     RichTextDocument?
+  workflows       Workflow[]
+  actions         Action[]
+
+  @@map("files")
+}
+
+model FileFolderLink {
+  fileId        String   @map("file_id")
+  folderId      String   @map("folder_id")
+  permissionsJson Json?  @map("permissions_json")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  // Relations
+  file   File   @relation(fields: [fileId], references: [id], onDelete: Cascade)
+  folder Folder @relation(fields: [folderId], references: [id], onDelete: Cascade)
+
+  @@id([fileId, folderId])
+  @@map("file_folder_links")
+}
+
+model RichTextDocument {
+  id          String   @id @default(uuid())
+  fileId      String   @unique @map("file_id")
+  htmlContent String   @map("html_content")
+  createdBy   String   @map("created_by")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  file File @relation(fields: [fileId], references: [id], onDelete: Cascade)
+
+  @@map("rich_text_documents")
+}
+
+model FileVersion {
+  id            String   @id @default(uuid())
+  fileId        String   @map("file_id")
+  versionNumber Int      @map("version_number")
+  storagePath   String   @map("storage_path")
+  createdBy     String   @map("created_by")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  // Relations
+  file File @relation(fields: [fileId], references: [id], onDelete: Cascade)
+
+  @@unique([fileId, versionNumber])
+  @@map("file_versions")
+}
+
+// ============ WORKFLOW TABLES ============
+
+model Workflow {
+  id            String   @id @default(uuid())
+  title         String
+  description   String?
+  type          String   // folder, document
+  companyId     String   @map("company_id")
+  folderId      String?  @map("folder_id")
+  documentId    String?  @map("document_id")
+  status        String   @default("assigned") // assigned, in_progress, ready_for_review, completed, pending
+  assignedToType String? @map("assigned_to_type") // user, department
+  assignedToId  String?  @map("assigned_to_id")
+  assignedToName String? @map("assigned_to_name")
+  assignedBy    String   @map("assigned_by")
+  assignedAt    DateTime @default(now()) @map("assigned_at")
+  progress      Int      @default(0)
+  dueDate       DateTime? @map("due_date")
+  
+  // Cross-company fields
+  sourceCompanyId   String?  @map("source_company_id")
+  sourceCompanyName String?  @map("source_company_name")
+  targetCompanyId   String?  @map("target_company_id")
+  targetCompanyName String?  @map("target_company_name")
+  isCrossCompany    Boolean  @default(false) @map("is_cross_company")
+  approvalStatus    String?  @map("approval_status") // pending, approved, rejected
+  approvalRequestedAt DateTime? @map("approval_requested_at")
+  approvedBy        String?  @map("approved_by")
+  approvedAt        DateTime? @map("approved_at")
+  
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  company       Company?  @relation(fields: [companyId], references: [id])
+  document      File?     @relation(fields: [documentId], references: [id])
+  creator       User      @relation("WorkflowCreator", fields: [assignedBy], references: [id])
+  actions       Action[]
+  routingHistory WorkflowRouting[]
+  
+  @@map("workflows")
+}
+
+model WorkflowRouting {
+  id              String   @id @default(uuid())
+  workflowId      String   @map("workflow_id")
+  fromType        String   @map("from_type") // user, department
+  fromId          String?  @map("from_id")
+  fromName        String?  @map("from_name")
+  toType          String   @map("to_type")
+  toId            String   @map("to_id")
+  toName          String   @map("to_name")
+  routingType     String   @map("routing_type")
+  routingNotes    String?  @map("routing_notes")
+  routedBy        String   @map("routed_by")
+  routedAt        DateTime @default(now()) @map("routed_at")
+  
+  // Cross-company fields
+  isCrossCompany  Boolean  @default(false) @map("is_cross_company")
+  sourceCompanyId String?  @map("source_company_id")
+  targetCompanyId String?  @map("target_company_id")
+
+  // Relations
+  workflow Workflow @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+
+  @@map("workflow_routing")
+}
+
+model Action {
+  id            String   @id @default(uuid())
+  workflowId    String   @map("workflow_id")
+  companyId     String?  @map("company_id")
+  title         String
+  description   String?
+  type          String   // regular, document_upload, request_response
+  status        String   @default("pending") // pending, in_progress, document_uploaded, response_received, completed
+  assignedToType String  @map("assigned_to_type") // user, department
+  assignedToId  String   @map("assigned_to_id")
+  assignedToName String  @map("assigned_to_name")
+  documentId    String?  @map("document_id")
+  folderId      String?  @map("folder_id")
+  
+  // Document upload specific
+  targetFolderId    String? @map("target_folder_id")
+  uploadedDocumentId String? @map("uploaded_document_id")
+  uploadedDocumentName String? @map("uploaded_document_name")
+  requiredFileType  String? @map("required_file_type")
+  uploadedAt        DateTime? @map("uploaded_at")
+  uploadedBy        String? @map("uploaded_by")
+  
+  // Request/Response specific
+  requestDetails    String? @map("request_details")
+  response          String? @map("response")
+  responseData      Json?   @map("response_data")
+  responseReceivedAt DateTime? @map("response_received_at")
+  respondedBy       String? @map("responded_by")
+  
+  // Cross-company fields
+  sourceCompanyId   String? @map("source_company_id")
+  sourceCompanyName String? @map("source_company_name")
+  targetCompanyId   String? @map("target_company_id")
+  targetCompanyName String? @map("target_company_name")
+  isCrossCompany    Boolean @default(false) @map("is_cross_company")
+  approvalStatus    String? @map("approval_status") // pending, approved, rejected
+  approvalRequestId String? @map("approval_request_id")
+  approvedBy        String? @map("approved_by")
+  approvedAt        DateTime? @map("approved_at")
+  
+  createdBy     String   @map("created_by")
+  createdAt     DateTime @default(now()) @map("created_at")
+  dueDate       DateTime? @map("due_date")
+  completedAt   DateTime? @map("completed_at")
+  completedBy   String?  @map("completed_by")
+  resolutionNotes String? @map("resolution_notes")
+
+  // Relations
+  workflow      Workflow @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  document      File?    @relation(fields: [documentId], references: [id])
+  creator       User     @relation("ActionCreator", fields: [createdBy], references: [id])
+  company       Company? @relation("ActionCompany", fields: [companyId], references: [id])
+
+  @@map("actions")
+}
+
+// ============ CROSS-COMPANY APPROVAL ============
+
+model CrossCompanyApproval {
+  id                String   @id @default(uuid())
+  workflowId        String?  @map("workflow_id")
+  actionId          String?  @map("action_id")
+  requestType       String   @map("request_type") // workflow_assignment, action_assignment, workflow_routing
+  sourceCompanyId   String   @map("source_company_id")
+  sourceCompanyName String   @map("source_company_name")
+  targetCompanyId   String   @map("target_company_id")
+  targetCompanyName String   @map("target_company_name")
+  requestedBy       String   @map("requested_by")
+  requestedAt       DateTime @default(now()) @map("requested_at")
+  assignedToType    String   @map("assigned_to_type")
+  assignedToId      String   @map("assigned_to_id")
+  assignedToName    String   @map("assigned_to_name")
+  status            String   @default("pending") // pending, approved, rejected
+  reviewedBy        String?  @map("reviewed_by")
+  reviewedAt        DateTime? @map("reviewed_at")
+  rejectionReason   String?  @map("rejection_reason")
+  workflowTitle     String?  @map("workflow_title")
+  workflowDescription String? @map("workflow_description")
+  actionTitle       String?  @map("action_title")
+  actionDescription String?  @map("action_description")
+  routingNotes      String?  @map("routing_notes")
+
+  @@map("cross_company_approvals")
+}
+
+// ============ ACCESS REQUESTS ============
+
+model AccessRequest {
+  id            String   @id @default(uuid())
+  resourceId    String   @map("resource_id")
+  resourceType  String   @map("resource_type") // folder, document
+  resourceName  String   @map("resource_name")
+  scope         String?  // company, department, division
+  requestedBy   String   @map("requested_by")
+  requestedByName String @map("requested_by_name")
+  reason        String?
+  status        String   @default("pending") // pending, approved, rejected
+  approvedBy    String?  @map("approved_by")
+  approvedByName String? @map("approved_by_name")
+  rejectedBy    String?  @map("rejected_by")
+  rejectedByName String? @map("rejected_by_name")
+  rejectionReason String? @map("rejection_reason")
+  approvedAt    DateTime? @map("approved_at")
+  rejectedAt    DateTime? @map("rejected_at")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+  
+  // Company/Department context
+  companyId     String?  @map("company_id")
+  departmentId String?  @map("department_id")
+  
+  // Relations
+  company       Company? @relation(fields: [companyId], references: [id])
+
+  @@map("access_requests")
+}
+
+// ============ NOTIFICATIONS ============
+
+model Notification {
+  id           String   @id @default(uuid())
+  userId       String   @map("user_id")
+  companyId    String?  @map("company_id")
+  type         String   @map("notification_type")
+  title        String
+  message      String
+  resourceType String?  @map("resource_type")
+  resourceId   String?  @map("resource_id")
+  read         Boolean  @default(false)
+  readAt       DateTime? @map("read_at")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  // Relations
+  company Company? @relation(fields: [companyId], references: [id])
+
+  @@map("notifications")
+}
