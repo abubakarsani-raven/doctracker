@@ -3,12 +3,12 @@ nixPkgs = ["nodejs_24"]
 
 [phases.install]
 cmds = [
-  "npm ci",
-  "npx prisma generate"
+  "npm ci"
 ]
 
 [phases.build]
 cmds = [
+  "npx prisma generate",
   "npm run build"
 ]
 
