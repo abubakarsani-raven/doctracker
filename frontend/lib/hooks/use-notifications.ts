@@ -41,8 +41,5 @@ export function useMarkNotificationRead() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["notifications"] });
     },
-    onError: (error: any) => {
-      toast.error(error.message || "Failed to mark notification as read");
-    },
   });
 }

@@ -9,9 +9,6 @@ export function useApprovalRequests() {
     queryFn: async () => {
       return await api.getApprovalRequests();
     },
-    onError: (error: any) => {
-      toast.error(error.message || "Failed to load approval requests");
-    },
   });
 }
 
@@ -26,9 +23,6 @@ export function useCreateApprovalRequest() {
       queryClient.invalidateQueries({ queryKey: ["approvalRequests"] });
       toast.success("Approval request created successfully");
     },
-    onError: (error: any) => {
-      toast.error(error.message || "Failed to create approval request");
-    },
   });
 }
 
@@ -42,9 +36,6 @@ export function useUpdateApprovalRequest() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["approvalRequests"] });
       toast.success("Approval request updated successfully");
-    },
-    onError: (error: any) => {
-      toast.error(error.message || "Failed to update approval request");
     },
   });
 }

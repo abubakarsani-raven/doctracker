@@ -25,9 +25,6 @@ export function useCreateWorkflowGoal() {
       queryClient.invalidateQueries({ queryKey: ["my-goals"] });
       toast.success("Goal created successfully");
     },
-    onError: (error: any) => {
-      toast.error(error.message || "Failed to create goal");
-    },
   });
 }
 
@@ -46,9 +43,6 @@ export function useUpdateWorkflowGoal() {
       }
       queryClient.invalidateQueries({ queryKey: ["my-goals"] });
       toast.success("Goal updated successfully");
-    },
-    onError: (error: any) => {
-      toast.error(error.message || "Failed to update goal");
     },
   });
 }
@@ -69,9 +63,6 @@ export function useAchieveWorkflowGoal() {
       queryClient.invalidateQueries({ queryKey: ["my-goals"] });
       toast.success("Goal marked as achieved");
     },
-    onError: (error: any) => {
-      toast.error(error.message || "Failed to mark goal as achieved");
-    },
   });
 }
 
@@ -86,9 +77,6 @@ export function useDeleteWorkflowGoal() {
       queryClient.invalidateQueries({ queryKey: ["workflows"] });
       queryClient.invalidateQueries({ queryKey: ["my-goals"] });
       toast.success("Goal deleted successfully");
-    },
-    onError: (error: any) => {
-      toast.error(error.message || "Failed to delete goal");
     },
   });
 }

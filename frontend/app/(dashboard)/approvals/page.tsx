@@ -37,20 +37,23 @@ export default function ApprovalsPage() {
   const filteredApprovalsForUser = useMemo(() => {
     if (!currentUser) return [];
 
+    const approvalsArray = (approvals || []) as any[];
+    
     if (currentUser.role === "Master") {
-      return approvals;
+      return approvalsArray;
     }
 
     const userCompanyId = currentUser.companyId;
     if (!userCompanyId) return [];
 
-    return approvals.filter(
-      (a) => a.targetCompanyId === userCompanyId || a.sourceCompanyId === userCompanyId
+    return approvalsArray.filter(
+      (a: any) => a.targetCompanyId === userCompanyId || a.sourceCompanyId === userCompanyId
     );
   }, [approvals, currentUser]);
 
   const filteredApprovals = useMemo(() => {
-    return filteredApprovalsForUser.filter((approval) => {
+    const approvalsArray = (filteredApprovalsForUser || []) as any[];
+    return approvalsArray.filter((approval: any) => {
       // Filter by tab
       if (activeTab === "pending" && approval.status !== "pending") return false;
       if (activeTab === "approved" && approval.status !== "approved") return false;
@@ -97,7 +100,8 @@ export default function ApprovalsPage() {
   };
 
   const handleReject = async (requestId: string) => {
-    setSelectedRequest(approvals.find((a) => a.id === requestId) || null);
+    const approvalsArray = (approvals || []) as any[];
+    setSelectedRequest(approvalsArray.find((a: any) => a.id === requestId) || null);
     setDialogOpen(true);
   };
 

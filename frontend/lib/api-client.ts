@@ -101,9 +101,9 @@ class ApiClient {
         const text = await response.text();
         try {
           // Try to parse as JSON if possible
-          return JSON.parse(text);
+          return JSON.parse(text) as T;
         } catch {
-          return text;
+          return text as T;
         }
       }
     } catch (error) {
@@ -452,6 +452,11 @@ class ApiClient {
 
   async getUserStorage() {
     return this.request<{ bytes: number; formatted: string }>('/storage/user');
+  }
+
+  async getStorageStats(companyId?: string) {
+    const query = companyId ? `?companyId=${companyId}` : '';
+    return this.request<{ bytes: number }>(`/storage/stats${query}`);
   }
 
   async getTotalStorage() {

@@ -51,8 +51,5 @@ export function useCreateFolder() {
       queryClient.invalidateQueries({ queryKey: ["folders"] });
       toast.success("Folder created successfully");
     },
-    onError: (error: any) => {
-      toast.error(error.message || "Failed to create folder");
-    },
   });
 }

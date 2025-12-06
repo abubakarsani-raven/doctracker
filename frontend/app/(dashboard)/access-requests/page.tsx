@@ -45,7 +45,7 @@ export default function AccessRequestsPage() {
 
   // Filter requests based on tab and user permissions
   const filteredRequests = useMemo(() => {
-    let requests = allRequests;
+    let requests = (allRequests || []) as AccessRequest[];
 
     // Filter by tab
     if (activeTab === "pending") {

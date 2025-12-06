@@ -54,9 +54,6 @@ export function useCreateAction() {
       queryClient.invalidateQueries({ queryKey: ["actions"] });
       toast.success("Action created successfully");
     },
-    onError: (error: any) => {
-      toast.error(error.message || "Failed to create action");
-    },
   });
 }
 
@@ -77,9 +74,6 @@ export function useUpdateAction() {
         });
       }
       toast.success("Action updated successfully");
-    },
-    onError: (error: any) => {
-      toast.error(error.message || "Failed to update action");
     },
   });
 }

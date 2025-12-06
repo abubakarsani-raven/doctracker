@@ -6,10 +6,12 @@ export function useAccessRequests() {
   return useQuery({
     queryKey: ["accessRequests"],
     queryFn: async () => {
-      return await api.getAccessRequests();
-    },
-    onError: (error: any) => {
-      toast.error(error.message || "Failed to load access requests");
+      try {
+        return await api.getAccessRequests();
+      } catch (error: any) {
+        toast.error(error.message || "Failed to load access requests");
+        throw error;
+      }
     },
   });
 }
@@ -25,9 +27,6 @@ export function useCreateAccessRequest() {
       queryClient.invalidateQueries({ queryKey: ["accessRequests"] });
       toast.success("Access request created successfully");
     },
-    onError: (error: any) => {
-      toast.error(error.message || "Failed to create access request");
-    },
   });
 }
 
@@ -41,9 +40,6 @@ export function useUpdateAccessRequest() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["accessRequests"] });
       toast.success("Access request updated successfully");
-    },
-    onError: (error: any) => {
-      toast.error(error.message || "Failed to update access request");
     },
   });
 }

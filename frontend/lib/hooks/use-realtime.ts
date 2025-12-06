@@ -65,7 +65,7 @@ export function useRealtimeUpdates(
 
     // Join resource room
     const room = `${resourceType}:${resourceId}`;
-    realtime.joinRoom(room, currentUser.id);
+    realtime.joinRoom(room);
 
     // Listen for updates
     const updateEvent = `${resourceType}Updated`;

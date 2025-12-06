@@ -45,9 +45,6 @@ export function useCreateWorkflow() {
       }
       toast.success("Workflow created successfully");
     },
-    onError: (error: any) => {
-      toast.error(error.message || "Failed to create workflow");
-    },
   });
 }
 
@@ -71,9 +68,6 @@ export function useUpdateWorkflow() {
       }
       
       toast.success("Workflow updated successfully");
-    },
-    onError: (error: any) => {
-      toast.error(error.message || "Failed to update workflow");
     },
   });
 }
