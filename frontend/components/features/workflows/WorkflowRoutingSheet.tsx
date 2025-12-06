@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useMemo, useEffect } from "react";
 import {
   Sheet,
   SheetContent,
@@ -22,20 +22,23 @@ import {
 } from "@/components/ui/select";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { toast } from "sonner";
-import { Send, ArrowRight, ArrowLeft, Plus, User, Building2, Crown } from "lucide-react";
-import { api } from "@/lib/api";
+import { Send, ArrowRight, ArrowLeft, Plus, User, Building2, Crown, FileText } from "lucide-react";
 import { Separator } from "@/components/ui/separator";
 import { CreateActionFromWorkflowDialog } from "./CreateActionFromWorkflowDialog";
-import { 
-  isCompanyAdmin, 
-  getUserCompanyId, 
-  getDepartmentCompanyId, 
-  getUserCompanyIdByUserId, 
-  createApprovalRequest, 
+import {
+  isCompanyAdmin,
+  getUserCompanyId,
+  getDepartmentCompanyId,
+  getUserCompanyIdByUserId,
   isCrossCompanyAssignment,
-  getCompanyName 
+  getCompanyName,
 } from "@/lib/cross-company-utils";
-import { useMockData } from "@/lib/contexts/MockDataContext";
+import { useWorkflow } from "@/lib/hooks/use-workflows";
+import { useUsers } from "@/lib/hooks/use-users";
+import { useCompanies } from "@/lib/hooks/use-companies";
+import { useCurrentUser } from "@/lib/hooks/use-users";
+import { useUpdateWorkflow } from "@/lib/hooks/use-workflows";
+import { useCreateApprovalRequest } from "@/lib/hooks/use-approval-requests";
 
 interface WorkflowRoutingSheetProps {
   open: boolean;
@@ -48,100 +51,63 @@ export function WorkflowRoutingSheet({
   onOpenChange,
   workflowId,
 }: WorkflowRoutingSheetProps) {
+  // Fetch workflow data first
+  const { data: workflow, isLoading: workflowLoading } = useWorkflow(workflowId);
+  const { data: users = [] } = useUsers();
+  const { data: companies = [] } = useCompanies();
+  const { data: currentUser } = useCurrentUser();
+  const updateWorkflow = useUpdateWorkflow();
+  const createApprovalRequest = useCreateApprovalRequest();
+
   const [routingType, setRoutingType] = useState<
-    "secretary" | "department" | "individual" | "department_head" | "original_sender" | "actions"
+    "secretary" | "department" | "individual" | "department_head" | "original_sender" | "actions" | "file_documents"
   >("secretary");
+  
+  // Reset routing type based on workflow status
+  useEffect(() => {
+    if (workflow?.status === "completed") {
+      setRoutingType("file_documents");
+    } else {
+      setRoutingType("secretary");
+    }
+  }, [workflow?.status]);
+  
   const [selectedDepartment, setSelectedDepartment] = useState("");
   const [selectedIndividual, setSelectedIndividual] = useState("");
   const [notes, setNotes] = useState("");
-  const [routing, setRouting] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [workflow, setWorkflow] = useState<any>(null);
-  const [users, setUsers] = useState<any[]>([]);
-  const [departments, setDepartments] = useState<any[]>([]);
-  const [originalSender, setOriginalSender] = useState<string>("");
+
   const [actionDialogOpen, setActionDialogOpen] = useState(false);
   const [selectedCompanyId, setSelectedCompanyId] = useState<string>("");
-  const [companies, setCompanies] = useState<any[]>([]);
-  const { currentUser } = useMockData();
   const isAdmin = currentUser && isCompanyAdmin(currentUser);
 
-  useEffect(() => {
-    if (open && workflowId) {
-      loadWorkflowData();
-    }
-  }, [open, workflowId]);
+  const loading = workflowLoading;
+  const isRouting = updateWorkflow.isPending || createApprovalRequest.isPending;
 
-  const loadWorkflowData = async () => {
-    setLoading(true);
-    try {
-      const [workflowsData, usersData, companiesData] = await Promise.all([
-        api.getWorkflows(),
-        api.getUsers(),
-        api.getCompanies(),
-      ]);
-
-      setCompanies(companiesData);
-
-      // Merge with local workflows
-      const localWorkflows = JSON.parse(localStorage.getItem("workflows") || "[]");
-      const allWorkflows = [...workflowsData, ...localWorkflows];
-      
-      const currentWorkflow = allWorkflows.find((w: any) => w.id === workflowId);
-      setWorkflow(currentWorkflow);
-      
-      if (currentWorkflow?.assignedBy) {
-        setOriginalSender(currentWorkflow.assignedBy);
+  // Get all departments from companies
+  const departments = useMemo(() => {
+    const allDepartments: any[] = [];
+    companies.forEach((company: any) => {
+      if (company.departments) {
+        company.departments.forEach((dept: any) => {
+          allDepartments.push({ ...dept, companyName: company.name });
+        });
       }
+    });
+    return allDepartments;
+  }, [companies]);
 
-      // Get users in the current department if workflow is assigned to a department
-      if (currentWorkflow?.assignedTo?.type === "department") {
-        const deptUsers = usersData.filter(
-          (u: any) => u.department && u.status === "active"
-        );
-        setUsers(deptUsers);
-      } else if (currentWorkflow?.assignedTo?.type === "user") {
-        // If assigned to user, get all users from their department
-        const assignedUser = usersData.find((u: any) => u.id === currentWorkflow.assignedTo.id);
-        if (assignedUser?.department) {
-          const deptUsers = usersData.filter(
-            (u: any) => u.department === assignedUser.department && u.status === "active"
-          );
-          setUsers(deptUsers);
-        }
-      } else {
-        // Get all active users
-        setUsers(usersData.filter((u: any) => u.status === "active"));
-      }
-
-      // Get all departments
-      const allDepartments: any[] = [];
-      companiesData.forEach((company: any) => {
-        if (company.departments) {
-          company.departments.forEach((dept: any) => {
-            allDepartments.push({ ...dept, companyName: company.name });
-          });
-        }
-      });
-      setDepartments(allDepartments);
-
-    } catch (error) {
-      console.error("Failed to load workflow data:", error);
-      toast.error("Failed to load workflow information");
-    } finally {
-      setLoading(false);
-    }
-  };
+  // Get original sender
+  const originalSender = workflow?.assignedBy || "";
 
   // Get department heads
-  const getDepartmentHeads = () => {
+  const departmentHeads = useMemo(() => {
     return users.filter((u: any) => u.role === "Department Head");
-  };
+  }, [users]);
 
   // Get users in current department
-  const getCurrentDepartmentUsers = () => {
+  const currentDeptUsers = useMemo(() => {
     if (!workflow?.assignedTo) return [];
-    
+
     if (workflow.assignedTo.type === "department") {
       return users.filter((u: any) => {
         const dept = departments.find((d: any) => d.id === workflow.assignedTo.id);
@@ -153,8 +119,8 @@ export function WorkflowRoutingSheet({
         return users.filter((u: any) => u.department === assignedUser.department);
       }
     }
-    return users;
-  };
+    return users.filter((u: any) => u.status === "active");
+  }, [users, workflow, departments]);
 
   const handleRoute = async () => {
     if (routingType === "actions") {
@@ -177,21 +143,55 @@ export function WorkflowRoutingSheet({
       return;
     }
 
-    setRouting(true);
+    // Routing state is handled by mutation hooks
 
     try {
       // Determine new assignee based on routing type
       let newAssignedTo: any = null;
       let message = "";
+      // Get current assignee name properly
+      let fromName = "Unknown";
+      let fromType = "unknown";
+      let fromId = null;
+      
+      if (workflow.assignedTo) {
+        if (typeof workflow.assignedTo === "object") {
+          fromName = workflow.assignedTo.name || workflow.assignedToName || "Unknown";
+          fromType = workflow.assignedTo.type || "unknown";
+          fromId = workflow.assignedTo.id || null;
+        } else {
+          fromName = workflow.assignedTo || workflow.assignedToName || "Unknown";
+        }
+      } else if (workflow.assignedToName) {
+        fromName = workflow.assignedToName;
+        fromType = workflow.assignedToType || "unknown";
+        fromId = workflow.assignedToId || null;
+      }
+      
       let routingHistoryEntry: any = {
-        from: workflow.assignedTo || { type: "unknown", name: "Unknown" },
-        routedBy: "Current User", // TODO: Get from context
+        from: {
+          type: fromType,
+          id: fromId,
+          name: fromName,
+        },
+        routedBy: currentUser?.name || currentUser?.email || "Current User",
         routedAt: new Date().toISOString(),
         notes: notes || undefined,
         routingType: routingType,
       };
 
       switch (routingType) {
+        case "file_documents": {
+          // File the workflow - keep it as completed, just add filedAt
+          // Workflow remains completed, no new assignee needed
+          message = "Workflow filed successfully";
+          routingHistoryEntry.routingType = "filed";
+          routingHistoryEntry.to = {
+            type: "system",
+            name: "Filed",
+          };
+          break;
+        }
         case "secretary": {
           // Route to secretary - find secretary role user
           const secretary = users.find((u: any) => u.role === "Secretary" || u.role?.toLowerCase().includes("secretary"));
@@ -272,11 +272,15 @@ export function WorkflowRoutingSheet({
       }
 
       routingHistoryEntry.to = newAssignedTo;
+      routingHistoryEntry.routedBy = currentUser?.name || currentUser?.email || "Current User";
+
+      if (!currentUser) {
+        toast.error("You must be logged in to route workflow");
+        return;
+      }
 
       // Check if cross-company routing
-      const currentUserStr = localStorage.getItem("mockCurrentUser");
-      const currentUserData = currentUserStr ? JSON.parse(currentUserStr) : currentUser;
-      const sourceCompanyId = workflow.sourceCompanyId || (await getUserCompanyId(currentUserData));
+      const sourceCompanyId = workflow.sourceCompanyId || (await getUserCompanyId(currentUser));
       
       let targetCompanyId: string | null = null;
       if (newAssignedTo.type === "department") {
@@ -297,14 +301,14 @@ export function WorkflowRoutingSheet({
         const sourceCompanyName = workflow.sourceCompanyName || (await getCompanyName(sourceCompanyId)) || "Unknown Company";
         const targetCompanyName = await getCompanyName(targetCompanyId) || "Unknown Company";
 
-        const approvalRequest = createApprovalRequest({
+        await createApprovalRequest.mutateAsync({
           workflowId: workflow.id,
           requestType: "workflow_routing",
           sourceCompanyId,
           sourceCompanyName,
           targetCompanyId,
           targetCompanyName,
-          requestedBy: currentUserData?.id || currentUserData?.name || "Unknown",
+          requestedBy: currentUser?.id || currentUser?.email || "Unknown",
           assignedTo: newAssignedTo,
           workflowTitle: workflow.title,
           workflowDescription: workflow.description,
@@ -312,57 +316,16 @@ export function WorkflowRoutingSheet({
         });
 
         // Update workflow status to pending
-        const workflows = await api.getWorkflows();
-        const localWorkflows = JSON.parse(localStorage.getItem("workflows") || "[]");
-        const allWorkflows = [...workflows, ...localWorkflows];
-        const workflowIndex = allWorkflows.findIndex((w: any) => w.id === workflowId);
-
-        if (workflowIndex !== -1) {
-          const updatedWorkflow = {
-            ...allWorkflows[workflowIndex],
+        await updateWorkflow.mutateAsync({
+          id: workflowId,
+          data: {
             approvalStatus: "pending",
             status: "pending",
-          };
-
-          const localIndex = localWorkflows.findIndex((w: any) => w.id === workflowId);
-          if (localIndex !== -1) {
-            localWorkflows[localIndex] = updatedWorkflow;
-          } else {
-            localWorkflows.push(updatedWorkflow);
-          }
-          localStorage.setItem("workflows", JSON.stringify(localWorkflows));
-        }
-
-        // Create notification
-        const notifications = JSON.parse(localStorage.getItem("notifications") || "[]");
-        notifications.push({
-          id: `notif-${Date.now()}`,
-          type: "cross_company_approval_request",
-          title: "Cross-Company Workflow Routing Approval",
-          message: `${sourceCompanyName} has requested to route a workflow to ${newAssignedTo.name} in your company.`,
-          resourceType: "approval_request",
-          resourceId: approvalRequest.id,
-          read: false,
-          createdAt: new Date().toISOString(),
+          },
         });
-        localStorage.setItem("notifications", JSON.stringify(notifications));
-        window.dispatchEvent(new CustomEvent("notificationsUpdated"));
-        window.dispatchEvent(new CustomEvent("workflowsUpdated"));
 
         toast.success(`Routing requested. Approval pending from ${targetCompanyName}.`);
-        setRouting(false);
         onOpenChange(false);
-        return;
-      }
-
-      // Update workflow (normal same-company routing)
-      const workflows = await api.getWorkflows();
-      const localWorkflows = JSON.parse(localStorage.getItem("workflows") || "[]");
-      const allWorkflows = [...workflows, ...localWorkflows];
-      const workflowIndex = allWorkflows.findIndex((w: any) => w.id === workflowId);
-
-      if (workflowIndex === -1) {
-        toast.error("Workflow not found");
         return;
       }
 
@@ -373,84 +336,35 @@ export function WorkflowRoutingSheet({
         routingHistoryEntry.sourceCompanyId = sourceCompanyId;
         routingHistoryEntry.targetCompanyId = targetCompanyId;
       }
-      
-      const updatedWorkflow = {
-        ...allWorkflows[workflowIndex],
-        assignedTo: newAssignedTo,
-        status: "assigned", // Reset to assigned when routed
+
+      // Prepare workflow update data
+      const updateData: any = {
         routingHistory: [
-          ...(allWorkflows[workflowIndex].routingHistory || []),
+          ...(workflow.routingHistory || []),
           routingHistoryEntry,
         ],
       };
 
-      // Update in localStorage
-      const localIndex = localWorkflows.findIndex((w: any) => w.id === workflowId);
-      if (localIndex !== -1) {
-        localWorkflows[localIndex] = updatedWorkflow;
-        localStorage.setItem("workflows", JSON.stringify(localWorkflows));
+      // Handle file_documents case - keep workflow as completed, just add filedAt
+      if (routingType === "file_documents") {
+        updateData.filedAt = new Date().toISOString();
+        // Keep status as "completed", don't change it
+        // Don't change assignedTo
       } else {
-        // Add to local workflows if not there
-        localWorkflows.push(updatedWorkflow);
-        localStorage.setItem("workflows", JSON.stringify(localWorkflows));
+        // Normal routing - update assignee and status
+        updateData.assignedTo = newAssignedTo;
+        updateData.status = "assigned";
       }
 
-      // Dispatch event to update UI
-      window.dispatchEvent(new CustomEvent("workflowsUpdated"));
+      // Update workflow
+      await updateWorkflow.mutateAsync({
+        id: workflowId,
+        data: updateData,
+      });
 
-      // Create notifications
-      const notifications = JSON.parse(localStorage.getItem("notifications") || "[]");
-      
-      // Notify new assignee
-      const assigneeNotification = {
-        id: `notif-${Date.now()}-1`,
-        type: "workflow_assigned",
-        title: "Workflow Assigned",
-        message: `Workflow "${workflow.title || workflow.folderName || workflow.documentName || 'Untitled'}" has been assigned to you`,
-        resourceType: "workflow",
-        resourceId: workflowId,
-        read: false,
-        createdAt: new Date().toISOString(),
-      };
-      notifications.push(assigneeNotification);
-
-      // Notify previous assignee if different
-      if (workflow.assignedTo && 
-          (workflow.assignedTo.id !== newAssignedTo.id || 
-           workflow.assignedTo.type !== newAssignedTo.type)) {
-        const previousAssigneeNotification = {
-          id: `notif-${Date.now()}-2`,
-          type: "workflow_routed",
-          title: "Workflow Routed",
-          message: `Workflow "${workflow.title || workflow.folderName || workflow.documentName || 'Untitled'}" has been routed away from you`,
-          resourceType: "workflow",
-          resourceId: workflowId,
-          read: false,
-          createdAt: new Date().toISOString(),
-        };
-        notifications.push(previousAssigneeNotification);
-      }
-
-      // Notify workflow creator
-      if (workflow.assignedBy && workflow.assignedBy !== "Current User") {
-        const creatorNotification = {
-          id: `notif-${Date.now()}-3`,
-          type: "workflow_routed",
-          title: "Workflow Routed",
-          message: `Workflow "${workflow.title || workflow.folderName || workflow.documentName || 'Untitled'}" has been routed`,
-          resourceType: "workflow",
-          resourceId: workflowId,
-          read: false,
-          createdAt: new Date().toISOString(),
-        };
-        notifications.push(creatorNotification);
-      }
-
-      localStorage.setItem("notifications", JSON.stringify(notifications));
-      window.dispatchEvent(new CustomEvent("notificationsUpdated"));
-
+      // TODO: Create notifications via API when endpoint is available
       toast.success(message);
-      
+
       // Reset form
       setRoutingType("secretary");
       setSelectedDepartment("");
@@ -458,16 +372,12 @@ export function WorkflowRoutingSheet({
       setSelectedCompanyId("");
       setNotes("");
       onOpenChange(false);
-    } catch (error) {
+    } catch (error: any) {
       console.error("Failed to route workflow:", error);
-      toast.error("Failed to route workflow. Please try again.");
-    } finally {
-      setRouting(false);
+      // Error toast is handled by mutation hooks
     }
   };
 
-  const departmentHeads = getDepartmentHeads();
-  const currentDeptUsers = getCurrentDepartmentUsers();
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -493,19 +403,36 @@ export function WorkflowRoutingSheet({
                 setSelectedIndividual("");
               }}
             >
-              <div className="flex items-start space-x-2 space-y-0 rounded-md border p-4">
-                <RadioGroupItem value="secretary" id="secretary" className="mt-1" />
-                <div className="space-y-1 leading-none flex-1">
-                  <Label htmlFor="secretary" className="cursor-pointer font-medium">
-                    Send back to Secretary
-                  </Label>
-                  <p className="text-sm text-muted-foreground">
-                    Return the document to the secretary for final review
-                  </p>
+              {workflow?.status === "completed" ? (
+                <div className="flex items-start space-x-2 space-y-0 rounded-md border p-4">
+                  <RadioGroupItem value="file_documents" id="file_documents" className="mt-1" />
+                  <div className="space-y-1 leading-none flex-1">
+                    <Label htmlFor="file_documents" className="cursor-pointer font-medium">
+                      File the Documents / Workflow
+                    </Label>
+                    <p className="text-sm text-muted-foreground">
+                      File the workflow and documents. This ends the workflow and maintains access for participants through goals.
+                    </p>
+                  </div>
                 </div>
-              </div>
+              ) : (
+                <div className="flex items-start space-x-2 space-y-0 rounded-md border p-4">
+                  <RadioGroupItem value="secretary" id="secretary" className="mt-1" />
+                  <div className="space-y-1 leading-none flex-1">
+                    <Label htmlFor="secretary" className="cursor-pointer font-medium">
+                      Send back to Secretary
+                    </Label>
+                    <p className="text-sm text-muted-foreground">
+                      Return the document to the secretary for final review
+                    </p>
+                  </div>
+                </div>
+              )}
 
-              {originalSender && (
+              {/* Only show other routing options if workflow is not completed */}
+              {workflow?.status !== "completed" && (
+                <>
+                  {originalSender && (
                 <div className="flex items-start space-x-2 space-y-0 rounded-md border p-4">
                   <RadioGroupItem value="original_sender" id="original_sender" className="mt-1" />
                   <div className="space-y-1 leading-none flex-1">
@@ -572,6 +499,8 @@ export function WorkflowRoutingSheet({
                   </p>
                 </div>
               </div>
+                </>
+              )}
             </RadioGroup>
 
             {/* Company Selector for Cross-Company Routing (Admin only) */}
@@ -733,22 +662,29 @@ export function WorkflowRoutingSheet({
         )}
 
         <SheetFooter className="mt-6">
-          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={routing || loading}>
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isRouting || loading}>
             Cancel
           </Button>
           <Button
+            variant="outline"
             onClick={handleRoute}
             disabled={
-              routing ||
+              isRouting ||
               loading ||
               (routingType === "department" && !selectedDepartment) ||
               (routingType === "individual" && !selectedIndividual)
             }
           >
-            {routing ? (
+            {isRouting ? (
               "Routing..."
             ) : (
               <>
+                {routingType === "file_documents" && (
+                  <>
+                    <FileText className="mr-2 h-4 w-4" />
+                    File Documents
+                  </>
+                )}
                 {routingType === "secretary" && (
                   <>
                     <ArrowLeft className="mr-2 h-4 w-4" />

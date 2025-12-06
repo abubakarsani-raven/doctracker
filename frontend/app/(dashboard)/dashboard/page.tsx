@@ -1,77 +1,64 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { DocumentCard } from "@/components/common";
-import { FileText, Workflow, CheckSquare, HardDrive, Loader2 } from "lucide-react";
+import { FileText, Workflow, CheckSquare, HardDrive } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { LoadingState } from "@/components/common";
+import { useDocuments } from "@/lib/hooks/use-documents";
+import { useWorkflows } from "@/lib/hooks/use-workflows";
+import { useActions } from "@/lib/hooks/use-actions";
+import { useMyGoals } from "@/lib/hooks/use-goals";
 import { api } from "@/lib/api";
-import { useMockData } from "@/lib/contexts/MockDataContext";
+import { Target } from "lucide-react";
+import { format } from "date-fns";
 
 export default function DashboardPage() {
   const router = useRouter();
-  const { documents, workflows, actions, loading: contextLoading } = useMockData();
-  const [stats, setStats] = useState({
-    totalDocuments: 0,
-    activeWorkflows: 0,
-    pendingActions: 0,
-    storageUsed: 0,
-  });
-  const [loading, setLoading] = useState(true);
-  const [recentDocuments, setRecentDocuments] = useState<any[]>([]);
+  const { data: documents = [], isLoading: documentsLoading } = useDocuments();
+  const { data: workflows = [], isLoading: workflowsLoading } = useWorkflows();
+  const { data: actions = [], isLoading: actionsLoading } = useActions();
+  const { data: goals = [], isLoading: goalsLoading } = useMyGoals();
 
-  useEffect(() => {
-    const loadDashboardData = async () => {
-      try {
-        setLoading(true);
-        
-        // Get stats from API or calculate from context data
-        const statsData = await api.getDashboardStats();
-        if (statsData) {
-          setStats(statsData);
-        } else {
-          // Fallback: calculate from context data
-          setStats({
-            totalDocuments: documents.length,
-            activeWorkflows: workflows.filter((w: any) => w.status !== "completed" && w.status !== "cancelled").length,
-            pendingActions: actions.filter((a: any) => a.status === "pending").length,
-            storageUsed: documents.reduce((sum: number, d: any) => sum + (d.size || 0), 0),
-          });
-        }
+  const isLoading = documentsLoading || workflowsLoading || actionsLoading || goalsLoading;
 
-        // Get recent documents - use context data or fetch fresh
-        const allDocs = documents.length > 0 
-          ? documents 
-          : await api.getDocuments();
-        
-        // Sort by modified date and take the 6 most recent
-        const recent = [...allDocs]
-          .sort((a: any, b: any) => {
-            const dateA = new Date(a.modifiedAt || a.createdAt || 0).getTime();
-            const dateB = new Date(b.modifiedAt || b.createdAt || 0).getTime();
-            return dateB - dateA;
-          })
-          .slice(0, 6);
-        
-        setRecentDocuments(recent);
-      } catch (error) {
-        console.error("Failed to load dashboard data:", error);
-        // Use context data as fallback
-        setStats({
-          totalDocuments: documents.length,
-          activeWorkflows: workflows.filter((w: any) => w.status !== "completed" && w.status !== "cancelled").length,
-          pendingActions: actions.filter((a: any) => a.status === "pending").length,
-          storageUsed: documents.reduce((sum: number, d: any) => sum + (d.size || 0), 0),
-        });
-        setRecentDocuments(documents.slice(0, 6));
-      } finally {
-        setLoading(false);
-      }
+  // Calculate stats
+  const stats = useMemo(() => {
+    return {
+      totalDocuments: documents.length,
+      activeWorkflows: workflows.filter(
+        (w: any) => w.status !== "completed" && w.status !== "cancelled"
+      ).length,
+      pendingActions: actions.filter((a: any) => a.status === "pending").length,
+      myGoals: goals.filter((g: any) => g.status !== "achieved").length,
+      storageUsed: 0, // TODO: Calculate from actual file sizes when available
     };
+  }, [documents, workflows, actions, goals]);
 
-    loadDashboardData();
-  }, [documents, workflows, actions]);
+  // Get recent documents
+  const recentDocuments = useMemo(() => {
+    return [...documents]
+      .sort((a: any, b: any) => {
+        const dateA = new Date(a.modifiedAt || a.createdAt || 0).getTime();
+        const dateB = new Date(b.modifiedAt || b.createdAt || 0).getTime();
+        return dateB - dateA;
+      })
+      .slice(0, 6);
+  }, [documents]);
+
+  // Get recent pending goals
+  const recentGoals = useMemo(() => {
+    return [...goals]
+      .filter((g: any) => g.status !== "achieved")
+      .sort((a: any, b: any) => {
+        const dateA = new Date(a.createdAt || 0).getTime();
+        const dateB = new Date(b.createdAt || 0).getTime();
+        return dateB - dateA;
+      })
+      .slice(0, 3);
+  }, [goals]);
 
   const formatNumber = (num: number) => {
     return num.toLocaleString();
@@ -82,7 +69,7 @@ export default function DashboardPage() {
     const k = 1024;
     const sizes = ["B", "KB", "MB", "GB", "TB"];
     const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return Math.round(bytes / Math.pow(k, i) * 100) / 100 + " " + sizes[i];
+    return Math.round((bytes / Math.pow(k, i)) * 100) / 100 + " " + sizes[i];
   };
 
   const statsConfig = [
@@ -90,7 +77,7 @@ export default function DashboardPage() {
       label: "Total Documents",
       value: formatNumber(stats.totalDocuments),
       icon: FileText,
-      change: null, // Can be calculated if we track historical data
+      change: null,
     },
     {
       label: "Active Workflows",
@@ -112,12 +99,8 @@ export default function DashboardPage() {
     },
   ];
 
-  if (loading || contextLoading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-      </div>
-    );
+  if (isLoading) {
+    return <LoadingState type="card" />;
   }
 
   return (
@@ -153,6 +136,22 @@ export default function DashboardPage() {
             </Card>
           );
         })}
+        {/* My Goals Card */}
+        <Card 
+          className="cursor-pointer hover:bg-accent transition-colors"
+          onClick={() => router.push("/my-goals")}
+        >
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">My Goals</CardTitle>
+            <Target className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{stats.myGoals}</div>
+            <p className="text-xs text-muted-foreground mt-1">
+              {stats.myGoals === 1 ? "goal pending" : "goals pending"}
+            </p>
+          </CardContent>
+        </Card>
       </div>
 
       {/* Recent Documents */}
@@ -161,8 +160,8 @@ export default function DashboardPage() {
           <h2 className="text-2xl font-semibold tracking-tight">
             Recent Documents
           </h2>
-          <Badge 
-            variant="outline" 
+          <Badge
+            variant="outline"
             className="cursor-pointer hover:bg-accent"
             onClick={() => router.push("/documents")}
           >
@@ -188,6 +187,58 @@ export default function DashboardPage() {
           </div>
         )}
       </div>
+
+      {/* Recent Goals */}
+      {recentGoals.length > 0 && (
+        <div>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-2xl font-semibold tracking-tight flex items-center gap-2">
+              <Target className="h-6 w-6" />
+              My Recent Goals
+            </h2>
+            <Badge
+              variant="outline"
+              className="cursor-pointer hover:bg-accent"
+              onClick={() => router.push("/my-goals")}
+            >
+              View All
+            </Badge>
+          </div>
+          <div className="grid gap-4 md:grid-cols-3">
+            {recentGoals.map((goal: any) => (
+              <Card 
+                key={goal.id}
+                className="cursor-pointer hover:bg-accent transition-colors"
+                onClick={() => router.push(`/workflows/${goal.workflow?.id}`)}
+              >
+                <CardContent className="p-4">
+                  <div className="flex items-start justify-between gap-2 mb-2">
+                    <h3 className="font-semibold text-sm line-clamp-2 flex-1">
+                      {goal.title}
+                    </h3>
+                    <Badge 
+                      variant={goal.status === "in_progress" ? "default" : "outline"}
+                      className={goal.status === "in_progress" ? "bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300" : ""}
+                    >
+                      {goal.status === "in_progress" ? "In Progress" : "Pending"}
+                    </Badge>
+                  </div>
+                  {goal.workflow && (
+                    <p className="text-xs text-muted-foreground line-clamp-1">
+                      From: {goal.workflow.title || "Untitled Workflow"}
+                    </p>
+                  )}
+                  {goal.dueDate && (
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Due: {format(new Date(goal.dueDate), "MMM d, yyyy")}
+                    </p>
+                  )}
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

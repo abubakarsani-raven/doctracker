@@ -3,11 +3,13 @@
 import { useEffect, useState } from "react";
 import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
+import Underline from "@tiptap/extension-underline";
+import TextAlign from "@tiptap/extension-text-align";
 import { Button } from "@/components/ui/button";
 import {
   Bold,
   Italic,
-  Underline,
+  Underline as UnderlineIcon,
   List,
   ListOrdered,
   Quote,
@@ -16,6 +18,7 @@ import {
   Redo,
   Link,
   Image,
+  AlignJustify,
 } from "lucide-react";
 import { Separator } from "@/components/ui/separator";
 
@@ -26,7 +29,7 @@ interface RichTextEditorProps {
   editable?: boolean;
 }
 
-// Note: Install Tiptap with: npm install @tiptap/react @tiptap/starter-kit @tiptap/extension-link @tiptap/extension-image
+// Note: Install Tiptap extensions with: npm install @tiptap/extension-underline @tiptap/extension-text-align
 export function RichTextEditor({
   content = "",
   onChange,
@@ -40,7 +43,15 @@ export function RichTextEditor({
   }, []);
 
   const editor = useEditor({
-    extensions: [StarterKit],
+    extensions: [
+      StarterKit,
+      Underline,
+      TextAlign.configure({
+        types: ['heading', 'paragraph'],
+        alignments: ['left', 'center', 'right', 'justify'],
+        defaultAlignment: 'left',
+      }),
+    ],
     content,
     editable,
     immediatelyRender: false,
@@ -96,7 +107,7 @@ export function RichTextEditor({
             disabled={!editor.can().chain().focus().toggleUnderline().run()}
             className={editor.isActive("underline") ? "bg-muted" : ""}
           >
-            <Underline className="h-4 w-4" />
+            <UnderlineIcon className="h-4 w-4" />
           </Button>
           <Separator orientation="vertical" className="h-6" />
           <Button
@@ -104,6 +115,7 @@ export function RichTextEditor({
             variant="ghost"
             size="sm"
             onClick={() => editor.chain().focus().toggleBulletList().run()}
+            disabled={!editor.can().chain().focus().toggleBulletList().run()}
             className={editor.isActive("bulletList") ? "bg-muted" : ""}
           >
             <List className="h-4 w-4" />
@@ -113,6 +125,7 @@ export function RichTextEditor({
             variant="ghost"
             size="sm"
             onClick={() => editor.chain().focus().toggleOrderedList().run()}
+            disabled={!editor.can().chain().focus().toggleOrderedList().run()}
             className={editor.isActive("orderedList") ? "bg-muted" : ""}
           >
             <ListOrdered className="h-4 w-4" />
@@ -125,6 +138,17 @@ export function RichTextEditor({
             className={editor.isActive("blockquote") ? "bg-muted" : ""}
           >
             <Quote className="h-4 w-4" />
+          </Button>
+          <Separator orientation="vertical" className="h-6" />
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={() => editor.chain().focus().setTextAlign('justify').run()}
+            className={editor.isActive({ textAlign: 'justify' }) ? "bg-muted" : ""}
+            title="Justify"
+          >
+            <AlignJustify className="h-4 w-4" />
           </Button>
           <Separator orientation="vertical" className="h-6" />
           <Button

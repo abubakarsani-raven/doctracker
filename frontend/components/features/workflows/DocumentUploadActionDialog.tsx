@@ -11,15 +11,14 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
-import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { FileUpload } from "@/components/common";
 import { FileWithMetadata } from "@/components/common";
-import { Upload, Folder, CheckCircle2 } from "lucide-react";
+import { Upload, Folder } from "lucide-react";
 import { toast } from "sonner";
-import { api } from "@/lib/api";
-import { useMockData } from "@/lib/contexts/MockDataContext";
-import { updateWorkflowProgress } from "@/lib/workflow-utils";
+import { useUpdateAction } from "@/lib/hooks/use-actions";
+import { useUpdateWorkflowProgress } from "@/lib/hooks/use-workflow-progress";
+import { useFolders } from "@/lib/hooks/use-documents";
 
 interface DocumentUploadActionDialogProps {
   open: boolean;
@@ -36,12 +35,11 @@ export function DocumentUploadActionDialog({
   action,
   onUploadComplete,
 }: DocumentUploadActionDialogProps) {
-  const { folders } = useMockData();
+  const { data: folders = [] } = useFolders();
+  const updateAction = useUpdateAction();
+  const { updateProgress } = useUpdateWorkflowProgress();
   const [files, setFiles] = useState<FileWithMetadata[]>([]);
-  const [uploading, setUploading] = useState(false);
   const [notes, setNotes] = useState("");
-  const [uploadedAction, setUploadedAction] = useState<any>(null);
-  const [completionDialogOpen, setCompletionDialogOpen] = useState(false);
 
   const targetFolder = action?.targetFolderId
     ? folders.find((f: any) => f.id === action.targetFolderId)
@@ -55,18 +53,21 @@ export function DocumentUploadActionDialog({
   }, [open]);
 
   const handleFilesSelected = (selectedFiles: FileWithMetadata[]) => {
-    // Filter by required file type if specified
     if (action?.requiredFileType) {
       const requiredType = action.requiredFileType.toLowerCase();
       const filtered = selectedFiles.filter((file) => {
         const extension = file.file.name.split(".").pop()?.toLowerCase();
-        return extension === requiredType || file.file.type.includes(requiredType);
+        return (
+          extension === requiredType || file.file.type.includes(requiredType)
+        );
       });
-      
+
       if (filtered.length < selectedFiles.length) {
-        toast.warning(`Some files were filtered. Only ${action.requiredFileType} files are accepted.`);
+        toast.warning(
+          `Some files were filtered. Only ${action.requiredFileType} files are accepted.`
+        );
       }
-      
+
       setFiles(filtered);
     } else {
       setFiles(selectedFiles);
@@ -88,67 +89,35 @@ export function DocumentUploadActionDialog({
       return;
     }
 
-    setUploading(true);
-
     try {
-      // TODO: Replace with actual API call
-      await new Promise((resolve) => setTimeout(resolve, 1500));
-
-      // Update action status
-      const existingActions = JSON.parse(localStorage.getItem("actions") || "[]");
-      const actionIndex = existingActions.findIndex((a: any) => a.id === actionId);
-
-      if (actionIndex !== -1) {
-        const updatedAction = {
-          ...existingActions[actionIndex],
+      // TODO: Implement actual file upload to backend
+      // For now, just update the action status
+      
+      await updateAction.mutateAsync({
+        id: actionId,
+        data: {
           status: "document_uploaded",
-          uploadedDocumentId: `doc-${Date.now()}`,
           uploadedDocumentName: files[0].file.name,
           uploadedAt: new Date().toISOString(),
-          uploadedBy: "Current User",
           uploadNotes: notes,
-        };
+        },
+      });
 
-        existingActions[actionIndex] = updatedAction;
-        localStorage.setItem("actions", JSON.stringify(existingActions));
-        window.dispatchEvent(new CustomEvent("actionsUpdated"));
-
-        // Update workflow progress
-        if (action?.workflowId) {
-          await updateWorkflowProgress(action.workflowId);
-        }
-
-        // Create notifications for workflow chain participants
-        const workflows = await api.getWorkflows();
-        const workflow = workflows.find((w: any) => w.id === action?.workflowId);
-        
-        if (workflow) {
-          const notifications = JSON.parse(localStorage.getItem("notifications") || "[]");
-          const notification = {
-            id: `notif-${Date.now()}`,
-            type: "action_updated",
-            title: "Document Uploaded for Action",
-            message: `Document "${files[0].file.name}" has been uploaded for action "${action?.title}"`,
-            resourceType: "action",
-            resourceId: actionId,
-            read: false,
-            createdAt: new Date().toISOString(),
-          };
-          notifications.push(notification);
-          localStorage.setItem("notifications", JSON.stringify(notifications));
-          window.dispatchEvent(new CustomEvent("notificationsUpdated"));
-        }
-
+      // Update workflow progress
+      if (action?.workflowId) {
+        await updateProgress(action.workflowId);
       }
 
-      toast.success("Document uploaded successfully. You can mark the action as complete by clicking on it.");
+      // TODO: Create notification via backend API when endpoint is available
+
+      toast.success(
+        "Document uploaded successfully. You can mark the action as complete by clicking on it."
+      );
       onUploadComplete?.();
       onOpenChange(false);
-    } catch (error) {
+    } catch (error: any) {
       console.error("Failed to upload document:", error);
-      toast.error("Failed to upload document. Please try again.");
-    } finally {
-      setUploading(false);
+      toast.error(error.message || "Failed to upload document. Please try again.");
     }
   };
 
@@ -158,7 +127,8 @@ export function DocumentUploadActionDialog({
         <DialogHeader>
           <DialogTitle>Upload Document for Action</DialogTitle>
           <DialogDescription>
-            Upload the required document for this action. It will be saved to the specified folder.
+            Upload the required document for this action. It will be saved to the
+            specified folder.
           </DialogDescription>
         </DialogHeader>
 
@@ -167,7 +137,9 @@ export function DocumentUploadActionDialog({
             <div className="p-3 bg-muted rounded-md">
               <p className="text-sm font-medium mb-1">{action.title}</p>
               {action.description && (
-                <p className="text-xs text-muted-foreground">{action.description}</p>
+                <p className="text-xs text-muted-foreground">
+                  {action.description}
+                </p>
               )}
             </div>
           )}
@@ -178,7 +150,9 @@ export function DocumentUploadActionDialog({
                 <Folder className="h-4 w-4 text-blue-600" />
                 <div>
                   <p className="text-sm font-medium">Target Folder:</p>
-                  <p className="text-xs text-muted-foreground">{targetFolder.name}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {targetFolder.name}
+                  </p>
                 </div>
               </div>
             </div>
@@ -214,19 +188,26 @@ export function DocumentUploadActionDialog({
               placeholder="Add any notes about this upload..."
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
-              disabled={uploading}
+              disabled={updateAction.isPending}
               rows={3}
             />
           </div>
         </div>
 
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={uploading}>
+          <Button
+            variant="outline"
+            onClick={() => onOpenChange(false)}
+            disabled={updateAction.isPending}
+          >
             Cancel
           </Button>
-          <Button onClick={handleUpload} disabled={uploading || files.length === 0}>
+          <Button
+            onClick={handleUpload}
+            disabled={updateAction.isPending || files.length === 0}
+          >
             <Upload className="mr-2 h-4 w-4" />
-            {uploading ? "Uploading..." : "Upload Document"}
+            {updateAction.isPending ? "Uploading..." : "Upload Document"}
           </Button>
         </DialogFooter>
       </DialogContent>

@@ -1,16 +1,23 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { EmptyState } from "@/components/common";
-import { CheckCircle2, Upload, MessageSquare, FileText, Download, User, Building2, Clock } from "lucide-react";
+import { EmptyState, LoadingState } from "@/components/common";
+import {
+  CheckCircle2,
+  Upload,
+  MessageSquare,
+  FileText,
+  User,
+  Building2,
+  Clock,
+} from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
-import { api } from "@/lib/api";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
-import { getWorkflowActions } from "@/lib/workflow-utils";
+import { useActionsByWorkflow } from "@/lib/hooks/use-actions";
 import Link from "next/link";
 
 interface ActionResultsProps {
@@ -18,43 +25,19 @@ interface ActionResultsProps {
 }
 
 export function ActionResults({ workflowId }: ActionResultsProps) {
-  const [actions, setActions] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { data: allActions = [], isLoading } = useActionsByWorkflow(workflowId);
 
-  useEffect(() => {
-    loadActions();
-    
-    const handleUpdate = () => {
-      loadActions();
-    };
-    
-    window.addEventListener("actionsUpdated", handleUpdate);
-    
-    return () => {
-      window.removeEventListener("actionsUpdated", handleUpdate);
-    };
-  }, [workflowId]);
-
-  const loadActions = async () => {
-    setLoading(true);
-    try {
-      const workflowActions = await getWorkflowActions(workflowId);
-      
-      // Filter to only completed actions or actions with results
-      const completedActions = workflowActions.filter((action: any) => {
-        const status = action.status;
-        return status === "completed" || 
-               status === "document_uploaded" || 
-               status === "response_received";
-      });
-      
-      setActions(completedActions);
-    } catch (error) {
-      console.error("Failed to load action results:", error);
-    } finally {
-      setLoading(false);
-    }
-  };
+  // Filter to only completed actions or actions with results
+  const actions = useMemo(() => {
+    return allActions.filter((action: any) => {
+      const status = action.status;
+      return (
+        status === "completed" ||
+        status === "document_uploaded" ||
+        status === "response_received"
+      );
+    });
+  }, [allActions]);
 
   const getActionTypeIcon = (type?: string) => {
     switch (type) {
@@ -78,14 +61,14 @@ export function ActionResults({ workflowId }: ActionResultsProps) {
     }
   };
 
-  if (loading) {
+  if (isLoading) {
     return (
       <Card>
         <CardHeader>
           <CardTitle>Action Results</CardTitle>
         </CardHeader>
         <CardContent>
-          <p className="text-sm text-muted-foreground">Loading results...</p>
+          <LoadingState type="card" />
         </CardContent>
       </Card>
     );
@@ -139,60 +122,81 @@ export function ActionResults({ workflowId }: ActionResultsProps) {
                     </div>
                   </div>
                   <Badge className="bg-green-600">
-                    {action.status === "document_uploaded" ? "Document Uploaded" :
-                     action.status === "response_received" ? "Response Received" :
-                     "Completed"}
+                    {action.status === "document_uploaded"
+                      ? "Document Uploaded"
+                      : action.status === "response_received"
+                      ? "Response Received"
+                      : "Completed"}
                   </Badge>
                 </div>
 
                 <Separator />
 
                 {/* Document Upload Results */}
-                {action.type === "document_upload" && action.uploadedDocumentId && (
-                  <div className="space-y-2">
-                    <p className="text-sm font-medium">Uploaded Document:</p>
-                    <div className="p-3 bg-muted rounded-md">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <FileText className="h-4 w-4 text-blue-500" />
-                          <span className="text-sm">{action.uploadedDocumentName || "Document"}</span>
+                {action.type === "document_upload" &&
+                  action.uploadedDocumentId && (
+                    <div className="space-y-2">
+                      <p className="text-sm font-medium">Uploaded Document:</p>
+                      <div className="p-3 bg-muted rounded-md">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <FileText className="h-4 w-4 text-blue-500" />
+                            <span className="text-sm">
+                              {action.uploadedDocumentName || "Document"}
+                            </span>
+                          </div>
+                          {action.targetFolderId && (
+                            <Link href={`/documents/folder/${action.targetFolderId}`}>
+                              <Button variant="ghost" size="sm">
+                                View Folder
+                              </Button>
+                            </Link>
+                          )}
                         </div>
-                        {action.targetFolderId && (
-                          <Link href={`/documents/folder/${action.targetFolderId}`}>
-                            <Button variant="ghost" size="sm">
-                              View Folder
-                            </Button>
-                          </Link>
+                        {action.uploadedAt && (
+                          <p className="text-xs text-muted-foreground mt-2">
+                            Uploaded{" "}
+                            {formatDistanceToNow(new Date(action.uploadedAt), {
+                              addSuffix: true,
+                            })}{" "}
+                            by {action.uploadedBy || "Unknown"}
+                          </p>
                         )}
                       </div>
-                      {action.uploadedAt && (
-                        <p className="text-xs text-muted-foreground mt-2">
-                          Uploaded {formatDistanceToNow(new Date(action.uploadedAt), { addSuffix: true })} by {action.uploadedBy || "Unknown"}
-                        </p>
-                      )}
                     </div>
-                  </div>
-                )}
+                  )}
 
                 {/* Request/Response Results */}
                 {action.type === "request_response" && action.response && (
                   <div className="space-y-2">
                     <p className="text-sm font-medium">Request:</p>
                     <div className="p-3 bg-blue-50 dark:bg-blue-950 rounded-md">
-                      <p className="text-sm">{action.requestDetails || "No details provided"}</p>
+                      <p className="text-sm">
+                        {action.requestDetails || "No details provided"}
+                      </p>
                     </div>
                     <p className="text-sm font-medium">Response:</p>
                     <div className="p-3 bg-green-50 dark:bg-green-950 rounded-md">
                       <p className="text-sm">{action.response}</p>
-                      {action.responseData && action.responseData !== action.response && (
-                        <div className="mt-2 p-2 bg-background rounded border">
-                          <p className="text-xs font-medium mb-1">Additional Data:</p>
-                          <pre className="text-xs whitespace-pre-wrap">{action.responseData}</pre>
-                        </div>
-                      )}
+                      {action.responseData &&
+                        action.responseData !== action.response && (
+                          <div className="mt-2 p-2 bg-background rounded border">
+                            <p className="text-xs font-medium mb-1">
+                              Additional Data:
+                            </p>
+                            <pre className="text-xs whitespace-pre-wrap">
+                              {action.responseData}
+                            </pre>
+                          </div>
+                        )}
                       {action.responseReceivedAt && (
                         <p className="text-xs text-muted-foreground mt-2">
-                          Responded {formatDistanceToNow(new Date(action.responseReceivedAt), { addSuffix: true })} by {action.respondedBy || "Unknown"}
+                          Responded{" "}
+                          {formatDistanceToNow(
+                            new Date(action.responseReceivedAt),
+                            { addSuffix: true }
+                          )}{" "}
+                          by {action.respondedBy || "Unknown"}
                         </p>
                       )}
                     </div>
@@ -217,15 +221,32 @@ export function ActionResults({ workflowId }: ActionResultsProps) {
                     ) : (
                       <Building2 className="h-3 w-3" />
                     )}
-                    <span>Assigned to: {action.assignedTo?.name?.trim() || "Unassigned"}</span>
+                    <span>
+                      Assigned to:{" "}
+                      {action.assignedTo?.name?.trim() || action.assignedToName || "Unassigned"}
+                    </span>
                   </div>
-                  {(action.completedAt || action.uploadedAt || action.responseReceivedAt) && (
+                  {(action.completedAt ||
+                    action.uploadedAt ||
+                    action.responseReceivedAt) && (
                     <div className="flex items-center gap-1">
                       <Clock className="h-3 w-3" />
                       <span>
-                        {action.completedAt && `Completed ${formatDistanceToNow(new Date(action.completedAt), { addSuffix: true })}`}
-                        {action.uploadedAt && `Uploaded ${formatDistanceToNow(new Date(action.uploadedAt), { addSuffix: true })}`}
-                        {action.responseReceivedAt && `Responded ${formatDistanceToNow(new Date(action.responseReceivedAt), { addSuffix: true })}`}
+                        {action.completedAt &&
+                          `Completed ${formatDistanceToNow(
+                            new Date(action.completedAt),
+                            { addSuffix: true }
+                          )}`}
+                        {action.uploadedAt &&
+                          `Uploaded ${formatDistanceToNow(
+                            new Date(action.uploadedAt),
+                            { addSuffix: true }
+                          )}`}
+                        {action.responseReceivedAt &&
+                          `Responded ${formatDistanceToNow(
+                            new Date(action.responseReceivedAt),
+                            { addSuffix: true }
+                          )}`}
                       </span>
                     </div>
                   )}

@@ -14,9 +14,12 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Building2, CheckCircle2, XCircle } from "lucide-react";
-import { CrossCompanyApprovalRequest, updateApprovalRequest } from "@/lib/cross-company-utils";
+import { CrossCompanyApprovalRequest } from "@/lib/cross-company-utils";
 import { CompanyBadge } from "./CompanyBadge";
 import { toast } from "sonner";
+import { useCurrentUser } from "@/lib/hooks/use-users";
+import { useUpdateApprovalRequest } from "@/lib/hooks/use-approval-requests";
+import { useUpdateWorkflow } from "@/lib/hooks/use-workflows";
 
 interface CrossCompanyApprovalDialogProps {
   open: boolean;
@@ -33,81 +36,64 @@ export function CrossCompanyApprovalDialog({
   onApproved,
   onRejected,
 }: CrossCompanyApprovalDialogProps) {
+  const { data: currentUser } = useCurrentUser();
+  const updateApprovalRequest = useUpdateApprovalRequest();
   const [rejectionReason, setRejectionReason] = useState("");
-  const [processing, setProcessing] = useState(false);
   const [action, setAction] = useState<"approve" | "reject" | null>(null);
 
-  const handleApprove = async () => {
-    if (processing) return;
+  const isProcessing = updateApprovalRequest.isPending;
 
-    setProcessing(true);
+  const handleApprove = async () => {
+    if (isProcessing) return;
+
     setAction("approve");
 
     try {
-      // Get current user for reviewedBy
-      const currentUserStr = localStorage.getItem("mockCurrentUser");
-      const currentUser = currentUserStr ? JSON.parse(currentUserStr) : null;
-      const reviewedBy = currentUser?.id || currentUser?.name || "Unknown";
-
-      updateApprovalRequest(request.id, {
-        status: "approved",
-        reviewedBy,
+      await updateApprovalRequest.mutateAsync({
+        id: request.id,
+        data: {
+          status: "approved",
+          reviewedBy: currentUser?.id || currentUser?.email || "Unknown",
+        },
       });
 
-      toast.success("Approval request approved successfully");
       onApproved?.(request.id);
       onOpenChange(false);
-      
-      // Dispatch events for UI updates
-      window.dispatchEvent(new CustomEvent("approvalRequestsUpdated"));
-      window.dispatchEvent(new CustomEvent("workflowsUpdated"));
-      window.dispatchEvent(new CustomEvent("actionsUpdated"));
-    } catch (error) {
+    } catch (error: any) {
       console.error("Failed to approve request:", error);
-      toast.error("Failed to approve request");
+      // Error toast is handled by mutation hook
     } finally {
-      setProcessing(false);
       setAction(null);
     }
   };
 
   const handleReject = async () => {
-    if (processing) return;
+    if (isProcessing) return;
 
     if (!rejectionReason.trim()) {
       toast.error("Please provide a reason for rejection");
       return;
     }
 
-    setProcessing(true);
     setAction("reject");
 
     try {
-      // Get current user for reviewedBy
-      const currentUserStr = localStorage.getItem("mockCurrentUser");
-      const currentUser = currentUserStr ? JSON.parse(currentUserStr) : null;
-      const reviewedBy = currentUser?.id || currentUser?.name || "Unknown";
-
-      updateApprovalRequest(request.id, {
-        status: "rejected",
-        reviewedBy,
-        rejectionReason: rejectionReason.trim(),
+      await updateApprovalRequest.mutateAsync({
+        id: request.id,
+        data: {
+          status: "rejected",
+          reviewedBy: currentUser?.id || currentUser?.email || "Unknown",
+          rejectionReason: rejectionReason.trim(),
+        },
       });
 
-      toast.success("Approval request rejected");
       onRejected?.(request.id);
       onOpenChange(false);
       setRejectionReason("");
-      
-      // Dispatch events for UI updates
-      window.dispatchEvent(new CustomEvent("approvalRequestsUpdated"));
-      window.dispatchEvent(new CustomEvent("workflowsUpdated"));
-      window.dispatchEvent(new CustomEvent("actionsUpdated"));
-    } catch (error) {
+    } catch (error: any) {
       console.error("Failed to reject request:", error);
-      toast.error("Failed to reject request");
+      // Error toast is handled by mutation hook
     } finally {
-      setProcessing(false);
       setAction(null);
     }
   };
@@ -218,21 +204,21 @@ export function CrossCompanyApprovalDialog({
               <Button
                 variant="outline"
                 onClick={() => onOpenChange(false)}
-                disabled={processing}
+                disabled={isProcessing}
               >
                 Cancel
               </Button>
               <Button
                 variant="destructive"
                 onClick={handleReject}
-                disabled={processing || action === "approve"}
+                disabled={isProcessing || action === "approve"}
               >
                 <XCircle className="h-4 w-4 mr-2" />
                 Reject
               </Button>
               <Button
                 onClick={handleApprove}
-                disabled={processing || action === "reject"}
+                disabled={isProcessing || action === "reject"}
               >
                 <CheckCircle2 className="h-4 w-4 mr-2" />
                 Approve

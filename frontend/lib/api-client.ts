@@ -65,9 +65,26 @@ class ApiClient {
       console.log('[API Client] Response status:', response.status, response.statusText);
 
       if (!response.ok) {
-        const error = await response.json().catch(() => ({ message: 'Request failed' }));
-        console.error('[API Client] Request failed:', error);
-        throw new Error(error.message || `HTTP error! status: ${response.status}`);
+        let error: any = { message: 'Request failed' };
+        try {
+          const contentType = response.headers.get('content-type');
+          if (contentType && contentType.includes('application/json')) {
+            error = await response.json();
+          } else {
+            const text = await response.text();
+            error = { message: text || `HTTP error! status: ${response.status}` };
+          }
+        } catch (e) {
+          console.error('[API Client] Failed to parse error response:', e);
+          error = { message: `HTTP error! status: ${response.status}` };
+        }
+        console.error('[API Client] Request failed:', {
+          status: response.status,
+          statusText: response.statusText,
+          url: url,
+          error: error,
+        });
+        throw new Error(error.message || error.error || `HTTP error! status: ${response.status}`);
       }
 
       const data = await response.json();
@@ -134,6 +151,14 @@ class ApiClient {
     return this.request<any>(`/workflows/${id}`);
   }
 
+  async getWorkflowsByFolder(folderId: string) {
+    return this.request<any[]>(`/workflows/folder/${folderId}`);
+  }
+
+  async getWorkflowsByDocument(documentId: string) {
+    return this.request<any[]>(`/workflows/document/${documentId}`);
+  }
+
   async createWorkflow(data: any) {
     return this.request<any>('/workflows', {
       method: 'POST',
@@ -146,6 +171,42 @@ class ApiClient {
       method: 'PUT',
       body: JSON.stringify(data),
     });
+  }
+
+  // Goals
+  async getWorkflowGoals(workflowId: string) {
+    return this.request<any[]>(`/workflows/${workflowId}/goals`);
+  }
+
+  async createWorkflowGoal(workflowId: string, data: any) {
+    return this.request<any>(`/workflows/${workflowId}/goals`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async updateWorkflowGoal(goalId: string, data: any) {
+    return this.request<any>(`/workflows/goals/${goalId}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async achieveWorkflowGoal(goalId: string, notes?: string) {
+    return this.request<any>(`/workflows/goals/${goalId}/achieve`, {
+      method: 'PUT',
+      body: JSON.stringify({ notes }),
+    });
+  }
+
+  async deleteWorkflowGoal(goalId: string) {
+    return this.request<any>(`/workflows/goals/${goalId}/delete`, {
+      method: 'POST',
+    });
+  }
+
+  async getMyGoals() {
+    return this.request<any[]>('/workflows/goals/my-goals');
   }
 
   // Actions

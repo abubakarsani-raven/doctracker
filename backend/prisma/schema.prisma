@@ -25,6 +25,7 @@ model Company {
   actions        Action[]        @relation("ActionCompany")
   notifications  Notification[]
   accessRequests AccessRequest[]
+  goals          WorkflowGoal[]
 
   @@map("companies")
 }
@@ -50,6 +51,7 @@ model User {
   createdFolders Folder[]            @relation("FolderCreator")
   workflows      Workflow[]          @relation("WorkflowCreator")
   actions        Action[]            @relation("ActionCreator")
+  createdGoals   WorkflowGoal[]      @relation("GoalCreator")
 
   @@map("users")
 }
@@ -258,6 +260,8 @@ model Workflow {
   approvalRequestedAt DateTime? @map("approval_requested_at")
   approvedBy        String?  @map("approved_by")
   approvedAt        DateTime? @map("approved_at")
+  completedAt   DateTime? @map("completed_at")
+  filedAt       DateTime? @map("filed_at")
   
   createdAt     DateTime @default(now()) @map("created_at")
   updatedAt     DateTime @updatedAt @map("updated_at")
@@ -268,6 +272,7 @@ model Workflow {
   creator       User      @relation("WorkflowCreator", fields: [assignedBy], references: [id])
   actions       Action[]
   routingHistory WorkflowRouting[]
+  goals         WorkflowGoal[]
   
   @@map("workflows")
 }
@@ -351,6 +356,43 @@ model Action {
   company       Company? @relation("ActionCompany", fields: [companyId], references: [id])
 
   @@map("actions")
+}
+
+// ============ WORKFLOW GOALS ============
+
+model WorkflowGoal {
+  id            String   @id @default(uuid())
+  workflowId    String   @map("workflow_id")
+  companyId     String   @map("company_id")
+  
+  title         String
+  description   String?
+  status        String   @default("pending") // pending, in_progress, achieved
+  
+  // Assignment - can be to specific users or "all_participants"
+  assignedToType String  @map("assigned_to_type") // user, department, all_participants
+  assignedToId  String?  @map("assigned_to_id") // null if all_participants
+  assignedToName String  @map("assigned_to_name")
+  
+  // Multiple users can be assigned (for "all_participants" or multiple individuals)
+  assignedUsers Json?    @map("assigned_users") // Array of { id, name, type }
+  
+  createdBy     String   @map("created_by")
+  createdAt     DateTime @default(now()) @map("created_at")
+  dueDate       DateTime? @map("due_date")
+  
+  achievedAt    DateTime? @map("achieved_at")
+  achievedBy    String?  @map("achieved_by")
+  achievementNotes String? @map("achievement_notes")
+  
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  workflow      Workflow @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  company       Company  @relation(fields: [companyId], references: [id])
+  creator       User     @relation("GoalCreator", fields: [createdBy], references: [id])
+
+  @@map("workflow_goals")
 }
 
 // ============ CROSS-COMPANY APPROVAL ============

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import {
   Dialog,
   DialogContent,
@@ -22,8 +22,9 @@ import {
 import { RichTextEditor } from "./RichTextEditor";
 import { toast } from "sonner";
 import { FileText, FilePlus } from "lucide-react";
-import { useMockData } from "@/lib/contexts/MockDataContext";
+import { useFolders } from "@/lib/hooks/use-documents";
 import { api } from "@/lib/api";
+import { useQueryClient } from "@tanstack/react-query";
 
 interface CreateRichTextDocumentDialogProps {
   open: boolean;
@@ -38,14 +39,18 @@ export function CreateRichTextDocumentDialog({
   folderId,
   onDocumentCreated,
 }: CreateRichTextDocumentDialogProps) {
-  const { folders } = useMockData();
+  const { data: allFolders = [] } = useFolders();
+  const queryClient = useQueryClient();
+
   const [documentName, setDocumentName] = useState("");
   const [content, setContent] = useState("");
   const [selectedFolderId, setSelectedFolderId] = useState<string>(folderId || "");
   const [scope, setScope] = useState<"company" | "department" | "division">("department");
   const [creating, setCreating] = useState(false);
 
-  const accessibleFolders = folders.filter((f: any) => !f.parentFolderId); // Root folders
+  const accessibleFolders = useMemo(() => {
+    return allFolders.filter((f: any) => !f.parentFolderId); // Root folders
+  }, [allFolders]);
 
   const handleClose = () => {
     setDocumentName("");
@@ -81,6 +86,12 @@ export function CreateRichTextDocumentDialog({
         folderId: selectedFolderId,
       });
 
+      // Invalidate queries to refetch documents
+      queryClient.invalidateQueries({ queryKey: ["documents"] });
+      if (folderId) {
+        queryClient.invalidateQueries({ queryKey: ["documents", folderId] });
+      }
+
       toast.success("Rich text document created successfully");
       handleClose();
       onDocumentCreated?.();
@@ -92,7 +103,12 @@ export function CreateRichTextDocumentDialog({
     }
   };
 
-  const canSubmit = documentName.trim() && content.trim() && content !== "<p></p>" && selectedFolderId && !creating;
+  const canSubmit =
+    documentName.trim() &&
+    content.trim() &&
+    content !== "<p></p>" &&
+    selectedFolderId &&
+    !creating;
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
@@ -100,7 +116,7 @@ export function CreateRichTextDocumentDialog({
         <DialogHeader>
           <DialogTitle>Create Rich Text Document</DialogTitle>
           <DialogDescription>
-            Create a new rich text document in a folder
+            Create a new rich text document with formatted content
           </DialogDescription>
         </DialogHeader>
 
@@ -116,30 +132,38 @@ export function CreateRichTextDocumentDialog({
             />
           </div>
 
-          <div className="space-y-2">
-            <Label htmlFor="folder-select">Folder *</Label>
-            <Select
-              value={selectedFolderId}
-              onValueChange={setSelectedFolderId}
-              disabled={!!folderId || creating}
-            >
-              <SelectTrigger id="folder-select">
-                <SelectValue placeholder="Select a folder" />
-              </SelectTrigger>
-              <SelectContent>
-                {accessibleFolders.map((folder: any) => (
-                  <SelectItem key={folder.id} value={folder.id}>
-                    {folder.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+          {!folderId && accessibleFolders.length > 0 && (
+            <div className="space-y-2">
+              <Label htmlFor="folder-select">Folder *</Label>
+              <Select
+                value={selectedFolderId}
+                onValueChange={setSelectedFolderId}
+                disabled={!!folderId || creating}
+              >
+                <SelectTrigger id="folder-select">
+                  <SelectValue placeholder="Select a folder" />
+                </SelectTrigger>
+                <SelectContent>
+                  {accessibleFolders.map((folder: any) => (
+                    <SelectItem key={folder.id} value={folder.id}>
+                      {folder.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
 
           <div className="space-y-2">
-            <Label htmlFor="scope-select">Scope</Label>
-            <Select value={scope} onValueChange={(v: any) => setScope(v)} disabled={creating}>
-              <SelectTrigger id="scope-select">
+            <Label>Document Scope</Label>
+            <Select
+              value={scope}
+              onValueChange={(value: "company" | "department" | "division") =>
+                setScope(value)
+              }
+              disabled={creating}
+            >
+              <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>

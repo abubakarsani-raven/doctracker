@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useMemo } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -8,25 +8,20 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { EmptyState, LoadingState } from "@/components/common";
-import { 
-  ShieldCheck, 
-  CheckCircle2, 
-  XCircle, 
-  Clock, 
-  FileText, 
-  Folder,
-  User,
-  Building2
-} from "lucide-react";
-import { useMockData } from "@/lib/contexts/MockDataContext";
 import {
-  getPendingAccessRequestsForApprover,
-  getAccessRequests,
-  approveAccessRequest,
-  rejectAccessRequest,
+  ShieldCheck,
+  CheckCircle2,
+  XCircle,
+  Clock,
+  FileText,
+  Folder,
+} from "lucide-react";
+import {
   AccessRequest,
   canApproveAccessRequest,
 } from "@/lib/access-request-utils";
+import { useAccessRequests, useUpdateAccessRequest } from "@/lib/hooks/use-access-requests";
+import { useCurrentUser } from "@/lib/hooks/use-users";
 import { toast } from "sonner";
 import { formatDistanceToNow } from "date-fns";
 import {
@@ -39,50 +34,34 @@ import {
 } from "@/components/ui/dialog";
 
 export default function AccessRequestsPage() {
-  const { currentUser } = useMockData();
-  const [requests, setRequests] = useState<AccessRequest[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { data: currentUser } = useCurrentUser();
+  const { data: allRequests = [], isLoading } = useAccessRequests();
+  const updateRequest = useUpdateAccessRequest();
+
   const [activeTab, setActiveTab] = useState("pending");
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
   const [selectedRequest, setSelectedRequest] = useState<AccessRequest | null>(null);
   const [rejectionReason, setRejectionReason] = useState("");
 
-  useEffect(() => {
-    loadRequests();
-    
-    const handleUpdate = () => {
-      loadRequests();
-    };
-    
-    window.addEventListener("accessRequestsUpdated", handleUpdate);
-    
-    return () => {
-      window.removeEventListener("accessRequestsUpdated", handleUpdate);
-    };
-  }, [currentUser]);
+  // Filter requests based on tab and user permissions
+  const filteredRequests = useMemo(() => {
+    let requests = allRequests;
 
-  const loadRequests = () => {
-    setLoading(true);
-    try {
-      if (activeTab === "pending") {
-        const pending = currentUser 
-          ? getPendingAccessRequestsForApprover(currentUser)
-          : [];
-        setRequests(pending);
-      } else {
-        const all = getAccessRequests();
-        setRequests(all);
-      }
-    } catch (error) {
-      console.error("Failed to load access requests:", error);
-    } finally {
-      setLoading(false);
+    // Filter by tab
+    if (activeTab === "pending") {
+      requests = requests.filter(
+        (request: AccessRequest) =>
+          request.status === "pending" &&
+          canApproveAccessRequest(request, currentUser)
+      );
+    } else if (activeTab === "approved") {
+      requests = requests.filter((request: AccessRequest) => request.status === "approved");
+    } else if (activeTab === "rejected") {
+      requests = requests.filter((request: AccessRequest) => request.status === "rejected");
     }
-  };
 
-  useEffect(() => {
-    loadRequests();
-  }, [activeTab, currentUser]);
+    return requests;
+  }, [allRequests, activeTab, currentUser]);
 
   const handleApprove = async (requestId: string) => {
     if (!currentUser) {
@@ -91,21 +70,21 @@ export default function AccessRequestsPage() {
     }
 
     try {
-      const success = approveAccessRequest(
-        requestId,
-        currentUser.id,
-        currentUser.name || currentUser.email || "Unknown User"
-      );
+      await updateRequest.mutateAsync({
+        id: requestId,
+        data: {
+          status: "approved",
+          approvedBy: currentUser.id || currentUser.email || "Unknown",
+          approvedByName: currentUser.name || currentUser.email || "Unknown User",
+          approvedAt: new Date().toISOString(),
+        },
+      });
 
-      if (success) {
-        toast.success("Access request approved");
-        loadRequests();
-      } else {
-        toast.error("Failed to approve request");
-      }
-    } catch (error) {
+      // TODO: Create notification via API when endpoint is available
+      toast.success("Access request approved");
+    } catch (error: any) {
       console.error("Failed to approve:", error);
-      toast.error("Failed to approve request");
+      toast.error(error.message || "Failed to approve request");
     }
   };
 
@@ -122,40 +101,27 @@ export default function AccessRequestsPage() {
     }
 
     try {
-      const success = rejectAccessRequest(
-        selectedRequest.id,
-        currentUser.id,
-        currentUser.name || currentUser.email || "Unknown User",
-        rejectionReason.trim()
-      );
+      await updateRequest.mutateAsync({
+        id: selectedRequest.id,
+        data: {
+          status: "rejected",
+          rejectedBy: currentUser.id || currentUser.email || "Unknown",
+          rejectedByName: currentUser.name || currentUser.email || "Unknown User",
+          rejectionReason: rejectionReason.trim(),
+          rejectedAt: new Date().toISOString(),
+        },
+      });
 
-      if (success) {
-        toast.success("Access request rejected");
-        setRejectDialogOpen(false);
-        setSelectedRequest(null);
-        setRejectionReason("");
-        loadRequests();
-      } else {
-        toast.error("Failed to reject request");
-      }
-    } catch (error) {
+      // TODO: Create notification via API when endpoint is available
+      toast.success("Access request rejected");
+      setRejectDialogOpen(false);
+      setSelectedRequest(null);
+      setRejectionReason("");
+    } catch (error: any) {
       console.error("Failed to reject:", error);
-      toast.error("Failed to reject request");
+      toast.error(error.message || "Failed to reject request");
     }
   };
-
-  const filteredRequests = requests.filter((request) => {
-    if (activeTab === "pending") {
-      return request.status === "pending" && canApproveAccessRequest(request, currentUser);
-    }
-    if (activeTab === "approved") {
-      return request.status === "approved";
-    }
-    if (activeTab === "rejected") {
-      return request.status === "rejected";
-    }
-    return true;
-  });
 
   const scopeLabels: Record<string, string> = {
     company: "Company-wide",
@@ -163,7 +129,7 @@ export default function AccessRequestsPage() {
     division: "Division-wide",
   };
 
-  if (loading) {
+  if (isLoading) {
     return <LoadingState />;
   }
 
@@ -180,15 +146,15 @@ export default function AccessRequestsPage() {
         <TabsList>
           <TabsTrigger value="pending">
             <Clock className="mr-2 h-4 w-4" />
-            Pending ({filteredRequests.filter(r => r.status === "pending").length})
+            Pending ({filteredRequests.filter((r: AccessRequest) => r.status === "pending").length})
           </TabsTrigger>
           <TabsTrigger value="approved">
             <CheckCircle2 className="mr-2 h-4 w-4" />
-            Approved ({filteredRequests.filter(r => r.status === "approved").length})
+            Approved ({filteredRequests.filter((r: AccessRequest) => r.status === "approved").length})
           </TabsTrigger>
           <TabsTrigger value="rejected">
             <XCircle className="mr-2 h-4 w-4" />
-            Rejected ({filteredRequests.filter(r => r.status === "rejected").length})
+            Rejected ({filteredRequests.filter((r: AccessRequest) => r.status === "rejected").length})
           </TabsTrigger>
         </TabsList>
 
@@ -205,7 +171,7 @@ export default function AccessRequestsPage() {
             />
           ) : (
             <div className="grid gap-4">
-              {filteredRequests.map((request) => (
+              {filteredRequests.map((request: AccessRequest) => (
                 <Card key={request.id}>
                   <CardHeader>
                     <div className="flex items-start justify-between">
@@ -216,13 +182,9 @@ export default function AccessRequestsPage() {
                           <Folder className="h-5 w-5 text-yellow-500 mt-1" />
                         )}
                         <div>
-                          <CardTitle className="text-lg">
-                            {request.resourceName}
-                          </CardTitle>
+                          <CardTitle className="text-lg">{request.resourceName}</CardTitle>
                           <CardDescription className="flex items-center gap-2 mt-1">
-                            <span>
-                              Requested by {request.requestedByName}
-                            </span>
+                            <span>Requested by {request.requestedByName}</span>
                             {request.scope && (
                               <>
                                 <span>•</span>
@@ -261,14 +223,21 @@ export default function AccessRequestsPage() {
                       <div className="flex items-center gap-1">
                         <Clock className="h-3 w-3" />
                         <span>
-                          Requested {formatDistanceToNow(new Date(request.createdAt), { addSuffix: true })}
+                          Requested{" "}
+                          {formatDistanceToNow(new Date(request.createdAt), {
+                            addSuffix: true,
+                          })}
                         </span>
                       </div>
                       {request.approvedAt && (
                         <div className="flex items-center gap-1">
                           <CheckCircle2 className="h-3 w-3" />
                           <span>
-                            Approved {formatDistanceToNow(new Date(request.approvedAt), { addSuffix: true })} by {request.approvedByName}
+                            Approved{" "}
+                            {formatDistanceToNow(new Date(request.approvedAt), {
+                              addSuffix: true,
+                            })}{" "}
+                            by {request.approvedByName}
                           </span>
                         </div>
                       )}
@@ -276,7 +245,11 @@ export default function AccessRequestsPage() {
                         <div className="flex items-center gap-1">
                           <XCircle className="h-3 w-3" />
                           <span>
-                            Rejected {formatDistanceToNow(new Date(request.rejectedAt), { addSuffix: true })} by {request.rejectedByName}
+                            Rejected{" "}
+                            {formatDistanceToNow(new Date(request.rejectedAt), {
+                              addSuffix: true,
+                            })}{" "}
+                            by {request.rejectedByName}
                           </span>
                         </div>
                       )}
@@ -284,34 +257,38 @@ export default function AccessRequestsPage() {
 
                     {request.rejectionReason && (
                       <div className="p-3 bg-destructive/10 rounded-md">
-                        <Label className="text-sm font-medium text-destructive">Rejection Reason:</Label>
+                        <Label className="text-sm font-medium text-destructive">
+                          Rejection Reason:
+                        </Label>
                         <p className="text-sm text-destructive mt-1">
                           {request.rejectionReason}
                         </p>
                       </div>
                     )}
 
-                    {request.status === "pending" && canApproveAccessRequest(request, currentUser) && (
-                      <div className="flex items-center gap-2 pt-2 border-t">
-                        <Button
-                          size="sm"
-                          onClick={() => handleApprove(request.id)}
-                          className="flex-1"
-                        >
-                          <CheckCircle2 className="mr-2 h-4 w-4" />
-                          Approve
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="destructive"
-                          onClick={() => handleReject(request)}
-                          className="flex-1"
-                        >
-                          <XCircle className="mr-2 h-4 w-4" />
-                          Reject
-                        </Button>
-                      </div>
-                    )}
+                    {request.status === "pending" &&
+                      canApproveAccessRequest(request, currentUser) && (
+                        <div className="flex items-center gap-2 pt-2 border-t">
+                          <Button
+                            size="sm"
+                            onClick={() => handleApprove(request.id)}
+                            className="flex-1"
+                            disabled={updateRequest.isPending}
+                          >
+                            <CheckCircle2 className="mr-2 h-4 w-4" />
+                            Approve
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="destructive"
+                            onClick={() => handleReject(request)}
+                            className="flex-1"
+                          >
+                            <XCircle className="mr-2 h-4 w-4" />
+                            Reject
+                          </Button>
+                        </div>
+                      )}
                   </CardContent>
                 </Card>
               ))}
@@ -338,6 +315,7 @@ export default function AccessRequestsPage() {
                 value={rejectionReason}
                 onChange={(e) => setRejectionReason(e.target.value)}
                 rows={4}
+                disabled={updateRequest.isPending}
               />
             </div>
           </div>
@@ -349,13 +327,14 @@ export default function AccessRequestsPage() {
                 setSelectedRequest(null);
                 setRejectionReason("");
               }}
+              disabled={updateRequest.isPending}
             >
               Cancel
             </Button>
             <Button
               variant="destructive"
               onClick={confirmReject}
-              disabled={!rejectionReason.trim()}
+              disabled={!rejectionReason.trim() || updateRequest.isPending}
             >
               Reject Request
             </Button>

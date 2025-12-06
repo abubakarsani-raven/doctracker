@@ -12,41 +12,40 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { Badge } from "@/components/ui/badge";
 import { CommandDialogComponent as CommandDialog } from "@/components/common/CommandDialog";
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { NotificationDropdown } from "@/components/common/NotificationDropdown";
-import { useMockData } from "@/lib/contexts/MockDataContext";
+import { useCurrentUser } from "@/lib/hooks/use-users";
+import { useCompanies } from "@/lib/hooks/use-companies";
 
 export function Header() {
   const [openCommand, setOpenCommand] = useState(false);
   const router = useRouter();
-  const { currentUser, companies } = useMockData();
-  
+  const { data: currentUser } = useCurrentUser();
+  const { data: companies = [] } = useCompanies();
+
   const handleLogout = () => {
     // Clear authentication
     localStorage.removeItem("mockCurrentUser");
     localStorage.removeItem("mockAuth");
     localStorage.removeItem("access_token");
-    
-    // Trigger event to update context
-    window.dispatchEvent(new Event("mockUserChanged"));
-    
+    localStorage.removeItem("authToken");
+
     // Redirect to login
     router.push("/login");
+    // Force reload to clear React Query cache
+    window.location.href = "/login";
   };
-  
+
   // Get company name for current user
-  const getCompanyName = () => {
-    if (!currentUser || !companies) return null;
+  const companyName = useMemo(() => {
+    if (!currentUser || !companies.length) return null;
     if (currentUser.role === "Master") return "All Companies";
     const company = companies.find((c: any) => c.id === currentUser.companyId);
     return company?.name || null;
-  };
+  }, [currentUser, companies]);
 
-  const companyName = getCompanyName();
-  
   // Get user initials
   const getInitials = (user: any) => {
     if (!user) return "U";
@@ -77,7 +76,7 @@ export function Header() {
               </div>
             )}
           </div>
-          
+
           {/* Global Search - Trigger Command Dialog */}
           <Button
             variant="outline"
@@ -100,7 +99,10 @@ export function Header() {
           {/* User Menu */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" className="relative h-8 w-8 rounded-full">
+              <Button
+                variant="ghost"
+                className="relative h-8 w-8 rounded-full"
+              >
                 <Avatar className="h-8 w-8">
                   <AvatarFallback>{getInitials(currentUser)}</AvatarFallback>
                 </Avatar>
@@ -116,9 +118,7 @@ export function Header() {
                 Settings
               </DropdownMenuItem>
               <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={handleLogout}>
-                Log out
-              </DropdownMenuItem>
+              <DropdownMenuItem onClick={handleLogout}>Log out</DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
         </div>

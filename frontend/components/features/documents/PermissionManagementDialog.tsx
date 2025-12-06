@@ -32,7 +32,7 @@ import {
 import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
 import { Users, UserPlus, X, Shield } from "lucide-react";
-import { useMockData } from "@/lib/contexts/MockDataContext";
+import { useUsers } from "@/lib/hooks/use-users";
 
 interface PermissionManagementDialogProps {
   open: boolean;
@@ -56,7 +56,7 @@ export function PermissionManagementDialog({
   folderId,
   documentId,
 }: PermissionManagementDialogProps) {
-  const { users } = useMockData();
+  const { data: users = [] } = useUsers();
   const [permissions, setPermissions] = useState<PermissionEntry[]>([]);
   const [selectedUserId, setSelectedUserId] = useState<string>("");
   const [selectedPermissions, setSelectedPermissions] = useState<PermissionType[]>([]);

@@ -17,11 +17,12 @@ import {
   HardDrive,
   BookTemplate,
   ShieldCheck,
+  Target,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { useMockData } from "@/lib/contexts/MockDataContext";
+import { useCurrentUser } from "@/lib/hooks/use-users";
 
 interface NavItem {
   title: string;
@@ -51,6 +52,11 @@ const navItems: NavItem[] = [
     icon: CheckSquare,
   },
   {
+    title: "My Goals",
+    href: "/my-goals",
+    icon: Target,
+  },
+  {
     title: "Templates",
     href: "/templates",
     icon: BookTemplate,
@@ -78,31 +84,37 @@ interface SidebarProps {
 
 export function Sidebar({ className }: SidebarProps) {
   const pathname = usePathname();
-  const { currentUser } = useMockData();
+  const { data: currentUser } = useCurrentUser();
 
   // Check if user has admin privileges
-  const isAdmin = currentUser?.role === "Master" || currentUser?.role === "Company Admin";
+  const isAdmin =
+    currentUser?.role === "Master" || currentUser?.role === "Company Admin";
   const isMaster = currentUser?.role === "Master";
 
   // Filter nav items based on role
   const visibleNavItems = navItems.filter((item) => {
-    // All users can see Dashboard, Documents, Workflows, Actions
-    if (["/dashboard", "/documents", "/workflows", "/actions"].includes(item.href)) {
+    if (
+      ["/dashboard", "/documents", "/workflows", "/actions"].includes(item.href)
+    ) {
       return true;
     }
-    // Templates, Archived, Users, Settings - visible to all for now
-    // In production, you might want to restrict these based on role
     return true;
   });
 
   return (
-    <aside className={cn("fixed left-0 top-14 z-40 h-[calc(100vh-3.5rem)] w-64 border-r bg-background", className)}>
+    <aside
+      className={cn(
+        "fixed left-0 top-14 z-40 h-[calc(100vh-3.5rem)] w-64 border-r bg-background",
+        className
+      )}
+    >
       <div className="flex h-full flex-col">
         <ScrollArea className="flex-1 px-3 py-4">
           <nav className="space-y-1">
             {visibleNavItems.map((item) => {
               const Icon = item.icon;
-              const isActive = pathname === item.href || pathname?.startsWith(`${item.href}/`);
+              const isActive =
+                pathname === item.href || pathname?.startsWith(`${item.href}/`);
 
               return (
                 <Link

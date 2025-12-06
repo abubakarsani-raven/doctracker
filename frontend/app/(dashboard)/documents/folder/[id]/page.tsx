@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useMemo } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { FolderCard, DocumentCard, EmptyState, LoadingState } from "@/components/common";
 import { Button } from "@/components/ui/button";
@@ -24,16 +24,26 @@ import { FileUploadDialog } from "@/components/features/documents/FileUploadDial
 import { CreateFolderDialog } from "@/components/features/documents/CreateFolderDialog";
 import { CreateWorkflowDialog } from "@/components/features/workflows/CreateWorkflowDialog";
 import { Upload, FolderPlus, Grid3x3, List, Search, ArrowLeft, Workflow, Lock } from "lucide-react";
-import { api } from "@/lib/api";
-import { useMockData } from "@/lib/contexts/MockDataContext";
 import { hasAccessToResource } from "@/lib/access-request-utils";
 import { AccessRequestDialog } from "@/components/features/documents/AccessRequestDialog";
+import { useCurrentUser } from "@/lib/hooks/use-users";
+import { useCompanies } from "@/lib/hooks/use-companies";
+import { useFolder, useFolders } from "@/lib/hooks/use-documents";
+import { useDocuments } from "@/lib/hooks/use-documents";
+import { useWorkflowsByFolder } from "@/lib/hooks/use-workflows";
+import { WorkflowList } from "@/components/features/workflows/WorkflowList";
 
 export default function FolderDetailPage() {
   const params = useParams();
   const router = useRouter();
   const folderId = params.id as string;
-  const { currentUser, companies, folders: contextFolders } = useMockData();
+  
+  const { data: currentUser } = useCurrentUser();
+  const { data: companies = [] } = useCompanies();
+  const { data: folder, isLoading: folderLoading } = useFolder(folderId);
+  const { data: allFolders = [] } = useFolders();
+  const { data: allDocuments = [] } = useDocuments();
+  const { data: workflows = [], isLoading: workflowsLoading } = useWorkflowsByFolder(folderId);
 
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
   const [searchQuery, setSearchQuery] = useState("");
@@ -42,39 +52,91 @@ export default function FolderDetailPage() {
   const [createFolderDialogOpen, setCreateFolderDialogOpen] = useState(false);
   const [createWorkflowDialogOpen, setCreateWorkflowDialogOpen] = useState(false);
   const [requestAccessOpen, setRequestAccessOpen] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [folder, setFolder] = useState<any>(null);
-  const [allFolders, setAllFolders] = useState<any[]>([]);
-  const [subfolders, setSubfolders] = useState<any[]>([]);
-  const [documents, setDocuments] = useState<any[]>([]);
-  const [folderPath, setFolderPath] = useState<any[]>([]);
-  const [hasAccess, setHasAccess] = useState<boolean | null>(null);
+
+  const loading = folderLoading;
 
   // Build folder path hierarchy (all parent folders)
-  const buildFolderPath = (folderId: string, folders: any[]): any[] => {
-    const currentFolder = folders.find((f: any) => f.id === folderId);
-    if (!currentFolder) return [];
+  const folderPath = useMemo(() => {
+    if (!folder || !allFolders.length) return [];
 
-    const path: any[] = [currentFolder];
+    const buildPath = (folderId: string, folders: any[]): any[] => {
+      const currentFolder = folders.find((f: any) => f.id === folderId);
+      if (!currentFolder) return [];
 
-    // If this folder has a parent, recursively build the path
-    if (currentFolder.parentFolderId) {
-      const parentPath = buildFolderPath(currentFolder.parentFolderId, folders);
-      return [...parentPath, ...path];
+      const path: any[] = [currentFolder];
+
+      if (currentFolder.parentFolderId) {
+        const parentPath = buildPath(currentFolder.parentFolderId, folders);
+        return [...parentPath, ...path];
+      }
+
+      return path;
+    };
+
+    return buildPath(folderId, allFolders);
+  }, [folder, allFolders, folderId]);
+
+  // Get user context for permissions
+  const userContext = useMemo(() => {
+    if (!currentUser || !companies.length) {
+      return { userDeptId: null, userDivId: null, userCompanyId: null };
     }
 
-    return path;
-  };
+    let userCompanyId: string | null = currentUser.companyId || null;
+    const userDeptName = currentUser.department;
+    const userDivName = currentUser.division;
+    let userDeptId: string | null = null;
+    let userDivId: string | null = null;
+
+    if (!userCompanyId) {
+      companies.forEach((company: any) => {
+        if (company.departments) {
+          company.departments.forEach((dept: any) => {
+            if (dept.name === userDeptName) {
+              userDeptId = dept.id;
+              if (!userCompanyId) {
+                userCompanyId = company.id;
+              }
+              if (dept.divisions && userDivName) {
+                dept.divisions.forEach((div: any) => {
+                  if (div.name === userDivName) {
+                    userDivId = div.id;
+                  }
+                });
+              }
+            }
+          });
+        }
+      });
+    } else {
+      const userCompany = companies.find((c: any) => c.id === userCompanyId);
+      if (userCompany?.departments) {
+        userCompany.departments.forEach((dept: any) => {
+          if (dept.name === userDeptName) {
+            userDeptId = dept.id;
+            if (dept.divisions && userDivName) {
+              dept.divisions.forEach((div: any) => {
+                if (div.name === userDivName) {
+                  userDivId = div.id;
+                }
+              });
+            }
+          }
+        });
+      }
+    }
+
+    return { userDeptId, userDivId, userCompanyId };
+  }, [currentUser, companies]);
 
   // Helper function to check if access is explicitly revoked/denied
   const isAccessRevoked = (folder: any): boolean => {
-    // Check permissionsJson for explicit denials (if permissions system is implemented)
     if (folder.permissionsJson) {
       try {
-        const perms = typeof folder.permissionsJson === 'string' 
-          ? JSON.parse(folder.permissionsJson) 
-          : folder.permissionsJson;
-        // Check if there's a denied entry for this user
+        const perms =
+          typeof folder.permissionsJson === "string"
+            ? JSON.parse(folder.permissionsJson)
+            : folder.permissionsJson;
         if (perms.denied && Array.isArray(perms.denied)) {
           return perms.denied.includes(currentUser?.id);
         }
@@ -87,44 +149,21 @@ export default function FolderDetailPage() {
 
   // Helper function to check if user has permission to a folder
   const hasFolderPermission = (folder: any): boolean => {
-    if (!currentUser || !companies) return false;
+    if (!currentUser || !companies.length) return false;
+    const { userDeptId, userDivId, userCompanyId } = userContext;
 
-    // Check if access is explicitly revoked (by higher roles)
     if (isAccessRevoked(folder)) {
       return false;
     }
 
-    // Get user's company and department IDs
-    const userCompanyId = currentUser.companyId;
-    let userDeptId: string | null = null;
-    let userDivId: string | null = null;
-
-    const userCompany = companies.find((c: any) => c.id === userCompanyId);
-    if (userCompany?.departments) {
-      const userDept = userCompany.departments.find((d: any) => d.name === currentUser.department);
-      if (userDept) {
-        userDeptId = userDept.id;
-        if (userDept.divisions) {
-          const userDiv = userDept.divisions.find((d: any) => d.name === currentUser.division);
-          if (userDiv) {
-            userDivId = userDiv.id;
-          }
-        }
-      }
-    }
-
-    // Master role can access everything (cannot be overridden)
     if (currentUser.role === "Master") return true;
 
-    // Company Admin can access all folders in their company
     if (currentUser.role === "Company Admin") {
       return folder.companyId === userCompanyId;
     }
 
-    // Use scopeLevel if available, fallback to scope
     const folderScope = folder.scopeLevel || folder.scope;
 
-    // Department Head can access department-wide and division-wide folders in their department
     if (currentUser.role === "Department Head") {
       if (folderScope === "company") {
         return folder.companyId === userCompanyId;
@@ -132,7 +171,6 @@ export default function FolderDetailPage() {
       return folder.departmentId === userDeptId;
     }
 
-    // Division Head can access division-wide folders in their division
     if (currentUser.role === "Division Head") {
       if (folderScope === "company") {
         return folder.companyId === userCompanyId;
@@ -143,7 +181,6 @@ export default function FolderDetailPage() {
       return folderScope === "division" && folder.departmentId === userDeptId;
     }
 
-    // Regular users (Staff, Manager, etc.): scope-based access
     let hasScopeAccess = false;
     if (folderScope === "company") {
       hasScopeAccess = folder.companyId === userCompanyId;
@@ -153,13 +190,10 @@ export default function FolderDetailPage() {
       hasScopeAccess = folder.departmentId === userDeptId && userDivId !== null;
     }
 
-    // If user has scope-based access, grant it
     if (hasScopeAccess) {
       return true;
     }
 
-    // Creator has default access UNLESS explicitly revoked (checked above)
-    // This allows higher roles to revoke creator access
     if (folder.createdBy === currentUser.id) {
       return true;
     }
@@ -167,89 +201,24 @@ export default function FolderDetailPage() {
     return false;
   };
 
-  useEffect(() => {
-    const loadData = async () => {
-      if (!folderId) return;
-      
-      setLoading(true);
-      try {
-        // Use context data if available, otherwise fetch
-        const foldersData = contextFolders && contextFolders.length > 0 
-          ? contextFolders 
-          : await api.getFolders();
-        const documentsData = await api.getDocuments();
+  // Check access for current folder
+  const hasAccess = useMemo(() => {
+    if (!folder || !currentUser || !companies.length) return null;
 
-        setAllFolders(foldersData);
+    const hasPermission = hasFolderPermission(folder);
+    return hasAccessToResource(folderId, "folder", currentUser, hasPermission);
+  }, [folder, currentUser, companies, folderId, userContext]);
 
-        // Find the current folder
-        const currentFolder = foldersData.find((f: any) => f.id === folderId);
-        
-        if (!currentFolder) {
-          setFolder(null);
-          setHasAccess(false);
-          setLoading(false);
-          return;
-        }
+  // Filter subfolders and documents for this folder
+  const subfolders = useMemo(() => {
+    if (!folderId) return [];
+    return allFolders.filter((f: any) => f.parentFolderId === folderId);
+  }, [allFolders, folderId]);
 
-        setFolder(currentFolder);
-
-        // Check access permission - must have currentUser and companies
-        if (!currentUser || !companies) {
-          setHasAccess(false);
-          setLoading(false);
-          return;
-        }
-
-        const hasPermission = hasFolderPermission(currentFolder);
-        const access = hasAccessToResource(
-          folderId,
-          "folder",
-          currentUser,
-          hasPermission
-        );
-        setHasAccess(access);
-
-        console.log('[Folder Detail] Access check:', {
-          folderId,
-          folderName: currentFolder.name,
-          hasPermission,
-          access,
-          userRole: currentUser.role,
-          userCompanyId: currentUser.companyId,
-          folderCompanyId: currentFolder.companyId,
-        });
-
-        // If no access, don't load content
-        if (!access) {
-          setLoading(false);
-          return;
-        }
-
-        // Build folder path hierarchy
-        const path = buildFolderPath(folderId, foldersData);
-        setFolderPath(path);
-
-        // Filter subfolders and documents for this folder
-        const folderSubfolders = foldersData.filter(
-          (f: any) => f.parentFolderId === folderId
-        );
-        setSubfolders(folderSubfolders);
-
-        const folderDocuments = documentsData.filter(
-          (d: any) => d.folderId === folderId
-        );
-        setDocuments(folderDocuments);
-      } catch (error) {
-        console.error("Failed to load folder data:", error);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    if (folderId) {
-      loadData();
-    }
-  }, [folderId, currentUser, companies, contextFolders]);
+  const documents = useMemo(() => {
+    if (!folderId) return [];
+    return allDocuments.filter((d: any) => d.folderId === folderId);
+  }, [allDocuments, folderId]);
 
   // Get parent folder for back button
   const getParentFolder = () => {
@@ -266,35 +235,72 @@ export default function FolderDetailPage() {
     }
   };
 
-  const filteredSubfolders = subfolders
-    .map((folder: any) => ({
-      id: folder.id,
-      name: folder.name,
-      description: folder.description,
-      scope: folder.scope,
-      documentCount: folder.documentCount || documents.filter((d: any) => d.folderId === folder.id).length,
-      modifiedAt: new Date(folder.modifiedAt),
-      createdBy: folder.createdBy,
-    }))
-    .filter((folder: any) =>
-      folder.name.toLowerCase().includes(searchQuery.toLowerCase())
-    );
+  const filteredSubfolders = useMemo(() => {
+    return subfolders
+      .map((folder: any) => ({
+        id: folder.id,
+        name: folder.name,
+        description: folder.description,
+        scope: folder.scope,
+        documentCount:
+          folder.documentCount ||
+          documents.filter((d: any) => d.folderId === folder.id).length,
+        modifiedAt: new Date(folder.modifiedAt),
+        createdBy: folder.createdBy,
+      }))
+      .filter((folder: any) =>
+        folder.name.toLowerCase().includes(searchQuery.toLowerCase())
+      );
+  }, [subfolders, documents, searchQuery]);
 
-  const filteredDocuments = documents
-    .map((doc: any) => ({
-      id: doc.id,
-      name: doc.name,
-      type: doc.type,
-      size: doc.size,
-      folder: folder?.name || "",
-      scope: doc.scope,
-      status: doc.status,
-      modifiedAt: new Date(doc.modifiedAt),
-      createdBy: doc.createdBy,
-    }))
-    .filter((doc: any) =>
-      doc.name.toLowerCase().includes(searchQuery.toLowerCase())
-    );
+  const filteredDocuments = useMemo(() => {
+    return documents
+      .map((doc: any) => ({
+        id: doc.id,
+        name: doc.name,
+        type: doc.type,
+        size: doc.size,
+        folder: folder?.name || "",
+        scope: doc.scope,
+        status: doc.status,
+        modifiedAt: new Date(doc.modifiedAt),
+        createdBy: doc.createdBy,
+      }))
+      .filter((doc: any) =>
+        doc.name.toLowerCase().includes(searchQuery.toLowerCase())
+      );
+  }, [documents, folder, searchQuery]);
+
+  // Apply sorting
+  const sortedSubfolders = useMemo(() => {
+    const sorted = [...filteredSubfolders];
+    switch (sortBy) {
+      case "name":
+        return sorted.sort((a, b) => a.name.localeCompare(b.name));
+      case "modified":
+        return sorted.sort(
+          (a, b) => b.modifiedAt.getTime() - a.modifiedAt.getTime()
+        );
+      default:
+        return sorted;
+    }
+  }, [filteredSubfolders, sortBy]);
+
+  const sortedDocuments = useMemo(() => {
+    const sorted = [...filteredDocuments];
+    switch (sortBy) {
+      case "name":
+        return sorted.sort((a, b) => a.name.localeCompare(b.name));
+      case "size":
+        return sorted.sort((a, b) => (b.size || 0) - (a.size || 0));
+      case "modified":
+        return sorted.sort(
+          (a, b) => b.modifiedAt.getTime() - a.modifiedAt.getTime()
+        );
+      default:
+        return sorted;
+    }
+  }, [filteredDocuments, sortBy]);
 
   if (loading) {
     return <LoadingState type="card" />;
@@ -361,11 +367,7 @@ export default function FolderDetailPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-4">
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={handleBack}
-          >
+          <Button variant="ghost" size="icon" onClick={handleBack}>
             <ArrowLeft className="h-4 w-4" />
           </Button>
           <div>
@@ -466,8 +468,15 @@ export default function FolderDetailPage() {
 
       {/* Content */}
       <div className="space-y-8">
+        {/* Workflows Section */}
+        <WorkflowList
+          workflows={workflows}
+          isLoading={workflowsLoading}
+          title="Related Workflows"
+        />
+
         {/* Subfolders Section */}
-        {filteredSubfolders.length > 0 && (
+        {sortedSubfolders.length > 0 && (
           <div>
             <h2 className="text-xl font-semibold mb-4">Folders</h2>
             <div
@@ -477,7 +486,7 @@ export default function FolderDetailPage() {
                   : "space-y-4"
               }
             >
-              {filteredSubfolders.map((subfolder) => {
+              {sortedSubfolders.map((subfolder) => {
                 const subfolderPermission = hasFolderPermission(subfolder);
                 const subfolderAccess = hasAccessToResource(
                   subfolder.id,
@@ -499,7 +508,7 @@ export default function FolderDetailPage() {
         )}
 
         {/* Documents Section */}
-        {filteredDocuments.length > 0 && (
+        {sortedDocuments.length > 0 && (
           <div>
             <h2 className="text-xl font-semibold mb-4">Documents</h2>
             <div
@@ -509,40 +518,25 @@ export default function FolderDetailPage() {
                   : "space-y-4"
               }
             >
-              {filteredDocuments.map((doc) => {
-                // Check document permission
-                const docFolder = allFolders.find((f: any) => f.id === doc.folder);
+              {sortedDocuments.map((doc) => {
+                // For documents, check permission via folder
+                const docFolder = allFolders.find((f: any) => f.id === (doc as any).folderId);
                 let hasDocPermission = false;
-                
-                if (currentUser && companies && docFolder) {
-                  const userCompanyId = currentUser.companyId;
-                  let userDeptId: string | null = null;
-                  let userDivId: string | null = null;
 
-                  const userCompany = companies.find((c: any) => c.id === userCompanyId);
-                  if (userCompany?.departments) {
-                    const userDept = userCompany.departments.find((d: any) => d.name === currentUser.department);
-                    if (userDept) {
-                      userDeptId = userDept.id;
-                      if (userDept.divisions) {
-                        const userDiv = userDept.divisions.find((d: any) => d.name === currentUser.division);
-                        if (userDiv) {
-                          userDivId = userDiv.id;
-                        }
-                      }
-                    }
-                  }
+                if (currentUser && companies.length && docFolder) {
+                  const { userDeptId, userDivId, userCompanyId } = userContext;
 
                   if (currentUser.role === "Master") {
                     hasDocPermission = true;
                   } else {
-                    const docScope = doc.scope;
+                    const docScope = doc.scope || docFolder.scope;
                     if (docScope === "company") {
                       hasDocPermission = docFolder.companyId === userCompanyId;
                     } else if (docScope === "department") {
                       hasDocPermission = docFolder.departmentId === userDeptId;
                     } else if (docScope === "division") {
-                      hasDocPermission = docFolder.departmentId === userDeptId && userDivId !== null;
+                      hasDocPermission =
+                        docFolder.departmentId === userDeptId && userDivId !== null;
                     }
                   }
                 }
@@ -568,7 +562,7 @@ export default function FolderDetailPage() {
         )}
 
         {/* Empty State */}
-        {filteredSubfolders.length === 0 && filteredDocuments.length === 0 && (
+        {sortedSubfolders.length === 0 && sortedDocuments.length === 0 && (
           <EmptyState
             icon={FolderPlus}
             title={searchQuery ? "No results found" : "Folder is empty"}
@@ -597,38 +591,7 @@ export default function FolderDetailPage() {
       />
       <CreateFolderDialog
         open={createFolderDialogOpen}
-        onOpenChange={(open) => {
-          setCreateFolderDialogOpen(open);
-          if (!open) {
-            // Reload data when dialog closes (folder might have been created)
-            if (folderId) {
-              const loadData = async () => {
-                try {
-                  const [foldersData, documentsData] = await Promise.all([
-                    api.getFolders(),
-                    api.getDocuments(),
-                  ]);
-                  setAllFolders(foldersData);
-                  const currentFolder = foldersData.find((f: any) => f.id === folderId);
-                  if (currentFolder) {
-                    setFolder(currentFolder);
-                    const folderSubfolders = foldersData.filter(
-                      (f: any) => f.parentFolderId === folderId
-                    );
-                    setSubfolders(folderSubfolders);
-                    const folderDocuments = documentsData.filter(
-                      (d: any) => d.folderId === folderId
-                    );
-                    setDocuments(folderDocuments);
-                  }
-                } catch (error) {
-                  console.error("Failed to reload folder data:", error);
-                }
-              };
-              loadData();
-            }
-          }
-        }}
+        onOpenChange={setCreateFolderDialogOpen}
         parentFolderId={folderId}
       />
       <CreateWorkflowDialog

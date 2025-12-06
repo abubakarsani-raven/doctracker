@@ -28,19 +28,31 @@ import { CalendarIcon, Folder, FileText, FolderOpen } from "lucide-react";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
-import { api } from "@/lib/api";
-import { useMockData } from "@/lib/contexts/MockDataContext";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
-import { isCompanyAdmin, getUserCompanyId, getDepartmentCompanyId, getUserCompanyIdByUserId, createApprovalRequest, isCrossCompanyAssignment, getCompanyName } from "@/lib/cross-company-utils";
+import {
+  isCompanyAdmin,
+  getUserCompanyId,
+  getDepartmentCompanyId,
+  getUserCompanyIdByUserId,
+  isCrossCompanyAssignment,
+  getCompanyName,
+} from "@/lib/cross-company-utils";
 import { CompanyBadge } from "./CompanyBadge";
+import { useFolders, useCreateFolder } from "@/lib/hooks/use-documents";
+import { useDocuments } from "@/lib/hooks/use-documents";
+import { useUsers } from "@/lib/hooks/use-users";
+import { useCompanies } from "@/lib/hooks/use-companies";
+import { useCurrentUser } from "@/lib/hooks/use-users";
+import { useCreateWorkflow } from "@/lib/hooks/use-workflows";
+import { useCreateApprovalRequest } from "@/lib/hooks/use-approval-requests";
 
 interface CreateWorkflowDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onWorkflowCreated?: () => void;
-  folderId?: string; // Optional: pre-select a folder
-  documentId?: string; // Optional: pre-select a document (for document-based workflow)
+  folderId?: string;
+  documentId?: string;
 }
 
 export function CreateWorkflowDialog({
@@ -50,7 +62,14 @@ export function CreateWorkflowDialog({
   folderId,
   documentId,
 }: CreateWorkflowDialogProps) {
-  const { folders, documents, users, companies } = useMockData();
+  const { data: folders = [] } = useFolders();
+  const { data: documents = [] } = useDocuments();
+  const { data: users = [] } = useUsers();
+  const { data: companies = [] } = useCompanies();
+  const { data: currentUser } = useCurrentUser();
+  const createWorkflow = useCreateWorkflow();
+  const createFolder = useCreateFolder();
+  const createApprovalRequest = useCreateApprovalRequest();
   
   // Workflow type: "folder" or "document"
   const [workflowType, setWorkflowType] = useState<"folder" | "document">(
@@ -64,7 +83,7 @@ export function CreateWorkflowDialog({
   const [selectedUserId, setSelectedUserId] = useState("");
   const [selectedDepartmentId, setSelectedDepartmentId] = useState("");
   const [dueDate, setDueDate] = useState<Date | undefined>(undefined);
-  const [creating, setCreating] = useState(false);
+  const isCreating = createWorkflow.isPending || createFolder.isPending || createApprovalRequest.isPending;
 
   // Folder-based workflow fields
   const [folderSource, setFolderSource] = useState<"existing" | "create" | "none">("existing");
@@ -77,7 +96,6 @@ export function CreateWorkflowDialog({
 
   // Cross-company fields
   const [selectedCompanyId, setSelectedCompanyId] = useState<string>("same-company");
-  const { currentUser } = useMockData();
   const isAdmin = currentUser && isCompanyAdmin(currentUser);
 
   // Get all departments
@@ -218,13 +236,15 @@ export function CreateWorkflowDialog({
       return;
     }
 
-    setCreating(true);
+    // setCreating is handled by mutation hooks
 
     try {
-      // Get current user and their company
-      const currentUserStr = localStorage.getItem("mockCurrentUser");
-      const currentUserData = currentUserStr ? JSON.parse(currentUserStr) : currentUser;
-      const sourceCompanyId = await getUserCompanyId(currentUserData);
+      if (!currentUser) {
+        toast.error("You must be logged in to create a workflow");
+        return;
+      }
+
+      const sourceCompanyId = await getUserCompanyId(currentUser);
       const sourceCompanyName = sourceCompanyId 
         ? (await getCompanyName(sourceCompanyId)) || "Unknown Company"
         : "Unknown Company";
@@ -262,22 +282,13 @@ export function CreateWorkflowDialog({
       if (workflowType === "folder") {
         // Handle folder-based workflow
         if (folderSource === "create") {
-          // Create new folder
-          const newFolder = {
-            id: `folder-${Date.now()}`,
-            name: newFolderName,
+          // Create new folder via API
+          const newFolder = await createFolder.mutateAsync({
+            name: newFolderName.trim(),
             description: `Folder for workflow: ${workflowTitle}`,
-            scope: selectedFolderScope,
-            documentCount: 0,
-            modifiedAt: new Date().toISOString(),
-            createdBy: "Current User",
+            scopeLevel: selectedFolderScope,
             parentFolderId: null,
-          };
-          
-          // Store in localStorage for now
-          const existingFolders = JSON.parse(localStorage.getItem("folders") || "[]");
-          existingFolders.push(newFolder);
-          localStorage.setItem("folders", JSON.stringify(existingFolders));
+          });
           
           finalFolderId = newFolder.id;
           folderName = newFolder.name;
@@ -317,24 +328,18 @@ export function CreateWorkflowDialog({
                   `Department (${selectedDepartmentId})`,
           };
 
-      const newWorkflow: any = {
-        id: `wf-${Date.now()}`,
-        title: workflowTitle,
-        description: workflowDescription,
+      const workflowData: any = {
+        title: workflowTitle.trim(),
+        description: workflowDescription.trim() || undefined,
         type: workflowType,
         folderId: finalFolderId,
-        folderName: folderName,
-        folderPath: finalFolderId ? buildFolderPath(finalFolderId, folders) : undefined,
         documentId: finalDocumentId,
-        documentName: documentName,
-        status: isCrossCompany ? "pending" : "assigned", // Pending if cross-company
+        status: isCrossCompany ? "pending" : "assigned",
         assignedTo,
-        assignedBy: currentUserData?.name || currentUserData?.id || "Current User",
-        assignedAt: new Date().toISOString(),
         progress: 0,
         dueDate: dueDate?.toISOString(),
-        currentState: isCrossCompany ? "Pending Approval" : "Assigned",
-        routingHistory: [],
+        // Company ID - use source company for workflow company
+        companyId: sourceCompanyId || currentUser?.companyId,
         // Cross-company fields
         sourceCompanyId,
         sourceCompanyName,
@@ -342,61 +347,36 @@ export function CreateWorkflowDialog({
         targetCompanyName: targetCompanyName || undefined,
         isCrossCompany,
         approvalStatus: isCrossCompany ? "pending" : undefined,
-        approvalRequestedAt: isCrossCompany ? new Date().toISOString() : undefined,
       };
+
+      // Create workflow via API
+      const createdWorkflow = await createWorkflow.mutateAsync(workflowData);
 
       // If cross-company, create approval request
       if (isCrossCompany && targetCompanyId && sourceCompanyId) {
-        const approvalRequest = createApprovalRequest({
-          workflowId: newWorkflow.id,
+        await createApprovalRequest.mutateAsync({
+          workflowId: createdWorkflow.id,
           requestType: "workflow_assignment",
           sourceCompanyId,
           sourceCompanyName,
           targetCompanyId,
           targetCompanyName: targetCompanyName || "Unknown Company",
-          requestedBy: currentUserData?.id || currentUserData?.name || "Unknown",
+          requestedBy: currentUser?.id || currentUser?.email || "Unknown",
           assignedTo,
           workflowTitle: workflowTitle,
           workflowDescription: workflowDescription,
         });
 
-        // Create notification for target company admin
-        // Note: In a real implementation, this would be handled server-side
-        // For now, create a notification that will be visible to Company Admins
-        const notifications = JSON.parse(localStorage.getItem("notifications") || "[]");
-        notifications.push({
-          id: `notif-${Date.now()}`,
-          type: "cross_company_approval_request",
-          title: "Cross-Company Workflow Approval Request",
-          message: `${sourceCompanyName} has requested to assign a workflow to ${assignedTo.name} in your company.`,
-          resourceType: "approval_request",
-          resourceId: approvalRequest.id,
-          read: false,
-          createdAt: new Date().toISOString(),
-        });
-        localStorage.setItem("notifications", JSON.stringify(notifications));
-        window.dispatchEvent(new CustomEvent("notificationsUpdated"));
-
         toast.success(`Workflow created. Approval requested from ${targetCompanyName}.`);
       } else {
-        toast.success("Workflow created successfully");
+        // Success toast is handled by the mutation hook
       }
-
-      // Get existing workflows from localStorage or initialize
-      const existingWorkflows = JSON.parse(localStorage.getItem("workflows") || "[]");
-      existingWorkflows.push(newWorkflow);
-      localStorage.setItem("workflows", JSON.stringify(existingWorkflows));
-
-      // Dispatch event to update context
-      window.dispatchEvent(new CustomEvent("workflowsUpdated"));
 
       onWorkflowCreated?.();
       onOpenChange(false);
-    } catch (error) {
+    } catch (error: any) {
       console.error("Failed to create workflow:", error);
-      toast.error("Failed to create workflow. Please try again.");
-    } finally {
-      setCreating(false);
+      // Error toast is handled by mutation hooks
     }
   };
 
@@ -454,7 +434,7 @@ export function CreateWorkflowDialog({
               }
               value={workflowTitle}
               onChange={(e) => setWorkflowTitle(e.target.value)}
-              disabled={creating}
+              disabled={isCreating}
             />
           </div>
 
@@ -466,7 +446,7 @@ export function CreateWorkflowDialog({
               placeholder="Add details about this workflow..."
               value={workflowDescription}
               onChange={(e) => setWorkflowDescription(e.target.value)}
-              disabled={creating}
+              disabled={isCreating}
               rows={3}
             />
           </div>
@@ -481,7 +461,7 @@ export function CreateWorkflowDialog({
                   setFolderSource(value);
                   if (value !== "existing") setSelectedFolderId("");
                 }}
-                disabled={creating}
+                disabled={isCreating}
               >
                 <div className="flex items-center space-x-2">
                   <RadioGroupItem value="existing" id="existing-folder" />
@@ -508,7 +488,7 @@ export function CreateWorkflowDialog({
                   <Select
                     value={selectedFolderId}
                     onValueChange={setSelectedFolderId}
-                    disabled={creating}
+                    disabled={isCreating}
                   >
                     <SelectTrigger>
                       <SelectValue placeholder="Select a folder" />
@@ -551,12 +531,12 @@ export function CreateWorkflowDialog({
                     placeholder="Enter folder name"
                     value={newFolderName}
                     onChange={(e) => setNewFolderName(e.target.value)}
-                    disabled={creating}
+                    disabled={isCreating}
                   />
                   <Select
                     value={selectedFolderScope}
                     onValueChange={(v: "company" | "department" | "division") => setSelectedFolderScope(v)}
-                    disabled={creating}
+                    disabled={isCreating}
                   >
                     <SelectTrigger>
                       <SelectValue placeholder="Select scope" />
@@ -588,7 +568,7 @@ export function CreateWorkflowDialog({
               <Select
                 value={selectedDocumentId}
                 onValueChange={setSelectedDocumentId}
-                disabled={creating}
+                disabled={isCreating}
               >
                 <SelectTrigger>
                   <SelectValue placeholder="Select a document" />
@@ -616,8 +596,8 @@ export function CreateWorkflowDialog({
                   <div className="space-y-1">
                     <p className="text-sm font-medium">Selected Document:</p>
                     <p className="text-sm text-muted-foreground">{selectedDocument.name}</p>
-                    {selectedDocument.description && (
-                      <p className="text-xs text-muted-foreground">{selectedDocument.description}</p>
+                    {(selectedDocument as any).description && (
+                      <p className="text-xs text-muted-foreground">{(selectedDocument as any).description}</p>
                     )}
                     {selectedDocument.folderId && (
                       <div className="flex items-center gap-1 mt-2">
@@ -648,7 +628,7 @@ export function CreateWorkflowDialog({
                   setSelectedUserId("");
                   setSelectedDepartmentId("");
                 }}
-                disabled={creating}
+                disabled={isCreating}
               >
                 <SelectTrigger>
                   <SelectValue placeholder="Select company (leave empty for same company)" />
@@ -676,7 +656,7 @@ export function CreateWorkflowDialog({
             <RadioGroup
               value={assignedToType}
               onValueChange={(value: "user" | "department") => setAssignedToType(value)}
-              disabled={creating}
+              disabled={isCreating}
             >
               <div className="flex items-center space-x-2">
                 <RadioGroupItem value="user" id="assign-user" />
@@ -696,7 +676,7 @@ export function CreateWorkflowDialog({
               <Select
                 value={selectedUserId}
                 onValueChange={setSelectedUserId}
-                disabled={creating}
+                disabled={isCreating}
               >
                 <SelectTrigger>
                   <SelectValue placeholder="Select a user" />
@@ -725,7 +705,7 @@ export function CreateWorkflowDialog({
               <Select
                 value={selectedDepartmentId}
                 onValueChange={setSelectedDepartmentId}
-                disabled={creating}
+                disabled={isCreating}
               >
                 <SelectTrigger>
                   <SelectValue placeholder="Select a department" />
@@ -761,7 +741,7 @@ export function CreateWorkflowDialog({
                     "w-full justify-start text-left font-normal",
                     !dueDate && "text-muted-foreground"
                   )}
-                  disabled={creating}
+                  disabled={isCreating}
                 >
                   <CalendarIcon className="mr-2 h-4 w-4" />
                   {dueDate ? format(dueDate, "PPP") : "Pick a date"}
@@ -780,11 +760,11 @@ export function CreateWorkflowDialog({
         </div>
 
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={creating}>
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isCreating}>
             Cancel
           </Button>
-          <Button onClick={handleCreate} disabled={creating}>
-            {creating ? "Creating..." : "Create Workflow"}
+          <Button onClick={handleCreate} disabled={isCreating}>
+            {isCreating ? "Creating..." : "Create Workflow"}
           </Button>
         </DialogFooter>
       </DialogContent>

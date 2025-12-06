@@ -2,7 +2,7 @@
 
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { useMockData } from "@/lib/contexts/MockDataContext";
+import { useCurrentUser } from "./use-users";
 import { isCompanyAdmin } from "@/lib/cross-company-utils";
 
 interface RouteProtectionOptions {
@@ -13,7 +13,7 @@ interface RouteProtectionOptions {
 
 export function useRouteProtection(options: RouteProtectionOptions = {}) {
   const { requireAdmin = false, requireMaster = false, redirectTo = "/dashboard" } = options;
-  const { currentUser } = useMockData();
+  const { data: currentUser } = useCurrentUser();
   const router = useRouter();
 
   useEffect(() => {

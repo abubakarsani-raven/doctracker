@@ -28,8 +28,6 @@ import { CalendarIcon, User, Building2, Upload, MessageSquare, CheckCircle2, Fol
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
-import { api } from "@/lib/api";
-import { useMockData } from "@/lib/contexts/MockDataContext";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -37,10 +35,16 @@ import {
   getUserCompanyId,
   getDepartmentCompanyId,
   getUserCompanyIdByUserId,
-  createApprovalRequest,
   isCrossCompanyAssignment,
   getCompanyName,
 } from "@/lib/cross-company-utils";
+import { useFolders } from "@/lib/hooks/use-documents";
+import { useUsers } from "@/lib/hooks/use-users";
+import { useCompanies } from "@/lib/hooks/use-companies";
+import { useCurrentUser } from "@/lib/hooks/use-users";
+import { useCreateAction } from "@/lib/hooks/use-actions";
+import { useCreateApprovalRequest } from "@/lib/hooks/use-approval-requests";
+import { useWorkflow } from "@/lib/hooks/use-workflows";
 
 interface CreateActionFromWorkflowDialogProps {
   open: boolean;
@@ -54,10 +58,18 @@ export function CreateActionFromWorkflowDialog({
   open,
   onOpenChange,
   workflowId,
-  workflow,
+  workflow: workflowProp,
   onActionCreated,
 }: CreateActionFromWorkflowDialogProps) {
-  const { folders, users, companies } = useMockData();
+  const { data: folders = [] } = useFolders();
+  const { data: users = [] } = useUsers();
+  const { data: companies = [] } = useCompanies();
+  const { data: currentUser } = useCurrentUser();
+  const { data: workflowData } = useWorkflow(workflowId);
+  const createAction = useCreateAction();
+  const createApprovalRequest = useCreateApprovalRequest();
+  
+  const workflow = workflowProp || workflowData;
   
   // Action type selection
   const [actionType, setActionType] = useState<"regular" | "document_upload" | "request_response">("regular");
@@ -69,7 +81,6 @@ export function CreateActionFromWorkflowDialog({
   const [selectedUserId, setSelectedUserId] = useState("");
   const [selectedDepartmentId, setSelectedDepartmentId] = useState("");
   const [dueDate, setDueDate] = useState<Date | undefined>(undefined);
-  const [creating, setCreating] = useState(false);
 
   // Document upload action fields
   const [targetFolderId, setTargetFolderId] = useState<string>("");
@@ -80,18 +91,22 @@ export function CreateActionFromWorkflowDialog({
 
   // Cross-company fields
   const [selectedCompanyId, setSelectedCompanyId] = useState<string>("same-company");
-  const { currentUser } = useMockData();
   const isAdmin = currentUser && isCompanyAdmin(currentUser);
+  
+  const isCreating = createAction.isPending || createApprovalRequest.isPending;
 
   // Get all departments
-  const allDepartments: any[] = [];
-  companies.forEach((company: any) => {
-    if (company.departments) {
-      company.departments.forEach((dept: any) => {
-        allDepartments.push({ ...dept, companyName: company.name });
-      });
-    }
-  });
+  const allDepartments = useMemo(() => {
+    const depts: any[] = [];
+    companies.forEach((company: any) => {
+      if (company.departments) {
+        company.departments.forEach((dept: any) => {
+          depts.push({ ...dept, companyName: company.name });
+        });
+      }
+    });
+    return depts;
+  }, [companies]);
 
   // Filter users based on selected company
   const accessibleUsers = useMemo(() => {
@@ -204,13 +219,13 @@ export function CreateActionFromWorkflowDialog({
       return;
     }
 
-    setCreating(true);
+    if (!currentUser) {
+      toast.error("You must be logged in to create an action");
+      return;
+    }
 
     try {
-      // Get current user and their company
-      const currentUserStr = localStorage.getItem("mockCurrentUser");
-      const currentUserData = currentUserStr ? JSON.parse(currentUserStr) : currentUser;
-      const sourceCompanyId = workflow?.sourceCompanyId || (await getUserCompanyId(currentUserData));
+      const sourceCompanyId = workflow?.sourceCompanyId || (await getUserCompanyId(currentUser));
 
       // Determine target company
       let targetCompanyId: string | null = null;
@@ -254,16 +269,14 @@ export function CreateActionFromWorkflowDialog({
                   `Department (${selectedDepartmentId})`,
           };
 
-      const newAction: any = {
-        id: `action-${Date.now()}`,
-        title: actionTitle,
-        description: actionDescription,
+      const actionData: any = {
+        title: actionTitle.trim(),
+        description: actionDescription.trim() || undefined,
         type: actionType,
-        status: isCrossCompany ? "pending" : "pending", // Pending until approved if cross-company
+        status: "pending",
         workflowId: workflowId,
         folderId: workflow?.folderId,
         documentId: workflow?.documentId,
-        documentName: workflow?.documentName || workflow?.title || "",
         
         // Document upload action specific
         targetFolderId: actionType === "document_upload" ? targetFolderId : undefined,
@@ -273,8 +286,6 @@ export function CreateActionFromWorkflowDialog({
         requestDetails: actionType === "request_response" ? requestDetails : undefined,
         
         assignedTo,
-        createdBy: currentUserData?.name || currentUserData?.id || "Current User",
-        createdAt: new Date().toISOString(),
         dueDate: dueDate?.toISOString(),
         
         // Cross-company fields
@@ -282,81 +293,38 @@ export function CreateActionFromWorkflowDialog({
         targetCompanyId: targetCompanyId || undefined,
         isCrossCompany,
         approvalStatus: isCrossCompany ? "pending" : undefined,
-        approvalRequestId: undefined, // Will be set when approval request is created
       };
+
+      // Create action via API
+      const createdAction = await createAction.mutateAsync(actionData);
 
       // If cross-company, create approval request
       if (isCrossCompany && isAdmin && targetCompanyId && sourceCompanyId) {
         const sourceCompanyName = workflow?.sourceCompanyName || (await getCompanyName(sourceCompanyId)) || "Unknown Company";
 
-        const approvalRequest = createApprovalRequest({
-          actionId: newAction.id,
+        await createApprovalRequest.mutateAsync({
+          actionId: createdAction.id,
           requestType: "action_assignment",
           sourceCompanyId,
           sourceCompanyName,
           targetCompanyId,
           targetCompanyName: targetCompanyName || "Unknown Company",
-          requestedBy: currentUserData?.id || currentUserData?.name || "Unknown",
+          requestedBy: currentUser?.id || currentUser?.email || "Unknown",
           assignedTo,
           actionTitle: actionTitle,
           actionDescription: actionDescription,
         });
 
-        // Link approval request to action
-        newAction.approvalRequestId = approvalRequest.id;
-
-        // Create notification for target company admin
-        const notifications = JSON.parse(localStorage.getItem("notifications") || "[]");
-        notifications.push({
-          id: `notif-${Date.now()}`,
-          type: "cross_company_approval_request",
-          title: "Cross-Company Action Approval Request",
-          message: `${sourceCompanyName} has requested to assign an action to ${assignedTo.name} in your company.`,
-          resourceType: "approval_request",
-          resourceId: approvalRequest.id,
-          read: false,
-          createdAt: new Date().toISOString(),
-        });
-        localStorage.setItem("notifications", JSON.stringify(notifications));
-        window.dispatchEvent(new CustomEvent("notificationsUpdated"));
-
         toast.success(`Action created. Approval requested from ${targetCompanyName}.`);
       } else {
-        // Same-company assignment - create notification for assignee
-        const notifications = JSON.parse(localStorage.getItem("notifications") || "[]");
-        const notification = {
-          id: `notif-${Date.now()}`,
-          type: actionType === "request_response" ? "action_request" : "action_assigned",
-          title: actionType === "request_response" ? "Information Request" : "New Action Assigned",
-          message: actionType === "request_response"
-            ? `You have received a request: "${actionTitle}"`
-            : `You have been assigned a new action: "${actionTitle}"`,
-          resourceType: "action",
-          resourceId: newAction.id,
-          read: false,
-          createdAt: new Date().toISOString(),
-        };
-        notifications.push(notification);
-        localStorage.setItem("notifications", JSON.stringify(notifications));
-        window.dispatchEvent(new CustomEvent("notificationsUpdated"));
-        toast.success("Action created successfully");
+        // Success toast is handled by mutation hook
       }
-
-      // Get existing actions from localStorage or initialize
-      const existingActions = JSON.parse(localStorage.getItem("actions") || "[]");
-      existingActions.push(newAction);
-      localStorage.setItem("actions", JSON.stringify(existingActions));
-
-      // Dispatch event to update context
-      window.dispatchEvent(new CustomEvent("actionsUpdated"));
 
       onActionCreated?.();
       onOpenChange(false);
-    } catch (error) {
+    } catch (error: any) {
       console.error("Failed to create action:", error);
-      toast.error("Failed to create action. Please try again.");
-    } finally {
-      setCreating(false);
+      // Error toast is handled by mutation hooks
     }
   };
 
@@ -415,7 +383,7 @@ export function CreateActionFromWorkflowDialog({
               }
               value={actionTitle}
               onChange={(e) => setActionTitle(e.target.value)}
-              disabled={creating}
+              disabled={isCreating}
             />
           </div>
 
@@ -427,7 +395,7 @@ export function CreateActionFromWorkflowDialog({
               placeholder="Add details about this action..."
               value={actionDescription}
               onChange={(e) => setActionDescription(e.target.value)}
-              disabled={creating}
+              disabled={isCreating}
               rows={3}
             />
           </div>
@@ -453,7 +421,7 @@ export function CreateActionFromWorkflowDialog({
                 <Select
                   value={targetFolderId}
                   onValueChange={setTargetFolderId}
-                  disabled={creating}
+                  disabled={isCreating}
                 >
                   <SelectTrigger id="target-folder">
                     <SelectValue placeholder="Select folder to save uploaded document" />
@@ -484,7 +452,7 @@ export function CreateActionFromWorkflowDialog({
                   placeholder="e.g., PDF, DOCX, or leave empty for any"
                   value={requiredFileType}
                   onChange={(e) => setRequiredFileType(e.target.value)}
-                  disabled={creating}
+                  disabled={isCreating}
                 />
               </div>
             </div>
@@ -500,7 +468,7 @@ export function CreateActionFromWorkflowDialog({
                   placeholder="e.g., Please provide the total budget for this year. We need this information to proceed with the marketing campaign planning."
                   value={requestDetails}
                   onChange={(e) => setRequestDetails(e.target.value)}
-                  disabled={creating}
+                  disabled={isCreating}
                   rows={4}
                 />
                 <p className="text-xs text-muted-foreground">
@@ -521,7 +489,7 @@ export function CreateActionFromWorkflowDialog({
                   setSelectedUserId("");
                   setSelectedDepartmentId("");
                 }}
-                disabled={creating}
+                disabled={isCreating}
               >
                 <SelectTrigger>
                   <SelectValue placeholder="Select company" />
@@ -549,7 +517,7 @@ export function CreateActionFromWorkflowDialog({
             <RadioGroup
               value={assignedToType}
               onValueChange={(value: "user" | "department") => setAssignedToType(value)}
-              disabled={creating}
+              disabled={isCreating}
             >
               <div className="flex items-center space-x-2">
                 <RadioGroupItem value="user" id="assign-user" />
@@ -569,7 +537,7 @@ export function CreateActionFromWorkflowDialog({
               <Select
                 value={selectedUserId}
                 onValueChange={setSelectedUserId}
-                disabled={creating}
+                disabled={isCreating}
               >
                 <SelectTrigger>
                   <SelectValue placeholder="Select a user" />
@@ -598,7 +566,7 @@ export function CreateActionFromWorkflowDialog({
               <Select
                 value={selectedDepartmentId}
                 onValueChange={setSelectedDepartmentId}
-                disabled={creating}
+                disabled={isCreating}
               >
                 <SelectTrigger>
                   <SelectValue placeholder="Select a department" />
@@ -634,7 +602,7 @@ export function CreateActionFromWorkflowDialog({
                     "w-full justify-start text-left font-normal",
                     !dueDate && "text-muted-foreground"
                   )}
-                  disabled={creating}
+                  disabled={isCreating}
                 >
                   <CalendarIcon className="mr-2 h-4 w-4" />
                   {dueDate ? format(dueDate, "PPP") : "Pick a date"}
@@ -653,11 +621,11 @@ export function CreateActionFromWorkflowDialog({
         </div>
 
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={creating}>
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isCreating}>
             Cancel
           </Button>
-          <Button onClick={handleCreate} disabled={creating}>
-            {creating ? "Creating..." : "Create Action"}
+          <Button onClick={handleCreate} disabled={isCreating}>
+            {isCreating ? "Creating..." : "Create Action"}
           </Button>
         </DialogFooter>
       </DialogContent>

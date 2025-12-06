@@ -51,8 +51,7 @@ export function getApprovalRequests(): CrossCompanyApprovalRequest[] {
 export function saveApprovalRequests(requests: CrossCompanyApprovalRequest[]): void {
   try {
     localStorage.setItem("crossCompanyApprovals", JSON.stringify(requests));
-    // Dispatch event for UI updates
-    window.dispatchEvent(new CustomEvent("approvalRequestsUpdated"));
+    // React Query will handle updates automatically - no events needed
   } catch (error) {
     console.error("Failed to save approval requests:", error);
   }

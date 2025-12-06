@@ -11,20 +11,14 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
 import { Folder, FolderOpen, X } from "lucide-react";
-import { api } from "@/lib/api";
-import { useMockData } from "@/lib/contexts/MockDataContext";
+import { useFolders } from "@/lib/hooks/use-documents";
+import { useCurrentUser } from "@/lib/hooks/use-users";
+import { useCompanies } from "@/lib/hooks/use-companies";
 
 interface AddToFolderDialogProps {
   open: boolean;
@@ -41,45 +35,59 @@ export function AddToFolderDialog({
   currentFolderId,
   onAdded,
 }: AddToFolderDialogProps) {
-  const { currentUser, companies, folders: allFolders } = useMockData();
+  const { data: currentUser } = useCurrentUser();
+  const { data: companies = [] } = useCompanies();
+  const { data: allFolders = [] } = useFolders();
+
   const [selectedFolderIds, setSelectedFolderIds] = useState<string[]>([]);
-  const [loading, setLoading] = useState(false);
   const [adding, setAdding] = useState(false);
 
   useEffect(() => {
-    if (open) {
-      loadExistingFolders();
-    } else {
+    if (open && currentFolderId) {
+      setSelectedFolderIds([currentFolderId]);
+    } else if (!open) {
       setSelectedFolderIds([]);
     }
-  }, [open, documentId]);
-
-  const loadExistingFolders = async () => {
-    // TODO: Load existing folder links from API
-    // For now, assume document is only in currentFolderId
-    if (currentFolderId) {
-      setSelectedFolderIds([currentFolderId]);
-    }
-  };
+  }, [open, currentFolderId]);
 
   // Get user's department and division IDs from companies data
   const userContext = useMemo(() => {
-    if (!currentUser || !companies) {
+    if (!currentUser || !companies.length) {
       return { userDeptId: null, userDivId: null, userCompanyId: null };
     }
 
+    let userCompanyId: string | null = currentUser.companyId || null;
     const userDeptName = currentUser.department;
     const userDivName = currentUser.division;
     let userDeptId: string | null = null;
     let userDivId: string | null = null;
-    let userCompanyId: string | null = null;
 
-    companies.forEach((company: any) => {
-      if (company.departments) {
-        company.departments.forEach((dept: any) => {
+    if (!userCompanyId) {
+      companies.forEach((company: any) => {
+        if (company.departments) {
+          company.departments.forEach((dept: any) => {
+            if (dept.name === userDeptName) {
+              userDeptId = dept.id;
+              if (!userCompanyId) {
+                userCompanyId = company.id;
+              }
+              if (dept.divisions && userDivName) {
+                dept.divisions.forEach((div: any) => {
+                  if (div.name === userDivName) {
+                    userDivId = div.id;
+                  }
+                });
+              }
+            }
+          });
+        }
+      });
+    } else {
+      const userCompany = companies.find((c: any) => c.id === userCompanyId);
+      if (userCompany?.departments) {
+        userCompany.departments.forEach((dept: any) => {
           if (dept.name === userDeptName) {
             userDeptId = dept.id;
-            userCompanyId = company.id;
             if (dept.divisions && userDivName) {
               dept.divisions.forEach((div: any) => {
                 if (div.name === userDivName) {
@@ -90,62 +98,59 @@ export function AddToFolderDialog({
           }
         });
       }
-    });
+    }
 
     return { userDeptId, userDivId, userCompanyId };
   }, [currentUser, companies]);
 
-  // Get accessible folders based on permissions (similar to MoveDocumentDialog)
+  // Get accessible folders based on permissions
   const accessibleFolders = useMemo(() => {
-    if (!currentUser || !companies || !allFolders) return [];
-
+    if (!currentUser || !companies.length || !allFolders.length) return [];
     const { userDeptId, userDivId, userCompanyId } = userContext;
 
     return allFolders.filter((folder: any) => {
-      // Filter out current folder (document already in it)
+      // Filter out current folder
       if (folder.id === currentFolderId) {
         return false;
       }
 
-      // Master role can access everything
       if (currentUser.role === "Master") {
         return true;
       }
 
-      // Company Admin can access all folders in their company
       if (currentUser.role === "Company Admin") {
         return folder.companyId === userCompanyId;
       }
 
-      // Department Head can access department-wide and division-wide folders in their department
+      const folderScope = folder.scopeLevel || folder.scope;
+
       if (currentUser.role === "Department Head") {
-        if (folder.scope === "company") {
+        if (folderScope === "company") {
           return folder.companyId === userCompanyId;
         }
         return folder.departmentId === userDeptId;
       }
 
-      // Division Head can access division-wide folders in their division
       if (currentUser.role === "Division Head") {
-        if (folder.scope === "company") {
+        if (folderScope === "company") {
           return folder.companyId === userCompanyId;
         }
-        if (folder.scope === "department") {
+        if (folderScope === "department") {
           return folder.departmentId === userDeptId;
         }
-        return folder.scope === "division" && folder.departmentId === userDeptId;
+        return folderScope === "division" && folder.departmentId === userDeptId;
       }
 
       // Regular users: scope-based access
-      if (folder.scope === "company") {
+      if (folderScope === "company") {
         return folder.companyId === userCompanyId;
       }
 
-      if (folder.scope === "department") {
+      if (folderScope === "department") {
         return folder.departmentId === userDeptId;
       }
 
-      if (folder.scope === "division") {
+      if (folderScope === "division") {
         return folder.departmentId === userDeptId && userDivId !== null;
       }
 
@@ -184,17 +189,19 @@ export function AddToFolderDialog({
 
     setAdding(true);
     try {
-      // TODO: Replace with actual API call
+      // TODO: Replace with actual API call when endpoint is available
       // await api.addDocumentToFolders(documentId, selectedFolderIds);
       await new Promise((resolve) => setTimeout(resolve, 1000));
 
-      toast.success(`Document added to ${selectedFolderIds.length} folder(s) successfully`);
+      toast.success(
+        `Document added to ${selectedFolderIds.length} folder(s) successfully`
+      );
       onAdded?.();
       onOpenChange(false);
       setSelectedFolderIds([]);
-    } catch (error) {
+    } catch (error: any) {
       console.error("Failed to add document to folders:", error);
-      toast.error("Failed to add document to folders");
+      toast.error(error.message || "Failed to add document to folders");
     } finally {
       setAdding(false);
     }
@@ -206,14 +213,16 @@ export function AddToFolderDialog({
         <DialogHeader>
           <DialogTitle>Add Document to Folders</DialogTitle>
           <DialogDescription>
-            Select additional folders where this document should appear. The document will be accessible from all selected folders.
+            Select additional folders where this document should appear. The
+            document will be accessible from all selected folders.
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4 py-4">
           {accessibleFolders.length === 0 ? (
             <div className="text-center py-8 text-sm text-muted-foreground">
-              No additional folders available. You don't have permission to add documents to other folders.
+              No additional folders available. You don't have permission to add
+              documents to other folders.
             </div>
           ) : (
             <>

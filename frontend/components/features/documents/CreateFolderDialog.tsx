@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import {
   Dialog,
   DialogContent,
@@ -21,8 +21,9 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { toast } from "sonner";
-import { api } from "@/lib/api";
-import { useMockData } from "@/lib/contexts/MockDataContext";
+import { useCreateFolder } from "@/lib/hooks/use-documents";
+import { useCurrentUser } from "@/lib/hooks/use-users";
+import { useCompanies } from "@/lib/hooks/use-companies";
 
 interface CreateFolderDialogProps {
   open: boolean;
@@ -35,11 +36,43 @@ export function CreateFolderDialog({
   onOpenChange,
   parentFolderId,
 }: CreateFolderDialogProps) {
-  const { currentUser, companies, refresh } = useMockData();
+  const { data: currentUser } = useCurrentUser();
+  const { data: companies = [] } = useCompanies();
+  const createFolder = useCreateFolder();
+
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [scope, setScope] = useState<"company" | "department" | "division">("company");
-  const [creating, setCreating] = useState(false);
+
+  // Get user's department/division IDs
+  const userContext = useMemo(() => {
+    if (!currentUser || !companies.length) {
+      return { departmentId: undefined, divisionId: undefined };
+    }
+
+    let departmentId: string | undefined;
+    let divisionId: string | undefined;
+
+    const userCompany = companies.find((c: any) => c.id === currentUser.companyId);
+    if (userCompany?.departments) {
+      const userDept = userCompany.departments.find(
+        (d: any) => d.name === currentUser.department
+      );
+      if (userDept) {
+        departmentId = userDept.id;
+        if (scope === "division" && userDept.divisions) {
+          const userDiv = userDept.divisions.find(
+            (d: any) => d.name === currentUser.division
+          );
+          if (userDiv) {
+            divisionId = userDiv.id;
+          }
+        }
+      }
+    }
+
+    return { departmentId, divisionId };
+  }, [currentUser, companies, scope]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -54,53 +87,22 @@ export function CreateFolderDialog({
       return;
     }
 
-    setCreating(true);
-
     try {
-      // Get user's department/division IDs if needed
-      let departmentId: string | undefined;
-      let divisionId: string | undefined;
-
-      if (scope === "department" || scope === "division") {
-        const userCompany = companies?.find((c: any) => c.id === currentUser.companyId);
-        if (userCompany?.departments) {
-          const userDept = userCompany.departments.find((d: any) => d.name === currentUser.department);
-          if (userDept) {
-            departmentId = userDept.id;
-            if (scope === "division" && userDept.divisions) {
-              const userDiv = userDept.divisions.find((d: any) => d.name === currentUser.division);
-              if (userDiv) {
-                divisionId = userDiv.id;
-              }
-            }
-          }
-        }
-      }
-
-      await api.createFolder({
+      await createFolder.mutateAsync({
         name: name.trim(),
         description: description.trim() || undefined,
         scopeLevel: scope,
         parentFolderId: parentFolderId,
-        departmentId: departmentId,
-        divisionId: divisionId,
+        departmentId: userContext.departmentId,
+        divisionId: userContext.divisionId,
       });
 
-      toast.success("Folder created successfully");
       setName("");
       setDescription("");
       setScope("company");
       onOpenChange(false);
-      
-      // Refresh data to show new folder
-      if (refresh) {
-        await refresh();
-      }
     } catch (error: any) {
-      console.error("Failed to create folder:", error);
-      toast.error(error?.message || "Failed to create folder. Please try again.");
-    } finally {
-      setCreating(false);
+      // Error toast is handled by the mutation hook
     }
   };
 
@@ -123,7 +125,7 @@ export function CreateFolderDialog({
               onChange={(e) => setName(e.target.value)}
               placeholder="My New Folder"
               required
-              disabled={creating}
+              disabled={createFolder.isPending}
             />
           </div>
 
@@ -135,7 +137,7 @@ export function CreateFolderDialog({
               onChange={(e) => setDescription(e.target.value)}
               placeholder="Optional description..."
               rows={3}
-              disabled={creating}
+              disabled={createFolder.isPending}
             />
           </div>
 
@@ -146,6 +148,7 @@ export function CreateFolderDialog({
               onValueChange={(value: "company" | "department" | "division") =>
                 setScope(value)
               }
+              disabled={createFolder.isPending}
             >
               <SelectTrigger>
                 <SelectValue />
@@ -166,12 +169,12 @@ export function CreateFolderDialog({
               type="button"
               variant="outline"
               onClick={() => onOpenChange(false)}
-              disabled={creating}
+              disabled={createFolder.isPending}
             >
               Cancel
             </Button>
-            <Button type="submit" disabled={creating}>
-              {creating ? "Creating..." : "Create Folder"}
+            <Button type="submit" disabled={createFolder.isPending}>
+              {createFolder.isPending ? "Creating..." : "Create Folder"}
             </Button>
           </DialogFooter>
         </form>

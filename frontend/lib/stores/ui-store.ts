@@ -42,8 +42,6 @@ export const useUIStore = create<UIState>((set) => ({
   actionStatusFilter: "all",
   setActionSearchQuery: (query) => set({ actionSearchQuery: query }),
   setActionStatusFilter: (filter) => set({ actionStatusFilter: filter }),
-  createActionDialogOpen: false,
-  setCreateActionDialogOpen: (open) => set({ createActionDialogOpen: open }),
 
   // Document filters
   documentSearchQuery: "",

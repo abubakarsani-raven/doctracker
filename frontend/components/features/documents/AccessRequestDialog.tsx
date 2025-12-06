@@ -15,8 +15,12 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { Lock, User, Building2, Users } from "lucide-react";
-import { useMockData } from "@/lib/contexts/MockDataContext";
-import { createAccessRequest, hasPendingRequest, getApproversForScope } from "@/lib/access-request-utils";
+import { useCurrentUser } from "@/lib/hooks/use-users";
+import {
+  getApproversForScope,
+  hasPendingRequest,
+} from "@/lib/access-request-utils";
+import { useCreateAccessRequest } from "@/lib/hooks/use-access-requests";
 
 interface AccessRequestDialogProps {
   open: boolean;
@@ -36,8 +40,8 @@ export function AccessRequestDialog({
   scope,
 }: AccessRequestDialogProps) {
   const [reason, setReason] = useState("");
-  const [requesting, setRequesting] = useState(false);
-  const { currentUser } = useMockData();
+  const { data: currentUser } = useCurrentUser();
+  const createRequest = useCreateAccessRequest();
 
   const scopeLabels: Record<string, string> = {
     company: "Company-wide",
@@ -60,33 +64,30 @@ export function AccessRequestDialog({
     }
 
     // Check if user already has a pending request
-    if (hasPendingRequest(resourceId, resourceType, currentUser)) {
-      toast.error("You already have a pending request for this resource");
-      return;
-    }
+    // TODO: Implement hasPendingRequest check via API when endpoint is available
+    // if (hasPendingRequest(resourceId, resourceType, currentUser)) {
+    //   toast.error("You already have a pending request for this resource");
+    //   return;
+    // }
 
-    setRequesting(true);
     try {
-      createAccessRequest({
+      await createRequest.mutateAsync({
         resourceId,
         resourceType,
         resourceName,
         scope,
         reason: reason.trim(),
-        requestedBy: currentUser.id,
+        requestedBy: currentUser.id || currentUser.email || "Unknown",
         requestedByName: currentUser.name || currentUser.email || "Unknown User",
         companyId: currentUser.companyId,
         departmentId: currentUser.departmentId,
       });
 
-      toast.success("Access request submitted successfully");
-      onOpenChange(false);
       setReason("");
-    } catch (error) {
+      onOpenChange(false);
+    } catch (error: any) {
+      // Error toast is handled by the mutation hook
       console.error("Failed to submit access request:", error);
-      toast.error("Failed to submit access request. Please try again.");
-    } finally {
-      setRequesting(false);
     }
   };
 
@@ -99,44 +100,61 @@ export function AccessRequestDialog({
             Request Access
           </DialogTitle>
           <DialogDescription>
-            Request access to {resourceType === "folder" ? "folder" : "document"}: <strong>{resourceName}</strong>
+            Request access to {resourceType}: {resourceName}
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4 py-4">
-          {scope && (
-            <div className="flex items-center gap-2">
-              <Label>Scope:</Label>
-              <Badge variant="outline">{scopeLabels[scope]}</Badge>
-            </div>
-          )}
+          <div className="p-3 bg-muted rounded-md">
+            <p className="text-sm font-medium mb-1">{resourceName}</p>
+            <p className="text-xs text-muted-foreground">
+              {resourceType === "folder" ? "Folder" : "Document"}
+              {scope && (
+                <>
+                  {" • "}
+                  <Badge variant="outline" className="text-xs">
+                    {scopeLabels[scope]}
+                  </Badge>
+                </>
+              )}
+            </p>
+          </div>
 
           <div className="space-y-2">
-            <Label htmlFor="reason">Reason for Access Request *</Label>
+            <Label htmlFor="access-reason">Reason for Access *</Label>
             <Textarea
-              id="reason"
+              id="access-reason"
               placeholder="Explain why you need access to this resource..."
               value={reason}
               onChange={(e) => setReason(e.target.value)}
+              disabled={createRequest.isPending}
               rows={4}
-              disabled={requesting}
             />
-            <p className="text-xs text-muted-foreground">
-              Your request will be reviewed by: {approverText}
-            </p>
           </div>
+
+          {scope && (
+            <div className="p-3 bg-blue-50 dark:bg-blue-950 rounded-md">
+              <p className="text-xs font-medium mb-1">
+                This request will be reviewed by:
+              </p>
+              <p className="text-xs text-muted-foreground">{approverText}</p>
+            </div>
+          )}
         </div>
 
         <DialogFooter>
           <Button
             variant="outline"
             onClick={() => onOpenChange(false)}
-            disabled={requesting}
+            disabled={createRequest.isPending}
           >
             Cancel
           </Button>
-          <Button onClick={handleRequest} disabled={!reason.trim() || requesting}>
-            {requesting ? "Submitting..." : "Submit Request"}
+          <Button
+            onClick={handleRequest}
+            disabled={createRequest.isPending || !reason.trim()}
+          >
+            {createRequest.isPending ? "Submitting..." : "Submit Request"}
           </Button>
         </DialogFooter>
       </DialogContent>

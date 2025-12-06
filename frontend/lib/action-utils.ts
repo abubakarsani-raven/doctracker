@@ -107,11 +107,11 @@ export function canRespondToAction(action: any, workflow: any, currentUser: any)
  * - Assigned to them or their department
  * - They're part of the workflow that created it
  */
-export async function canViewAction(
+export function canViewAction(
   action: any,
   currentUser: any,
-  workflows: any[]
-): Promise<boolean> {
+  workflows: any[] = []
+): boolean {
   if (!currentUser) return false;
 
   // Can view if assigned
@@ -120,7 +120,7 @@ export async function canViewAction(
   }
 
   // Can view if part of workflow
-  if (action.workflowId) {
+  if (action.workflowId && workflows && Array.isArray(workflows)) {
     const workflow = workflows.find((w: any) => w.id === action.workflowId);
     if (workflow && isWorkflowParticipant(action, workflow, currentUser)) {
       return true;

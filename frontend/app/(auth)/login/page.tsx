@@ -29,29 +29,9 @@ export default function LoginPage() {
       // Authenticate with backend or mock API
       const result = await api.login(email, password);
       
-      // Store auth token if using real API
-      if (result.access_token) {
-        // Token is already stored by api-client
-        // Store user info in localStorage for context
-        if (result.user) {
-          localStorage.setItem("mockCurrentUser", JSON.stringify(result.user));
-        }
-      } else {
-        // Mock authentication fallback
-        localStorage.setItem("mockAuth", "true");
-        if (result.user) {
-          localStorage.setItem("mockCurrentUser", JSON.stringify(result.user));
-        }
-      }
-      
-      // Small delay to ensure localStorage is persisted
-      await new Promise(resolve => setTimeout(resolve, 200));
-      
-      // Trigger custom event to notify context to reload (for same-tab)
-      window.dispatchEvent(new Event("mockUserChanged"));
-      
-      // Redirect to dashboard on success with a full reload
-      window.location.href = "/dashboard";
+      // Token is already stored by api-client
+      // Redirect to dashboard on success
+      router.push("/dashboard");
     } catch (err) {
       console.error("Login error:", err);
       setError("Invalid email or password. Please try again.");

@@ -14,41 +14,33 @@ import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
 import Link from "next/link";
-
-// Mock notification data - replace with real data from API
-const notifications = [
-  {
-    id: "1",
-    type: "assignment",
-    title: "New document assigned",
-    message: "contract.pdf has been assigned to you",
-    time: "2 hours ago",
-    read: false,
-    href: "/documents/123",
-  },
-  {
-    id: "2",
-    type: "action",
-    title: "Action completed",
-    message: "Review contract terms has been completed",
-    time: "5 hours ago",
-    read: false,
-    href: "/actions/456",
-  },
-  {
-    id: "3",
-    type: "access",
-    title: "Access request approved",
-    message: "You now have access to Legal Documents folder",
-    time: "1 day ago",
-    read: true,
-    href: "/documents/folder/789",
-  },
-];
-
-const unreadCount = notifications.filter((n) => !n.read).length;
+import { useNotifications, useUnreadNotificationsCount, useMarkNotificationRead } from "@/lib/hooks/use-notifications";
+import { formatDistanceToNow } from "date-fns";
 
 export function NotificationDropdown() {
+  const { data: notifications = [], isLoading } = useNotifications();
+  const unreadCount = useUnreadNotificationsCount();
+  const markAsRead = useMarkNotificationRead();
+
+  const handleNotificationClick = async (notification: any) => {
+    if (!notification.read && notification.id) {
+      await markAsRead.mutateAsync(notification.id);
+    }
+  };
+
+  const getNotificationHref = (notification: any): string => {
+    if (notification.resourceType === "action" && notification.resourceId) {
+      return `/actions/${notification.resourceId}`;
+    }
+    if (notification.resourceType === "workflow" && notification.resourceId) {
+      return `/workflows/${notification.resourceId}`;
+    }
+    if (notification.resourceType === "access_request" && notification.resourceId) {
+      return `/access-requests`;
+    }
+    return "#";
+  };
+
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -76,17 +68,22 @@ export function NotificationDropdown() {
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
         <ScrollArea className="h-[400px]">
-          {notifications.length === 0 ? (
+          {isLoading ? (
+            <div className="p-4 text-center text-sm text-muted-foreground">
+              Loading notifications...
+            </div>
+          ) : notifications.length === 0 ? (
             <div className="p-4 text-center text-sm text-muted-foreground">
               No notifications
             </div>
           ) : (
             <div className="py-1">
-              {notifications.map((notification) => (
+              {notifications.slice(0, 10).map((notification: any) => (
                 <Link
                   key={notification.id}
-                  href={notification.href}
+                  href={getNotificationHref(notification)}
                   className="block"
+                  onClick={() => handleNotificationClick(notification)}
                 >
                   <DropdownMenuItem
                     className={cn(
@@ -108,7 +105,11 @@ export function NotificationDropdown() {
                       )}
                     </div>
                     <p className="text-xs text-muted-foreground">
-                      {notification.time}
+                      {notification.createdAt
+                        ? formatDistanceToNow(new Date(notification.createdAt), {
+                            addSuffix: true,
+                          })
+                        : "Recently"}
                     </p>
                   </DropdownMenuItem>
                 </Link>

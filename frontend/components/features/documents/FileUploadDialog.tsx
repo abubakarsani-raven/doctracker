@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import {
   Dialog,
   DialogContent,
@@ -24,8 +24,9 @@ import { FileUpload, FileWithMetadata } from "@/components/common";
 import { RichTextEditor } from "./RichTextEditor";
 import { toast } from "sonner";
 import { Upload, FileText, FilePlus } from "lucide-react";
-import { useMockData } from "@/lib/contexts/MockDataContext";
+import { useFolders } from "@/lib/hooks/use-documents";
 import { api } from "@/lib/api";
+import { useQueryClient } from "@tanstack/react-query";
 
 interface FileUploadDialogProps {
   open: boolean;
@@ -40,13 +41,15 @@ export function FileUploadDialog({
   folderId,
   onFilesUploaded,
 }: FileUploadDialogProps) {
-  const { folders } = useMockData();
+  const { data: allFolders = [] } = useFolders();
+  const queryClient = useQueryClient();
+
   const [activeTab, setActiveTab] = useState<"upload" | "rich-text">("upload");
   const [files, setFiles] = useState<FileWithMetadata[]>([]);
   const [scope, setScope] = useState<"company" | "department" | "division">("department");
   const [selectedFolderId, setSelectedFolderId] = useState<string>(folderId || "");
   const [uploading, setUploading] = useState(false);
-  
+
   // Rich text document state
   const [richTextName, setRichTextName] = useState("");
   const [richTextContent, setRichTextContent] = useState("");
@@ -54,7 +57,9 @@ export function FileUploadDialog({
   const [richTextFolderId, setRichTextFolderId] = useState<string>(folderId || "");
   const [creatingRichText, setCreatingRichText] = useState(false);
 
-  const accessibleFolders = folders.filter((f: any) => !f.parentFolderId); // Root folders for now
+  const accessibleFolders = useMemo(() => {
+    return allFolders.filter((f: any) => !f.parentFolderId); // Root folders for now
+  }, [allFolders]);
 
   const handleFilesSelected = (selectedFiles: FileWithMetadata[]) => {
     setFiles(selectedFiles);
@@ -75,9 +80,9 @@ export function FileUploadDialog({
     try {
       // Upload files to backend
       const uploadPromises = files.map(async (fileWithMeta) => {
-        const fileExtension = fileWithMeta.file.name.split('.').pop() || '';
+        const fileExtension = fileWithMeta.file.name.split(".").pop() || "";
         const fileType = fileExtension.toLowerCase();
-        
+
         return api.createFile({
           fileName: fileWithMeta.file.name,
           fileType: fileType,
@@ -87,6 +92,12 @@ export function FileUploadDialog({
       });
 
       await Promise.all(uploadPromises);
+
+      // Invalidate documents queries to refetch
+      queryClient.invalidateQueries({ queryKey: ["documents"] });
+      if (folderId) {
+        queryClient.invalidateQueries({ queryKey: ["documents", folderId] });
+      }
 
       toast.success(`Successfully uploaded ${files.length} file(s)`);
       setFiles([]);
@@ -125,6 +136,12 @@ export function FileUploadDialog({
         scopeLevel: richTextScope,
         folderId: richTextFolderId,
       });
+
+      // Invalidate documents queries to refetch
+      queryClient.invalidateQueries({ queryKey: ["documents"] });
+      if (folderId) {
+        queryClient.invalidateQueries({ queryKey: ["documents", folderId] });
+      }
 
       toast.success("Rich text document created successfully");
       setRichTextName("");
@@ -166,7 +183,11 @@ export function FileUploadDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "upload" | "rich-text")} className="mt-4">
+        <Tabs
+          value={activeTab}
+          onValueChange={(v) => setActiveTab(v as "upload" | "rich-text")}
+          className="mt-4"
+        >
           <TabsList className="grid w-full grid-cols-2">
             <TabsTrigger value="upload">
               <Upload className="mr-2 h-4 w-4" />
@@ -299,7 +320,11 @@ export function FileUploadDialog({
         </Tabs>
 
         <DialogFooter>
-          <Button variant="outline" onClick={handleClose} disabled={uploading || creatingRichText}>
+          <Button
+            variant="outline"
+            onClick={handleClose}
+            disabled={uploading || creatingRichText}
+          >
             Cancel
           </Button>
           {activeTab === "upload" ? (

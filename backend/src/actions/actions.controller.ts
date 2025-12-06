@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Put, Param, Body, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Put, Param, Body, UseGuards, Request } from '@nestjs/common';
 import { ActionsService } from './actions.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 
@@ -18,8 +18,8 @@ export class ActionsController {
   }
 
   @Post()
-  async create(@Body() createActionDto: any) {
-    return this.actionsService.create(createActionDto);
+  async create(@Body() createActionDto: any, @Request() req: any) {
+    return this.actionsService.create(createActionDto, req.user);
   }
 
   @Put(':id')

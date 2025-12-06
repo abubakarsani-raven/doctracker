@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useMemo } from "react";
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -29,14 +29,21 @@ import {
   FileText,
   Folder,
   FolderOpen,
+  Target,
+  CheckCircle2,
 } from "lucide-react";
 import { useParams, useRouter } from "next/navigation";
 import { formatDistanceToNow } from "date-fns";
 import { WorkflowTimeline } from "@/components/features/workflows/WorkflowTimeline";
 import { WorkflowFiles } from "@/components/features/workflows/WorkflowFiles";
 import { ActionResults } from "@/components/features/workflows/ActionResults";
-import { api } from "@/lib/api";
-import { updateWorkflowProgress, calculateWorkflowProgress } from "@/lib/workflow-utils";
+import { WorkflowGoalsList } from "@/components/features/workflows/WorkflowGoalsList";
+import { CreateGoalDialog } from "@/components/features/workflows/CreateGoalDialog";
+import { WorkflowCompletionDialog } from "@/components/features/workflows/WorkflowCompletionDialog";
+import { useWorkflow } from "@/lib/hooks/use-workflows";
+import { useActionsByWorkflow } from "@/lib/hooks/use-actions";
+import { useUsers, useCurrentUser } from "@/lib/hooks/use-users";
+import { calculateProgressFromActions } from "@/lib/workflow-utils";
 import Link from "next/link";
 import { CompanyBadge } from "@/components/features/workflows/CompanyBadge";
 
@@ -44,91 +51,96 @@ export default function WorkflowDetailPage() {
   const params = useParams();
   const router = useRouter();
   const workflowId = params.id as string;
-  
-  const [workflow, setWorkflow] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
+
+  const { data: workflow, isLoading } = useWorkflow(workflowId);
+  const { data: actions = [] } = useActionsByWorkflow(workflowId);
+  const { data: users = [] } = useUsers();
+  const { data: currentUser } = useCurrentUser();
+
+  // Helper to get creator name with fallback
+  const creatorName = useMemo(() => {
+    if (!workflow) return null;
+    
+    // First try creator relation (includes name/email)
+    if (workflow.creator?.name) return workflow.creator.name;
+    if (workflow.creator?.email) return workflow.creator.email;
+    
+    // If assignedBy is an ID, try to find user
+    if (workflow.assignedBy) {
+      // Check if it looks like a UUID (contains dashes)
+      if (typeof workflow.assignedBy === "string" && workflow.assignedBy.includes("-")) {
+        const user = users.find((u: any) => u.id === workflow.assignedBy);
+        if (user) {
+          return user.name || user.email || workflow.assignedBy;
+        }
+      }
+      // Otherwise might already be a name
+      return workflow.assignedBy;
+    }
+    
+    return null;
+  }, [workflow, users]);
+
   const [routingSheetOpen, setRoutingSheetOpen] = useState(false);
   const [addFileDialogOpen, setAddFileDialogOpen] = useState(false);
   const [createActionDialogOpen, setCreateActionDialogOpen] = useState(false);
-  
-  // Debounce timers to prevent rapid-fire API calls
-  const workflowUpdateTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const actionUpdateTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const [createGoalDialogOpen, setCreateGoalDialogOpen] = useState(false);
+  const [completeWorkflowDialogOpen, setCompleteWorkflowDialogOpen] = useState(false);
 
-  useEffect(() => {
-    loadWorkflow();
-    
-    // Listen for workflow updates - just reload workflow (no progress update to avoid loop)
-    const handleWorkflowUpdate = () => {
-      // Debounce to prevent rapid-fire calls
-      if (workflowUpdateTimerRef.current) {
-        clearTimeout(workflowUpdateTimerRef.current);
-      }
-      workflowUpdateTimerRef.current = setTimeout(() => {
-        loadWorkflow();
-      }, 300);
-    };
-    
-    // Listen for action updates to recalculate progress
-    const handleActionUpdate = () => {
-      // Debounce to prevent rapid-fire calls
-      if (actionUpdateTimerRef.current) {
-        clearTimeout(actionUpdateTimerRef.current);
-      }
-      actionUpdateTimerRef.current = setTimeout(async () => {
-        // Update progress but skip event dispatch to prevent circular loop
-        await updateWorkflowProgress(workflowId, true);
-        // Then reload workflow to reflect changes
-        loadWorkflow();
-      }, 300);
-    };
-    
-    window.addEventListener("workflowsUpdated", handleWorkflowUpdate);
-    window.addEventListener("actionsUpdated", handleActionUpdate);
-    
-    return () => {
-      // Cleanup timers
-      if (workflowUpdateTimerRef.current) {
-        clearTimeout(workflowUpdateTimerRef.current);
-      }
-      if (actionUpdateTimerRef.current) {
-        clearTimeout(actionUpdateTimerRef.current);
-      }
-      window.removeEventListener("workflowsUpdated", handleWorkflowUpdate);
-      window.removeEventListener("actionsUpdated", handleActionUpdate);
-    };
-  }, [workflowId]);
+  // Calculate progress from actions
+  const progress = useMemo(() => {
+    return workflow ? calculateProgressFromActions(actions) : 0;
+  }, [workflow, actions]);
 
-  const loadWorkflow = async () => {
-    setLoading(true);
-    try {
-      const workflowsData = await api.getWorkflows();
-      const localWorkflows = JSON.parse(localStorage.getItem("workflows") || "[]");
-      
-      // Merge and find workflow
-      const allWorkflows = [...workflowsData, ...localWorkflows];
-      const foundWorkflow = allWorkflows.find((w: any) => w.id === workflowId);
-      
-      if (foundWorkflow) {
-        // Calculate and update progress
-        const progress = await calculateWorkflowProgress(workflowId);
-        setWorkflow({
-          ...foundWorkflow,
-          progress: progress,
-        });
-      }
-    } catch (error) {
-      console.error("Failed to load workflow:", error);
-    } finally {
-      setLoading(false);
-    }
-  };
+  // Merge progress into workflow data for display
+  const workflowWithProgress = useMemo(() => {
+    return workflow ? { ...workflow, progress } : null;
+  }, [workflow, progress]);
 
-  if (loading) {
+  // Check if user can complete the workflow (must be before early returns)
+  const canCompleteWorkflow = useMemo(() => {
+    if (!currentUser || !workflow) return false;
+    
+    // Check if all actions are completed
+    const allActionsCompleted = actions.length > 0 && actions.every((a: any) => 
+      a.status === "completed" || 
+      a.status === "document_uploaded" || 
+      a.status === "response_received"
+    );
+    
+    // Allow completion if workflow is ready_for_review OR if progress is 100%
+    const canComplete = 
+      workflow.status === "ready_for_review" || 
+      workflow.status === "completed" ||
+      (progress >= 100 && allActionsCompleted);
+    
+    if (!canComplete) return false;
+
+    // Master role can always complete
+    if (currentUser.role === "Master") return true;
+
+    // Creator can complete
+    const isCreator = 
+      workflow.creator?.id === currentUser.id ||
+      workflow.assignedBy === currentUser.id;
+
+    // Assignee can complete
+    const isAssignee = 
+      (workflow.assignedTo?.type === "user" && 
+       workflow.assignedTo?.id === currentUser.id) ||
+      (workflow.assignedTo?.type === "department" && 
+       currentUser.department &&
+       (workflow.assignedTo?.name === currentUser.department ||
+        workflow.assignedTo?.id === currentUser.department));
+
+    return isCreator || isAssignee;
+  }, [currentUser, workflow, progress, actions]);
+
+  if (isLoading) {
     return <LoadingState type="card" />;
   }
 
-  if (!workflow) {
+  if (!workflowWithProgress) {
     return (
       <EmptyState
         icon={FileText}
@@ -142,9 +154,17 @@ export default function WorkflowDetailPage() {
     );
   }
 
-  const isOverdue = workflow.dueDate && new Date(workflow.dueDate) < new Date();
-  const workflowTitle = workflow.folderName || workflow.documentName || workflow.title || "Untitled Workflow";
-  const isFolderBased = workflow.type === "folder" || workflow.folderId;
+  const isOverdue =
+    workflowWithProgress.dueDate &&
+    new Date(workflowWithProgress.dueDate) < new Date();
+  const workflowTitle =
+    workflowWithProgress.folderName ||
+    workflowWithProgress.documentName ||
+    workflowWithProgress.title ||
+    "Untitled Workflow";
+  const isFolderBased =
+    workflowWithProgress.type === "folder" ||
+    workflowWithProgress.folderId;
 
   return (
     <div className="space-y-6">
@@ -174,9 +194,9 @@ export default function WorkflowDetailPage() {
           <div>
             <div className="flex items-center gap-2">
               <h1 className="text-2xl font-bold">{workflowTitle}</h1>
-              {workflow.type && (
+              {workflowWithProgress.type && (
                 <Badge variant="outline">
-                  {workflow.type === "folder" ? (
+                  {workflowWithProgress.type === "folder" ? (
                     <>
                       <Folder className="h-3 w-3 mr-1" />
                       Folder-Based
@@ -190,42 +210,58 @@ export default function WorkflowDetailPage() {
                 </Badge>
               )}
             </div>
-            {workflow.description && (
-              <p className="text-sm text-muted-foreground mt-1">{workflow.description}</p>
+            {workflowWithProgress.description && (
+              <p className="text-sm text-muted-foreground mt-1">
+                {workflowWithProgress.description}
+              </p>
             )}
             <div className="flex items-center gap-2 mt-2">
               <StatusBadge
                 status={
-                  workflow.status === "ready_for_review"
+                  workflowWithProgress.status === "ready_for_review"
                     ? "pending"
-                    : workflow.status === "completed"
+                    : workflowWithProgress.status === "completed"
                     ? "completed"
-                    : workflow.status === "in_progress"
+                    : workflowWithProgress.status === "in_progress"
                     ? "in_progress"
                     : "pending"
                 }
               />
-              {workflow.dueDate && (
+              {workflowWithProgress.dueDate && (
                 <div className="flex items-center gap-1 text-sm text-muted-foreground">
                   <Clock className="h-3 w-3" />
                   <span className={isOverdue ? "text-destructive" : ""}>
                     {isOverdue
                       ? "Overdue"
-                      : `Due ${formatDistanceToNow(new Date(workflow.dueDate), { addSuffix: true })}`}
+                      : `Due ${formatDistanceToNow(
+                          new Date(workflowWithProgress.dueDate),
+                          { addSuffix: true }
+                        )}`}
                   </span>
                 </div>
               )}
             </div>
           </div>
         </div>
-        <Button onClick={() => setRoutingSheetOpen(true)}>
-          <Send className="mr-2 h-4 w-4" />
-          Route Workflow
-        </Button>
+        <div className="flex items-center gap-2">
+          {canCompleteWorkflow && workflowWithProgress?.status !== "completed" && (
+            <Button
+              onClick={() => setCompleteWorkflowDialogOpen(true)}
+              className="bg-green-600 hover:bg-green-700"
+            >
+              <CheckCircle2 className="mr-2 h-4 w-4" />
+              Mark as Complete
+            </Button>
+          )}
+          <Button onClick={() => setRoutingSheetOpen(true)}>
+            <Send className="mr-2 h-4 w-4" />
+            Route Workflow
+          </Button>
+        </div>
       </div>
 
       {/* Folder/Document Context */}
-      {isFolderBased && workflow.folderId && (
+      {isFolderBased && workflowWithProgress.folderId && (
         <Card>
           <CardContent className="pt-6">
             <div className="flex items-center gap-2">
@@ -233,10 +269,12 @@ export default function WorkflowDetailPage() {
               <div className="flex-1">
                 <p className="text-sm font-medium">Folder</p>
                 <Link
-                  href={`/documents/folder/${workflow.folderId}`}
+                  href={`/documents/folder/${workflowWithProgress.folderId}`}
                   className="text-sm text-primary hover:underline"
                 >
-                  {workflow.folderPath || workflow.folderName || "View Folder"}
+                  {workflowWithProgress.folderPath ||
+                    workflowWithProgress.folderName ||
+                    "View Folder"}
                 </Link>
               </div>
             </div>
@@ -253,7 +291,11 @@ export default function WorkflowDetailPage() {
           {/* Actions List */}
           <WorkflowActionsList
             workflowId={workflowId}
-            onCreateAction={() => setCreateActionDialogOpen(true)}
+            onCreateAction={
+              workflowWithProgress?.status !== "completed"
+                ? () => setCreateActionDialogOpen(true)
+                : undefined
+            }
           />
 
           {/* Action Results */}
@@ -261,6 +303,13 @@ export default function WorkflowDetailPage() {
 
           {/* Files Added */}
           <WorkflowFiles workflowId={workflowId} />
+
+          {/* Post-Workflow Goals */}
+          <WorkflowGoalsList 
+            workflowId={workflowId}
+            createGoalDialogOpen={createGoalDialogOpen}
+            onOpenCreateGoalDialog={() => setCreateGoalDialogOpen(true)}
+          />
         </div>
 
         {/* Sidebar */}
@@ -275,19 +324,24 @@ export default function WorkflowDetailPage() {
                   Assigned To
                 </p>
                 <div className="flex items-center gap-2">
-                  {typeof workflow.assignedTo === "object" ? (
+                  {typeof workflowWithProgress.assignedTo === "object" ? (
                     <>
-                      {workflow.assignedTo.type === "user" ? (
+                      {workflowWithProgress.assignedTo.type === "user" ? (
                         <User className="h-4 w-4 text-muted-foreground" />
                       ) : (
                         <Building2 className="h-4 w-4 text-muted-foreground" />
                       )}
-                      <span className="text-sm">{workflow.assignedTo.name?.trim() || "Unassigned"}</span>
+                      <span className="text-sm">
+                        {workflowWithProgress.assignedTo.name?.trim() ||
+                          "Unassigned"}
+                      </span>
                     </>
                   ) : (
                     <>
                       <Building2 className="h-4 w-4 text-muted-foreground" />
-                      <span className="text-sm">{workflow.assignedTo || "Unassigned"}</span>
+                      <span className="text-sm">
+                        {workflowWithProgress.assignedTo || "Unassigned"}
+                      </span>
                     </>
                   )}
                 </div>
@@ -298,8 +352,8 @@ export default function WorkflowDetailPage() {
                   Progress
                 </p>
                 <div className="space-y-2">
-                  <Progress value={workflow.progress || 0} />
-                  <p className="text-sm">{workflow.progress || 0}% complete</p>
+                  <Progress value={progress} />
+                  <p className="text-sm">{progress}% complete</p>
                 </div>
               </div>
               <Separator />
@@ -308,24 +362,29 @@ export default function WorkflowDetailPage() {
                   Started
                 </p>
                 <p className="text-sm">
-                  {workflow.assignedAt
-                    ? formatDistanceToNow(new Date(workflow.assignedAt), { addSuffix: true })
+                  {workflowWithProgress.assignedAt
+                    ? formatDistanceToNow(
+                        new Date(workflowWithProgress.assignedAt),
+                        { addSuffix: true }
+                      )
                     : "Recently"}
                 </p>
               </div>
-              {workflow.assignedBy && (
+              {creatorName && (
                 <>
                   <Separator />
                   <div>
                     <p className="text-sm font-medium text-muted-foreground mb-1">
                       Created By
                     </p>
-                    <p className="text-sm">{workflow.assignedBy}</p>
+                    <p className="text-sm">{creatorName}</p>
                   </div>
                 </>
               )}
               {/* Cross-company information */}
-              {(workflow.isCrossCompany || workflow.sourceCompanyName || workflow.targetCompanyName) && (
+              {(workflowWithProgress.isCrossCompany ||
+                workflowWithProgress.sourceCompanyName ||
+                workflowWithProgress.targetCompanyName) && (
                 <>
                   <Separator />
                   <div>
@@ -333,29 +392,41 @@ export default function WorkflowDetailPage() {
                       Company Information
                     </p>
                     <div className="space-y-2">
-                      {workflow.sourceCompanyName && (
+                      {workflowWithProgress.sourceCompanyName && (
                         <div className="flex items-center gap-2">
-                          <span className="text-xs text-muted-foreground">From:</span>
-                          <CompanyBadge companyName={workflow.sourceCompanyName} size="sm" />
+                          <span className="text-xs text-muted-foreground">
+                            From:
+                          </span>
+                          <CompanyBadge
+                            companyName={workflowWithProgress.sourceCompanyName}
+                            size="sm"
+                          />
                         </div>
                       )}
-                      {workflow.targetCompanyName && (
+                      {workflowWithProgress.targetCompanyName && (
                         <div className="flex items-center gap-2">
-                          <span className="text-xs text-muted-foreground">To:</span>
-                          <CompanyBadge companyName={workflow.targetCompanyName} size="sm" />
+                          <span className="text-xs text-muted-foreground">
+                            To:
+                          </span>
+                          <CompanyBadge
+                            companyName={workflowWithProgress.targetCompanyName}
+                            size="sm"
+                          />
                         </div>
                       )}
-                      {workflow.approvalStatus === "pending" && (
+                      {workflowWithProgress.approvalStatus === "pending" && (
                         <div className="mt-2 p-2 bg-yellow-50 dark:bg-yellow-950 rounded-md border border-yellow-200 dark:border-yellow-800">
                           <p className="text-xs text-yellow-800 dark:text-yellow-200">
-                            <strong>Pending Approval:</strong> This workflow is waiting for approval from the target company.
+                            <strong>Pending Approval:</strong> This workflow is
+                            waiting for approval from the target company.
                           </p>
                         </div>
                       )}
-                      {workflow.approvalStatus === "approved" && (
+                      {workflowWithProgress.approvalStatus === "approved" && (
                         <div className="mt-2 p-2 bg-green-50 dark:bg-green-950 rounded-md border border-green-200 dark:border-green-800">
                           <p className="text-xs text-green-800 dark:text-green-200">
-                            <strong>Approved:</strong> Cross-company workflow has been approved.
+                            <strong>Approved:</strong> Cross-company workflow
+                            has been approved.
                           </p>
                         </div>
                       )}
@@ -372,27 +443,27 @@ export default function WorkflowDetailPage() {
               <CardTitle>Quick Actions</CardTitle>
             </CardHeader>
             <CardContent className="space-y-2">
-              {isFolderBased && workflow.folderId && (
+              {isFolderBased && workflowWithProgress.folderId && (
                 <Button
                   variant="outline"
                   className="w-full"
                   size="sm"
                   asChild
                 >
-                  <Link href={`/documents/folder/${workflow.folderId}`}>
+                  <Link href={`/documents/folder/${workflowWithProgress.folderId}`}>
                     <Folder className="mr-2 h-4 w-4" />
                     View Folder
                   </Link>
                 </Button>
               )}
-              {workflow.documentId && (
+              {workflowWithProgress.documentId && (
                 <Button
                   variant="outline"
                   className="w-full"
                   size="sm"
                   asChild
                 >
-                  <Link href={`/documents/${workflow.documentId}`}>
+                  <Link href={`/documents/${workflowWithProgress.documentId}`}>
                     <FileText className="mr-2 h-4 w-4" />
                     View Document
                   </Link>
@@ -416,6 +487,18 @@ export default function WorkflowDetailPage() {
                 <Plus className="mr-2 h-4 w-4" />
                 Create Action
               </Button>
+              {(workflowWithProgress.status === "ready_for_review" || 
+                workflowWithProgress.status === "completed") && (
+                <Button
+                  variant="outline"
+                  className="w-full"
+                  size="sm"
+                  onClick={() => setCreateGoalDialogOpen(true)}
+                >
+                  <Target className="mr-2 h-4 w-4" />
+                  Create Goal
+                </Button>
+              )}
             </CardContent>
           </Card>
         </div>
@@ -440,8 +523,28 @@ export default function WorkflowDetailPage() {
         open={createActionDialogOpen}
         onOpenChange={setCreateActionDialogOpen}
         workflowId={workflowId}
-        workflow={workflow}
-        onActionCreated={loadWorkflow}
+        workflow={workflowWithProgress}
+      />
+
+      {/* Create Goal Dialog */}
+      <CreateGoalDialog
+        open={createGoalDialogOpen}
+        onOpenChange={setCreateGoalDialogOpen}
+        workflowId={workflowId}
+        onGoalCreated={() => {
+          setCreateGoalDialogOpen(false);
+        }}
+      />
+
+      {/* Complete Workflow Dialog */}
+      <WorkflowCompletionDialog
+        open={completeWorkflowDialogOpen}
+        onOpenChange={setCompleteWorkflowDialogOpen}
+        workflowId={workflowId}
+        workflow={workflowWithProgress}
+        onWorkflowCompleted={() => {
+          setCompleteWorkflowDialogOpen(false);
+        }}
       />
     </div>
   );

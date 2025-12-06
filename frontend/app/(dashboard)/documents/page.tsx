@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo } from "react";
 import { FolderCard, DocumentCard, EmptyState, LoadingState } from "@/components/common";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -49,14 +49,22 @@ import {
   Square
 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { api } from "@/lib/api";
-import { useMockData } from "@/lib/contexts/MockDataContext";
 import { toast } from "sonner";
 import { hasAccessToResource } from "@/lib/access-request-utils";
+import { useCurrentUser } from "@/lib/hooks/use-users";
+import { useCompanies } from "@/lib/hooks/use-companies";
+import { useFolders } from "@/lib/hooks/use-documents";
+import { useDocuments } from "@/lib/hooks/use-documents";
 
 export default function DocumentsPage() {
   const router = useRouter();
-  const { currentUser, companies, folders: contextFolders, documents: contextDocuments, loading: contextLoading } = useMockData();
+  const { data: currentUser } = useCurrentUser();
+  const { data: companies = [] } = useCompanies();
+  const { data: allFolders = [], isLoading: foldersLoading } = useFolders();
+  const { data: allDocuments = [], isLoading: documentsLoading } = useDocuments();
+  
+  const loading = foldersLoading || documentsLoading;
+  
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
   const [searchQuery, setSearchQuery] = useState("");
   const [sortBy, setSortBy] = useState("modified");
@@ -76,33 +84,10 @@ export default function DocumentsPage() {
   const [filterScope, setFilterScope] = useState<string>("all");
   const [filterType, setFilterType] = useState<string>("all");
   const [filterTags, setFilterTags] = useState<string[]>([]);
-  
-  // Use folders and documents from context (which has all folders/documents)
-  const allFolders = contextFolders || [];
-  const allDocuments = contextDocuments || [];
-  const loading = contextLoading;
-  
-  // Debug logging
-  useEffect(() => {
-    console.log('[Documents Page] Context data:', {
-      folders: allFolders.length,
-      documents: allDocuments.length,
-      currentUser: currentUser?.email,
-      companies: companies?.length,
-      loading,
-    });
-    if (allFolders.length > 0) {
-      console.log('[Documents Page] Sample folder:', allFolders[0]);
-    }
-    if (allDocuments.length > 0) {
-      console.log('[Documents Page] Sample document:', allDocuments[0]);
-    }
-  }, [allFolders, allDocuments, currentUser, companies, loading]);
 
   // Get user's department and division IDs from companies data
   const userContext = useMemo(() => {
-    if (!currentUser || !companies) {
-      console.log('[Documents Page] No user/companies for userContext');
+    if (!currentUser || !companies.length) {
       return { userDeptId: null, userDivId: null, userCompanyId: null };
     }
 
@@ -154,15 +139,6 @@ export default function DocumentsPage() {
       }
     }
 
-    console.log('[Documents Page] userContext:', {
-      userCompanyId,
-      userDeptId,
-      userDivId,
-      userEmail: currentUser.email,
-      userRole: currentUser.role,
-      userCompanyIdFromUser: currentUser.companyId,
-    });
-
     return { userDeptId, userDivId, userCompanyId };
   }, [currentUser, companies]);
 
@@ -188,7 +164,7 @@ export default function DocumentsPage() {
 
   // Helper function to check if user has permission to a folder
   const hasFolderPermission = (folder: any): boolean => {
-    if (!currentUser || !companies) return false;
+    if (!currentUser || !companies.length) return false;
     const { userDeptId, userDivId, userCompanyId } = userContext;
 
     // Check if access is explicitly revoked (by higher roles)
@@ -271,7 +247,7 @@ export default function DocumentsPage() {
 
   // Helper function to check if user has permission to a document
   const hasDocumentPermission = (doc: any): boolean => {
-    if (!currentUser || !companies) return false;
+    if (!currentUser || !companies.length) return false;
     const { userDeptId, userDivId, userCompanyId } = userContext;
 
     // Check if access is explicitly revoked (by higher roles)
@@ -343,20 +319,12 @@ export default function DocumentsPage() {
   // IMPORTANT: Show ALL folders from user's company, regardless of permission
   // Access control is handled by hasAccess prop on FolderCard
   const folders = useMemo(() => {
-    console.log('[Documents Page] Filtering folders:', {
-      allFoldersCount: allFolders.length,
-      currentUser: currentUser?.email,
-      hasCompanies: !!companies,
-    });
-    
     // If no user/companies, show all folders (will be filtered by company later)
-    if (!currentUser || !companies) {
-      console.log('[Documents Page] No user/companies, returning all folders:', allFolders.length);
+    if (!currentUser || !companies.length) {
       return allFolders;
     }
 
     const { userCompanyId } = userContext;
-    console.log('[Documents Page] User company ID:', userCompanyId);
 
     // Filter by company - users can only see folders from their company
     // But show ALL folders from their company, even if they don't have access
@@ -366,14 +334,9 @@ export default function DocumentsPage() {
       
       // Others can only see folders from their company
       // Show them even if they don't have permission - they can request access
-      const matches = folder.companyId === userCompanyId;
-      if (!matches) {
-        console.log('[Documents Page] Folder excluded (companyId mismatch):', folder.name, folder.companyId, 'vs', userCompanyId);
-      }
-      return matches;
+      return folder.companyId === userCompanyId;
     });
     
-    console.log('[Documents Page] Filtered folders count:', filtered.length);
     return filtered;
   }, [allFolders, currentUser, userContext, companies]);
 
@@ -381,20 +344,12 @@ export default function DocumentsPage() {
   // IMPORTANT: Show ALL documents from user's company, regardless of permission
   // Access control is handled by hasAccess prop on DocumentCard
   const documents = useMemo(() => {
-    console.log('[Documents Page] Filtering documents:', {
-      allDocumentsCount: allDocuments.length,
-      currentUser: currentUser?.email,
-      hasCompanies: !!companies,
-    });
-    
     // If no user/companies, show all documents (will be filtered by company later)
-    if (!currentUser || !companies) {
-      console.log('[Documents Page] No user/companies, returning all documents:', allDocuments.length);
+    if (!currentUser || !companies.length) {
       return allDocuments;
     }
 
     const { userCompanyId } = userContext;
-    console.log('[Documents Page] User company ID:', userCompanyId);
 
     // Filter by company - users can only see documents from their company
     // But show ALL documents from their company, even if they don't have access
@@ -404,30 +359,20 @@ export default function DocumentsPage() {
       
       // Check document's companyId first (if available)
       if (doc.companyId) {
-        const matches = doc.companyId === userCompanyId;
-        if (!matches) {
-          console.log('[Documents Page] Document excluded (companyId mismatch):', doc.name, doc.companyId, 'vs', userCompanyId);
-        }
-        return matches;
+        return doc.companyId === userCompanyId;
       }
       
       // If no companyId on document, check via folder
       const documentFolder = allFolders.find((f: any) => f.id === doc.folderId);
       if (documentFolder) {
-        const matches = documentFolder.companyId === userCompanyId;
-        if (!matches) {
-          console.log('[Documents Page] Document excluded (folder companyId mismatch):', doc.name, documentFolder.companyId, 'vs', userCompanyId);
-        }
-        return matches;
+        return documentFolder.companyId === userCompanyId;
       }
       
       // If no folder and no companyId, include it (let access control handle it)
       // This ensures documents aren't hidden just because they lack metadata
-      console.log('[Documents Page] Document included (no companyId/folder):', doc.name);
       return true;
     });
     
-    console.log('[Documents Page] Filtered documents count:', filtered.length);
     return filtered;
   }, [allDocuments, allFolders, currentUser, userContext, companies]);
 

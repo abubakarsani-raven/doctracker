@@ -1,14 +1,22 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { EmptyState } from "@/components/common";
-import { Plus, Upload, MessageSquare, CheckCircle2, Clock, User, Building2 } from "lucide-react";
+import { EmptyState, LoadingState } from "@/components/common";
+import {
+  Plus,
+  Upload,
+  MessageSquare,
+  CheckCircle2,
+  Clock,
+  User,
+  Building2,
+} from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
-import { api } from "@/lib/api";
-import { useMockData } from "@/lib/contexts/MockDataContext";
+import { useActionsByWorkflow } from "@/lib/hooks/use-actions";
+import { useCurrentUser } from "@/lib/hooks/use-users";
 import { ActionCompletionDialog } from "./ActionCompletionDialog";
 import { DocumentUploadActionDialog } from "./DocumentUploadActionDialog";
 import { RequestResponseActionDialog } from "./RequestResponseActionDialog";
@@ -22,50 +30,13 @@ export function WorkflowActionsList({
   workflowId,
   onCreateAction,
 }: WorkflowActionsListProps) {
-  const { currentUser } = useMockData();
-  const [actions, setActions] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { data: currentUser } = useCurrentUser();
+  const { data: actions = [], isLoading } = useActionsByWorkflow(workflowId);
+
   const [completionDialogOpen, setCompletionDialogOpen] = useState(false);
   const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
   const [responseDialogOpen, setResponseDialogOpen] = useState(false);
   const [selectedAction, setSelectedAction] = useState<any>(null);
-
-  useEffect(() => {
-    loadActions();
-    
-    // Listen for action updates
-    const handleActionUpdate = () => {
-      loadActions();
-    };
-    window.addEventListener("actionsUpdated", handleActionUpdate);
-    
-    return () => {
-      window.removeEventListener("actionsUpdated", handleActionUpdate);
-    };
-  }, [workflowId]);
-
-  const loadActions = async () => {
-    setLoading(true);
-    try {
-      const allActions = await api.getActions();
-      const localActions = JSON.parse(localStorage.getItem("actions") || "[]");
-      
-      // Merge and filter by workflow
-      const allWorkflowActions = [...allActions, ...localActions]
-        .filter((action: any) => action.workflowId === workflowId);
-      
-      // Deduplicate
-      const uniqueActions = Array.from(
-        new Map(allWorkflowActions.map((a: any) => [a.id, a])).values()
-      );
-      
-      setActions(uniqueActions);
-    } catch (error) {
-      console.error("Failed to load actions:", error);
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const getActionTypeIcon = (type?: string) => {
     switch (type) {
@@ -106,28 +77,30 @@ export function WorkflowActionsList({
 
   const handleActionClick = (action: any) => {
     setSelectedAction(action);
-    
+
     if (action.type === "document_upload" && action.status === "pending") {
       setUploadDialogOpen(true);
-    } else if (action.type === "document_upload" && action.status === "document_uploaded") {
-      // Allow marking document upload as complete
+    } else if (
+      action.type === "document_upload" &&
+      action.status === "document_uploaded"
+    ) {
       setCompletionDialogOpen(true);
     } else if (action.type === "request_response" && !action.response) {
-      // Show response dialog if no response yet
       setResponseDialogOpen(true);
-    } else if (action.type === "request_response" && action.status === "response_received") {
-      // Allow requester to mark response action as complete
+    } else if (
+      action.type === "request_response" &&
+      action.status === "response_received"
+    ) {
       setCompletionDialogOpen(true);
     } else if (action.type === "request_response") {
-      // View/respond to request
       setResponseDialogOpen(true);
     } else if (action.status !== "completed") {
       setCompletionDialogOpen(true);
     }
   };
 
-  if (loading) {
-    return <div className="text-sm text-muted-foreground">Loading actions...</div>;
+  if (isLoading) {
+    return <LoadingState type="card" />;
   }
 
   return (
@@ -147,10 +120,14 @@ export function WorkflowActionsList({
           icon={CheckCircle2}
           title="No actions yet"
           description="Create actions to track work that needs to be done for this workflow"
-          action={onCreateAction ? {
-            label: "Create Action",
-            onClick: onCreateAction,
-          } : undefined}
+          action={
+            onCreateAction
+              ? {
+                  label: "Create Action",
+                  onClick: onCreateAction,
+                }
+              : undefined
+          }
         />
       ) : (
         <div className="space-y-3">
@@ -184,7 +161,10 @@ export function WorkflowActionsList({
                     ) : (
                       <Building2 className="h-3 w-3" />
                     )}
-                    <span>Assigned to: {action.assignedTo?.name?.trim() || "Unassigned"}</span>
+                    <span>
+                      Assigned to:{" "}
+                      {action.assignedTo?.name?.trim() || action.assignedToName || "Unassigned"}
+                    </span>
                   </div>
                   {action.type && (
                     <Badge variant="outline" className="text-xs">
@@ -194,38 +174,47 @@ export function WorkflowActionsList({
                   {action.createdAt && (
                     <div className="flex items-center gap-1">
                       <Clock className="h-3 w-3" />
-                      <span>Created {formatDistanceToNow(new Date(action.createdAt), { addSuffix: true })}</span>
+                      <span>
+                        Created{" "}
+                        {formatDistanceToNow(new Date(action.createdAt), {
+                          addSuffix: true,
+                        })}
+                      </span>
                     </div>
                   )}
                 </div>
-                {action.type === "document_upload" && action.status === "pending" && (
-                  <div className="mt-2 p-2 bg-blue-50 dark:bg-blue-950 rounded-md">
-                    <p className="text-xs text-blue-800 dark:text-blue-200">
-                      Click to upload the required document
-                    </p>
-                  </div>
-                )}
-                {action.type === "document_upload" && action.status === "document_uploaded" && (
-                  <div className="mt-2 p-2 bg-green-50 dark:bg-green-950 rounded-md">
-                    <p className="text-xs text-green-800 dark:text-green-200">
-                      Document uploaded. Click to mark action as complete.
-                    </p>
-                  </div>
-                )}
-                {action.type === "request_response" && action.status === "pending" && (
-                  <div className="mt-2 p-2 bg-yellow-50 dark:bg-yellow-950 rounded-md">
-                    <p className="text-xs text-yellow-800 dark:text-yellow-200">
-                      Click to respond to this request
-                    </p>
-                  </div>
-                )}
-                {action.type === "request_response" && action.status === "response_received" && (
-                  <div className="mt-2 p-2 bg-green-50 dark:bg-green-950 rounded-md">
-                    <p className="text-xs text-green-800 dark:text-green-200">
-                      Response received. Click to view and mark as complete.
-                    </p>
-                  </div>
-                )}
+                {action.type === "document_upload" &&
+                  action.status === "pending" && (
+                    <div className="mt-2 p-2 bg-blue-50 dark:bg-blue-950 rounded-md">
+                      <p className="text-xs text-blue-800 dark:text-blue-200">
+                        Click to upload the required document
+                      </p>
+                    </div>
+                  )}
+                {action.type === "document_upload" &&
+                  action.status === "document_uploaded" && (
+                    <div className="mt-2 p-2 bg-green-50 dark:bg-green-950 rounded-md">
+                      <p className="text-xs text-green-800 dark:text-green-200">
+                        Document uploaded. Click to mark action as complete.
+                      </p>
+                    </div>
+                  )}
+                {action.type === "request_response" &&
+                  action.status === "pending" && (
+                    <div className="mt-2 p-2 bg-yellow-50 dark:bg-yellow-950 rounded-md">
+                      <p className="text-xs text-yellow-800 dark:text-yellow-200">
+                        Click to respond to this request
+                      </p>
+                    </div>
+                  )}
+                {action.type === "request_response" &&
+                  action.status === "response_received" && (
+                    <div className="mt-2 p-2 bg-green-50 dark:bg-green-950 rounded-md">
+                      <p className="text-xs text-green-800 dark:text-green-200">
+                        Response received. Click to view and mark as complete.
+                      </p>
+                    </div>
+                  )}
               </CardContent>
             </Card>
           ))}
@@ -242,7 +231,6 @@ export function WorkflowActionsList({
           }}
           actionId={selectedAction.id}
           action={selectedAction}
-          onActionCompleted={loadActions}
         />
       )}
 
@@ -256,7 +244,6 @@ export function WorkflowActionsList({
           }}
           actionId={selectedAction.id}
           action={selectedAction}
-          onUploadComplete={loadActions}
         />
       )}
 
@@ -270,8 +257,10 @@ export function WorkflowActionsList({
           }}
           actionId={selectedAction.id}
           action={selectedAction}
-          onResponseComplete={loadActions}
-          isRequester={currentUser && selectedAction?.createdBy === currentUser.name}
+          isRequester={
+            currentUser &&
+            selectedAction?.createdBy === currentUser.name
+          }
         />
       )}
     </div>

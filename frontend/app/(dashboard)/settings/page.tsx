@@ -4,21 +4,37 @@ import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
 import { toast } from "sonner";
-import { User, Bell, Shield, Palette } from "lucide-react";
-import { useMockData } from "@/lib/contexts/MockDataContext";
+import { User, Bell, Shield, Palette, Building2 } from "lucide-react";
+import { useCurrentUser } from "@/lib/hooks/use-users";
+import { useCompanies } from "@/lib/hooks/use-companies";
+import { useMemo } from "react";
 
 export default function SettingsPage() {
-  const { currentUser } = useMockData();
+  const { data: currentUser } = useCurrentUser();
+  const { data: companies = [] } = useCompanies();
   const [profileData, setProfileData] = useState({
     name: "",
     email: "",
     phone: "",
   });
+
+  // Get company name from companyId
+  const companyName = useMemo(() => {
+    if (!currentUser?.companyId) return null;
+    const company = companies.find((c: any) => c.id === currentUser.companyId);
+    return company?.name || null;
+  }, [currentUser, companies]);
 
   useEffect(() => {
     if (currentUser) {
@@ -29,6 +45,7 @@ export default function SettingsPage() {
       });
     }
   }, [currentUser]);
+
   const [notificationPreferences, setNotificationPreferences] = useState({
     assignments: { email: true, inApp: true },
     accessRequests: { email: true, inApp: true },
@@ -41,7 +58,7 @@ export default function SettingsPage() {
   const handleSaveProfile = async () => {
     setSaving(true);
     try {
-      // TODO: Replace with actual API call
+      // TODO: Replace with actual API call when endpoint is available
       await new Promise((resolve) => setTimeout(resolve, 1000));
       toast.success("Profile updated successfully");
     } catch (error) {
@@ -54,7 +71,7 @@ export default function SettingsPage() {
   const handleSaveNotifications = async () => {
     setSaving(true);
     try {
-      // TODO: Replace with actual API call
+      // TODO: Replace with actual API call when endpoint is available
       await new Promise((resolve) => setTimeout(resolve, 1000));
       toast.success("Notification preferences updated");
     } catch (error) {
@@ -66,163 +83,280 @@ export default function SettingsPage() {
 
   return (
     <div className="space-y-6">
-        {/* Header */}
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">Settings</h1>
-          <p className="text-muted-foreground">
-            Manage your account settings and preferences
-          </p>
-        </div>
+      {/* Header */}
+      <div>
+        <h1 className="text-3xl font-bold tracking-tight">Settings</h1>
+        <p className="text-muted-foreground">
+          Manage your account settings and preferences
+        </p>
+      </div>
 
-        <Tabs defaultValue="profile" className="space-y-6">
-          <TabsList>
-            <TabsTrigger value="profile">Profile</TabsTrigger>
-            <TabsTrigger value="notifications">Notifications</TabsTrigger>
-            <TabsTrigger value="security">Security</TabsTrigger>
-          </TabsList>
+      <Tabs defaultValue="profile" className="space-y-6">
+        <TabsList>
+          <TabsTrigger value="profile">Profile</TabsTrigger>
+          <TabsTrigger value="notifications">Notifications</TabsTrigger>
+          <TabsTrigger value="security">Security</TabsTrigger>
+        </TabsList>
 
-          {/* Profile Tab */}
-          <TabsContent value="profile">
-            <Card>
-              <CardHeader>
-                <CardTitle>Profile Information</CardTitle>
-                <CardDescription>
-                  Update your personal information
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="name">Full Name</Label>
-                  <Input
-                    id="name"
-                    value={profileData.name}
-                    onChange={(e) =>
-                      setProfileData({ ...profileData, name: e.target.value })
-                    }
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="email">Email</Label>
-                  <Input
-                    id="email"
-                    type="email"
-                    value={profileData.email}
-                    onChange={(e) =>
-                      setProfileData({ ...profileData, email: e.target.value })
-                    }
-                    disabled
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    Email cannot be changed
-                  </p>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="phone">Phone Number</Label>
-                  <Input
-                    id="phone"
-                    type="tel"
-                    value={profileData.phone}
-                    onChange={(e) =>
-                      setProfileData({ ...profileData, phone: e.target.value })
-                    }
-                  />
-                </div>
-                <Separator />
-                <Button onClick={handleSaveProfile} disabled={saving}>
-                  {saving ? "Saving..." : "Save Changes"}
-                </Button>
-              </CardContent>
-            </Card>
-          </TabsContent>
+        {/* Profile Tab */}
+        <TabsContent value="profile">
+          <Card>
+            <CardHeader>
+              <CardTitle>Profile Information</CardTitle>
+              <CardDescription>
+                Update your personal information
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="name">Full Name</Label>
+                <Input
+                  id="name"
+                  value={profileData.name}
+                  onChange={(e) =>
+                    setProfileData({ ...profileData, name: e.target.value })
+                  }
+                  disabled={saving}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="email">Email</Label>
+                <Input id="email" type="email" value={profileData.email} disabled />
+                <p className="text-xs text-muted-foreground">
+                  Email cannot be changed
+                </p>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="phone">Phone Number</Label>
+                <Input
+                  id="phone"
+                  type="tel"
+                  value={profileData.phone}
+                  onChange={(e) =>
+                    setProfileData({ ...profileData, phone: e.target.value })
+                  }
+                  disabled={saving}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="department">Department</Label>
+                <Input
+                  id="department"
+                  value={currentUser?.department || "Not assigned"}
+                  disabled
+                  className="bg-muted"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Department cannot be changed
+                </p>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="company">Company</Label>
+                <Input
+                  id="company"
+                  value={companyName || currentUser?.companyId || "Not assigned"}
+                  disabled
+                  className="bg-muted"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Company cannot be changed
+                </p>
+              </div>
+              <Button onClick={handleSaveProfile} disabled={saving}>
+                {saving ? "Saving..." : "Save Changes"}
+              </Button>
+            </CardContent>
+          </Card>
+        </TabsContent>
 
-          {/* Notifications Tab */}
-          <TabsContent value="notifications">
-            <Card>
-              <CardHeader>
-                <CardTitle>Notification Preferences</CardTitle>
-                <CardDescription>
-                  Configure how you receive notifications
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-6">
-                {Object.entries(notificationPreferences).map(([key, value]) => (
-                  <div key={key} className="space-y-4">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <Label className="capitalize">
-                          {key.replace(/([A-Z])/g, " $1").trim()}
-                        </Label>
-                        <p className="text-sm text-muted-foreground">
-                          Get notified about {key.replace(/([A-Z])/g, " $1").toLowerCase()}
-                        </p>
-                      </div>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <Label htmlFor={`${key}-email`} className="text-sm">
+        {/* Notifications Tab */}
+        <TabsContent value="notifications">
+          <Card>
+            <CardHeader>
+              <CardTitle>Notification Preferences</CardTitle>
+              <CardDescription>
+                Choose how you want to be notified about activities
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              {/* Assignment Notifications */}
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <Label>Workflow Assignments</Label>
+                    <p className="text-sm text-muted-foreground">
+                      Get notified when workflows are assigned to you
+                    </p>
+                  </div>
+                  <div className="flex gap-4">
+                    <div className="flex items-center gap-2">
+                      <Label htmlFor="assign-email" className="text-sm">
                         Email
                       </Label>
                       <Switch
-                        id={`${key}-email`}
-                        checked={value.email}
-                        onCheckedChange={(checked) => {
+                        id="assign-email"
+                        checked={notificationPreferences.assignments.email}
+                        onCheckedChange={(checked) =>
                           setNotificationPreferences({
                             ...notificationPreferences,
-                            [key]: { ...value, email: checked },
-                          });
-                        }}
+                            assignments: {
+                              ...notificationPreferences.assignments,
+                              email: checked,
+                            },
+                          })
+                        }
                       />
                     </div>
-                    <div className="flex items-center justify-between">
-                      <Label htmlFor={`${key}-inapp`} className="text-sm">
+                    <div className="flex items-center gap-2">
+                      <Label htmlFor="assign-inapp" className="text-sm">
                         In-App
                       </Label>
                       <Switch
-                        id={`${key}-inapp`}
-                        checked={value.inApp}
-                        onCheckedChange={(checked) => {
+                        id="assign-inapp"
+                        checked={notificationPreferences.assignments.inApp}
+                        onCheckedChange={(checked) =>
                           setNotificationPreferences({
                             ...notificationPreferences,
-                            [key]: { ...value, inApp: checked },
-                          });
-                        }}
+                            assignments: {
+                              ...notificationPreferences.assignments,
+                              inApp: checked,
+                            },
+                          })
+                        }
                       />
                     </div>
-                    <Separator />
                   </div>
-                ))}
+                </div>
+
+                <Separator />
+
+                {/* Access Request Notifications */}
+                <div className="flex items-center justify-between">
+                  <div>
+                    <Label>Access Requests</Label>
+                    <p className="text-sm text-muted-foreground">
+                      Get notified about access request updates
+                    </p>
+                  </div>
+                  <div className="flex gap-4">
+                    <div className="flex items-center gap-2">
+                      <Label htmlFor="access-email" className="text-sm">
+                        Email
+                      </Label>
+                      <Switch
+                        id="access-email"
+                        checked={notificationPreferences.accessRequests.email}
+                        onCheckedChange={(checked) =>
+                          setNotificationPreferences({
+                            ...notificationPreferences,
+                            accessRequests: {
+                              ...notificationPreferences.accessRequests,
+                              email: checked,
+                            },
+                          })
+                        }
+                      />
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Label htmlFor="access-inapp" className="text-sm">
+                        In-App
+                      </Label>
+                      <Switch
+                        id="access-inapp"
+                        checked={notificationPreferences.accessRequests.inApp}
+                        onCheckedChange={(checked) =>
+                          setNotificationPreferences({
+                            ...notificationPreferences,
+                            accessRequests: {
+                              ...notificationPreferences.accessRequests,
+                              inApp: checked,
+                            },
+                          })
+                        }
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <Separator />
+
+                {/* Action Notifications */}
+                <div className="flex items-center justify-between">
+                  <div>
+                    <Label>Action Updates</Label>
+                    <p className="text-sm text-muted-foreground">
+                      Get notified when actions are completed or updated
+                    </p>
+                  </div>
+                  <div className="flex gap-4">
+                    <div className="flex items-center gap-2">
+                      <Label htmlFor="action-email" className="text-sm">
+                        Email
+                      </Label>
+                      <Switch
+                        id="action-email"
+                        checked={notificationPreferences.actions.email}
+                        onCheckedChange={(checked) =>
+                          setNotificationPreferences({
+                            ...notificationPreferences,
+                            actions: {
+                              ...notificationPreferences.actions,
+                              email: checked,
+                            },
+                          })
+                        }
+                      />
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Label htmlFor="action-inapp" className="text-sm">
+                        In-App
+                      </Label>
+                      <Switch
+                        id="action-inapp"
+                        checked={notificationPreferences.actions.inApp}
+                        onCheckedChange={(checked) =>
+                          setNotificationPreferences({
+                            ...notificationPreferences,
+                            actions: {
+                              ...notificationPreferences.actions,
+                              inApp: checked,
+                            },
+                          })
+                        }
+                      />
+                    </div>
+                  </div>
+                </div>
+
                 <Button onClick={handleSaveNotifications} disabled={saving}>
                   {saving ? "Saving..." : "Save Preferences"}
                 </Button>
-              </CardContent>
-            </Card>
-          </TabsContent>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
 
-          {/* Security Tab */}
-          <TabsContent value="security">
-            <Card>
-              <CardHeader>
-                <CardTitle>Security</CardTitle>
-                <CardDescription>
-                  Manage your account security settings
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="space-y-2">
-                  <Label>Change Password</Label>
-                  <Button variant="outline">Change Password</Button>
-                </div>
-                <Separator />
-                <div className="space-y-2">
-                  <Label>Two-Factor Authentication</Label>
-                  <p className="text-sm text-muted-foreground">
-                    Add an extra layer of security to your account
-                  </p>
-                  <Button variant="outline">Enable 2FA</Button>
-                </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
-        </Tabs>
-      </div>
+        {/* Security Tab */}
+        <TabsContent value="security">
+          <Card>
+            <CardHeader>
+              <CardTitle>Security Settings</CardTitle>
+              <CardDescription>
+                Manage your account security settings
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="p-4 bg-muted rounded-md">
+                <p className="text-sm text-muted-foreground">
+                  Security settings will be available here. Password change,
+                  two-factor authentication, and session management features
+                  coming soon.
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
+    </div>
   );
 }
