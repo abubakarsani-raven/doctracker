@@ -273,6 +273,17 @@ export class ActionsService {
         workflow: {
           select: {
             companyId: true,
+            assignedBy: true,
+            assignedToType: true,
+            assignedToId: true,
+            routingHistory: {
+              select: {
+                fromType: true,
+                fromId: true,
+                toType: true,
+                toId: true,
+              },
+            },
           },
         },
       },
@@ -286,6 +297,14 @@ export class ActionsService {
     if (currentUser) {
       if (currentUser.role !== 'Master' && existingAction.workflow?.companyId !== currentUser.companyId) {
         throw new Error('Access denied: Cannot update action from different company');
+      }
+
+      // If trying to complete the action, check if user is authorized
+      if (data.status === 'completed') {
+        const isAuthorized = await this.canCompleteAction(existingAction, currentUser);
+        if (!isAuthorized) {
+          throw new Error('Access denied: Only workflow members or the assigned user can complete this action');
+        }
       }
     }
 
@@ -375,6 +394,101 @@ export class ActionsService {
         name: updatedAction.assignedToName,
       } : null,
     };
+  }
+
+  /**
+   * Check if user can complete an action
+   * User can complete if:
+   * 1. They are assigned to the action
+   * 2. They are a workflow participant (creator, current assignee, or in routing history)
+   */
+  private async canCompleteAction(action: any, user: any): Promise<boolean> {
+    if (!user || !action) return false;
+
+    // Check if user is assigned to the action
+    if (action.assignedToType === 'user' && action.assignedToId === user.id) {
+      return true;
+    }
+
+    // Check if user is in the assigned department
+    if (action.assignedToType === 'department' && action.assignedToId) {
+      // Fetch user with departments if not already loaded
+      let userWithDepts = user;
+      if (!user.userDepartments) {
+        userWithDepts = await this.prisma.user.findUnique({
+          where: { id: user.id },
+          include: {
+            userDepartments: {
+              include: {
+                department: true,
+              },
+            },
+          },
+        });
+      }
+
+      if (userWithDepts?.userDepartments && Array.isArray(userWithDepts.userDepartments)) {
+        const userDeptIds = userWithDepts.userDepartments.map((ud: any) => ud.departmentId || ud.department?.id);
+        if (userDeptIds.includes(action.assignedToId)) {
+          return true;
+        }
+      }
+    }
+
+    // Check if user is a workflow participant
+    if (action.workflow) {
+      const workflow = action.workflow;
+      
+      // Check if user is workflow creator
+      if (workflow.assignedBy === user.id) {
+        return true;
+      }
+
+      // Check if user is current workflow assignee
+      if (workflow.assignedToType === 'user' && workflow.assignedToId === user.id) {
+        return true;
+      }
+
+      // Check if user is in routing history
+      if (workflow.routingHistory && Array.isArray(workflow.routingHistory)) {
+        // Fetch user with departments if not already loaded
+        let userWithDepts = user;
+        if (!user.userDepartments) {
+          userWithDepts = await this.prisma.user.findUnique({
+            where: { id: user.id },
+            include: {
+              userDepartments: {
+                include: {
+                  department: true,
+                },
+              },
+            },
+          });
+        }
+
+        const userDeptIds = userWithDepts?.userDepartments 
+          ? userWithDepts.userDepartments.map((ud: any) => ud.departmentId || ud.department?.id)
+          : [];
+
+        for (const route of workflow.routingHistory) {
+          if (route.fromType === 'user' && route.fromId === user.id) {
+            return true;
+          }
+          if (route.toType === 'user' && route.toId === user.id) {
+            return true;
+          }
+          // Check department assignments in routing
+          if (route.fromType === 'department' && route.fromId && userDeptIds.includes(route.fromId)) {
+            return true;
+          }
+          if (route.toType === 'department' && route.toId && userDeptIds.includes(route.toId)) {
+            return true;
+          }
+        }
+      }
+    }
+
+    return false;
   }
 
   /**
