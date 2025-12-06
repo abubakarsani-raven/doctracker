@@ -6,26 +6,50 @@ export class ActionsService {
   constructor(private prisma: PrismaService) {}
 
   async findAll() {
-    const actions = await this.prisma.action.findMany({
-      include: {
-        workflow: true,
-        document: true,
-        creator: true,
-      },
-      orderBy: {
-        createdAt: 'desc',
-      },
-    });
-    
-    // Transform actions to include assignedTo object for frontend compatibility
-    return actions.map(action => ({
-      ...action,
-      assignedTo: action.assignedToType && action.assignedToName ? {
-        type: action.assignedToType,
-        id: action.assignedToId || '',
-        name: action.assignedToName,
-      } : null,
-    }));
+    try {
+      const actions = await this.prisma.action.findMany({
+        include: {
+          workflow: {
+            select: {
+              id: true,
+              title: true,
+              status: true,
+              companyId: true,
+            },
+          },
+          document: {
+            select: {
+              id: true,
+              fileName: true,
+              fileType: true,
+            },
+          },
+          creator: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+            },
+          },
+        },
+        orderBy: {
+          createdAt: 'desc',
+        },
+      });
+      
+      // Transform actions to include assignedTo object for frontend compatibility
+      return actions.map(action => ({
+        ...action,
+        assignedTo: action.assignedToType && action.assignedToName ? {
+          type: action.assignedToType,
+          id: action.assignedToId || '',
+          name: action.assignedToName,
+        } : null,
+      }));
+    } catch (error: any) {
+      console.error('[ActionsService] Error in findAll:', error);
+      throw new Error(`Failed to fetch actions: ${error.message || 'Unknown error'}`);
+    }
   }
 
   async findOne(id: string) {

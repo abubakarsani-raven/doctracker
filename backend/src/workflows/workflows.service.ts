@@ -121,19 +121,48 @@ export class WorkflowsService {
   }
 
   async findAll() {
-    const workflows = await this.prisma.workflow.findMany({
-      include: {
-        company: true,
-        document: true,
-        actions: true,
-        routingHistory: true,
-        creator: true,
-      },
-      orderBy: {
-        createdAt: 'desc',
-      },
-    });
-    return this.transformWorkflows(workflows);
+    try {
+      const workflows = await this.prisma.workflow.findMany({
+        include: {
+          company: {
+            select: {
+              id: true,
+              name: true,
+            },
+          },
+          document: {
+            select: {
+              id: true,
+              fileName: true,
+              fileType: true,
+            },
+          },
+          actions: {
+            select: {
+              id: true,
+              title: true,
+              status: true,
+              type: true,
+            },
+          },
+          routingHistory: true,
+          creator: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+            },
+          },
+        },
+        orderBy: {
+          createdAt: 'desc',
+        },
+      });
+      return this.transformWorkflows(workflows);
+    } catch (error: any) {
+      console.error('[WorkflowsService] Error in findAll:', error);
+      throw new Error(`Failed to fetch workflows: ${error.message || 'Unknown error'}`);
+    }
   }
 
   async findByFolderId(folderId: string) {
