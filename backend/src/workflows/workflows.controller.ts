@@ -9,7 +9,12 @@ export class WorkflowsController {
 
   @Get()
   async findAll(@Request() req: any) {
-    return this.workflowsService.findAll(req.user?.id, req.user?.companyId);
+    try {
+      return await this.workflowsService.findAll(req.user?.id, req.user?.companyId);
+    } catch (error: any) {
+      console.error('[WorkflowsController] Error getting workflows:', error);
+      throw error;
+    }
   }
 
   @Get('folder/:folderId')

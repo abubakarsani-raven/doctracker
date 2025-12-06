@@ -17,12 +17,20 @@ export class StorageController {
   }
 
   @Get('user')
-  async getUserStorage(@Request() req) {
-    const bytes = await this.storageService.getUserStorage(req.user.id);
-    return {
-      bytes,
-      formatted: this.storageService.formatStorageSize(bytes),
-    };
+  async getUserStorage(@Request() req: any) {
+    try {
+      if (!req.user?.id) {
+        return { bytes: 0, formatted: '0 B' };
+      }
+      const bytes = await this.storageService.getUserStorage(req.user.id);
+      return {
+        bytes,
+        formatted: this.storageService.formatStorageSize(bytes),
+      };
+    } catch (error: any) {
+      console.error('[StorageController] Error getting user storage:', error);
+      return { bytes: 0, formatted: '0 B' };
+    }
   }
 
   @Get('total')

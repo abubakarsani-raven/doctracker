@@ -137,23 +137,32 @@ export class WorkflowsService {
       
       // If userId provided, filter to workflows visible to user
       if (userId) {
-        const user = await this.prisma.user.findUnique({
-          where: { id: userId },
-          include: {
-            userRoles: {
-              include: {
-                role: true,
+        try {
+          const user = await this.prisma.user.findUnique({
+            where: { id: userId },
+            select: {
+              id: true,
+              companyId: true,
+              userRoles: {
+                include: {
+                  role: true,
+                },
               },
             },
-          },
-        });
-        
-        const userRole = user?.userRoles[0]?.role?.name || 'Staff';
-        if (user && userRole !== 'Master') {
-          // Non-Master users see workflows from their company only
-          if (user.companyId) {
-            where.companyId = user.companyId;
+          });
+          
+          if (user) {
+            const userRole = user.userRoles?.[0]?.role?.name || 'Staff';
+            if (userRole !== 'Master') {
+              // Non-Master users see workflows from their company only
+              if (user.companyId) {
+                where.companyId = user.companyId;
+              }
+            }
           }
+        } catch (error) {
+          console.error('[WorkflowsService] Error fetching user:', error);
+          // Continue without filtering if user lookup fails
         }
       }
       

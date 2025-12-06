@@ -10,11 +10,12 @@ export class FilesService {
   ) {}
 
   async getFiles(companyId?: string) {
-    const where: any = {};
-    if (companyId) {
-      where.companyId = companyId;
-    }
-    return this.prisma.file.findMany({
+    try {
+      const where: any = {};
+      if (companyId) {
+        where.companyId = companyId;
+      }
+      return await this.prisma.file.findMany({
       where,
       include: {
         fileFolderLinks: {
@@ -34,6 +35,10 @@ export class FilesService {
         createdAt: 'desc',
       },
     });
+    } catch (error) {
+      console.error('[FilesService] Error getting files:', error);
+      throw error;
+    }
   }
 
   async getFile(id: string, currentUser?: any) {
@@ -63,14 +68,15 @@ export class FilesService {
   }
 
   async getFolders(companyId?: string, parentId?: string) {
-    const where: any = {};
-    if (companyId) {
-      where.companyId = companyId;
-    }
-    if (parentId !== undefined) {
-      where.parentFolderId = parentId;
-    }
-    return this.prisma.folder.findMany({
+    try {
+      const where: any = {};
+      if (companyId) {
+        where.companyId = companyId;
+      }
+      if (parentId !== undefined) {
+        where.parentFolderId = parentId;
+      }
+      return await this.prisma.folder.findMany({
       where,
       include: {
         creator: {
@@ -90,6 +96,10 @@ export class FilesService {
         createdAt: 'desc',
       },
     });
+    } catch (error) {
+      console.error('[FilesService] Error getting folders:', error);
+      throw error;
+    }
   }
 
   async getFolder(id: string, currentUser?: any) {

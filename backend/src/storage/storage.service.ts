@@ -19,19 +19,24 @@ export class StorageService {
   }
 
   async getUserStorage(userId: string): Promise<number> {
-    // Get user's company
-    const user = await this.prisma.user.findUnique({
-      where: { id: userId },
-      select: { companyId: true },
-    });
+    try {
+      // Get user's company
+      const user = await this.prisma.user.findUnique({
+        where: { id: userId },
+        select: { companyId: true },
+      });
 
-    if (!user || !user.companyId) {
+      if (!user || !user.companyId) {
+        return 0;
+      }
+
+      // For now, return company storage
+      // In the future, could track per-user storage
+      return this.getCompanyStorage(user.companyId);
+    } catch (error) {
+      console.error('[StorageService] Error getting user storage:', error);
       return 0;
     }
-
-    // For now, return company storage
-    // In the future, could track per-user storage
-    return this.getCompanyStorage(user.companyId);
   }
 
   async getTotalStorage(): Promise<number> {

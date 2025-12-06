@@ -30,9 +30,14 @@ export class FilesController {
     @Query('companyId') companyId?: string,
     @Query('parentId') parentId?: string,
   ) {
-    // Use user's company if not specified
-    const userCompanyId = req.user?.companyId || companyId;
-    return this.filesService.getFolders(userCompanyId, parentId);
+    try {
+      // Use user's company if not specified
+      const userCompanyId = req.user?.companyId || companyId;
+      return await this.filesService.getFolders(userCompanyId, parentId);
+    } catch (error: any) {
+      console.error('[FilesController] Error getting folders:', error);
+      throw error;
+    }
   }
 
   @Get('folders/:id')
@@ -71,9 +76,14 @@ export class FilesController {
 
   @Get()
   async getFiles(@Request() req: any, @Query('companyId') companyId?: string) {
-    // Use user's company if not specified
-    const userCompanyId = req.user?.companyId || companyId;
-    return this.filesService.getFiles(userCompanyId);
+    try {
+      // Use user's company if not specified
+      const userCompanyId = req.user?.companyId || companyId;
+      return await this.filesService.getFiles(userCompanyId);
+    } catch (error: any) {
+      console.error('[FilesController] Error getting files:', error);
+      throw error;
+    }
   }
 
   @Get(':id')
