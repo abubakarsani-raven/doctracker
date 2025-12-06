@@ -9,9 +9,31 @@ dotenv.config();
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
   
-  // Enable CORS
+  // Trusted domains for CORS
+  const trustedOrigins = [
+    'http://localhost:3000', // Local development
+    'https://doctracker-git-main-sani-abubakar-babaganas-projects.vercel.app', // Production Vercel
+  ];
+  
+  // Add CORS_ORIGIN from environment if provided
+  if (process.env.CORS_ORIGIN) {
+    const envOrigins = process.env.CORS_ORIGIN.split(',').map(origin => origin.trim());
+    trustedOrigins.push(...envOrigins);
+  }
+  
+  // Enable CORS with trusted domains
   app.enableCors({
-    origin: process.env.CORS_ORIGIN || 'http://localhost:3000',
+    origin: (origin, callback) => {
+      // Allow requests with no origin (like mobile apps or curl requests)
+      if (!origin) return callback(null, true);
+      
+      if (trustedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        console.warn(`CORS blocked origin: ${origin}`);
+        callback(new Error('Not allowed by CORS'));
+      }
+    },
     credentials: true,
   });
   
@@ -31,6 +53,7 @@ async function bootstrap() {
   const port = process.env.PORT || 4003;
   await app.listen(port);
   console.log(`Backend server running on http://localhost:${port}`);
+  console.log(`CORS enabled for origins: ${trustedOrigins.join(', ')}`);
 }
 
 bootstrap();
