@@ -26,6 +26,7 @@ model Company {
   notifications  Notification[]
   accessRequests AccessRequest[]
   goals          WorkflowGoal[]
+  activities     Activity[]
 
   @@map("companies")
 }
@@ -52,6 +53,8 @@ model User {
   workflows      Workflow[]          @relation("WorkflowCreator")
   actions        Action[]            @relation("ActionCreator")
   createdGoals   WorkflowGoal[]      @relation("GoalCreator")
+  activities     Activity[]
+  documentNotes  DocumentNote[]
 
   @@map("users")
 }
@@ -150,6 +153,7 @@ model Folder {
   departmentId  String?  @map("department_id")
   divisionId    String?  @map("division_id")
   createdBy     String   @map("created_by")
+  permissionsJson Json?  @map("permissions_json")
   createdAt     DateTime @default(now()) @map("created_at")
   updatedAt     DateTime @updatedAt @map("updated_at")
 
@@ -169,6 +173,7 @@ model File {
   fileName    String   @map("file_name")
   fileType    String   @map("file_type")
   storagePath String   @map("storage_path")
+  fileSize    BigInt?  @map("file_size") // File size in bytes
   scopeLevel  String   @map("scope_level") // company, department, division
   departmentId String? @map("department_id")
   divisionId  String?  @map("division_id")
@@ -184,6 +189,7 @@ model File {
   richTextDoc     RichTextDocument?
   workflows       Workflow[]
   actions         Action[]
+  notes           DocumentNote[]
 
   @@map("files")
 }
@@ -475,4 +481,49 @@ model Notification {
   company Company? @relation(fields: [companyId], references: [id])
 
   @@map("notifications")
+}
+
+// ============ ACTIVITY LOG ============
+
+model Activity {
+  id           String   @id @default(uuid())
+  userId       String   @map("user_id")
+  companyId    String?  @map("company_id")
+  activityType String   @map("activity_type") // workflow_created, action_completed, document_uploaded, etc.
+  resourceType String?  @map("resource_type") // workflow, action, document, note
+  resourceId   String?  @map("resource_id")
+  description  String
+  metadata     Json?    // Additional activity data
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  // Relations
+  user    User     @relation(fields: [userId], references: [id])
+  company Company? @relation(fields: [companyId], references: [id])
+
+  @@index([userId])
+  @@index([companyId])
+  @@index([resourceType, resourceId])
+  @@index([activityType])
+  @@index([createdAt])
+  @@map("activities")
+}
+
+// ============ DOCUMENT NOTES ============
+
+model DocumentNote {
+  id         String   @id @default(uuid())
+  documentId String   @map("document_id")
+  content    String
+  isPublic   Boolean  @default(true) @map("is_public")
+  createdBy  String   @map("created_by")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  document File @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  creator  User @relation(fields: [createdBy], references: [id])
+
+  @@index([documentId])
+  @@index([createdBy])
+  @@map("document_notes")
 }

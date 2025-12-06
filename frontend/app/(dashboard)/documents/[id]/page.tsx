@@ -11,7 +11,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
-import { StatusBadge, LoadingState, EmptyState } from "@/components/common";
+import { StatusBadge, LoadingState, EmptyState, PresenceIndicator } from "@/components/common";
 import { Download, Share2, MoreVertical, FileText, Clock, User, Workflow } from "lucide-react";
 import {
   DropdownMenu,
@@ -157,6 +157,7 @@ export default function DocumentDetailPage() {
               {document.status && (
                 <StatusBadge status={document.status as any} />
               )}
+              <PresenceIndicator resourceType="document" resourceId={documentId} />
             </div>
           </div>
         </div>

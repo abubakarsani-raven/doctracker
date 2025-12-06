@@ -305,13 +305,154 @@ export const api = {
     return await client.markNotificationRead(id);
   },
 
+  // Access Requests
+  getAccessRequests: async () => {
+    const client = getClient();
+    return await client.getAccessRequests();
+  },
+
+  getAccessRequest: async (id: string) => {
+    const client = getClient();
+    return await client.getAccessRequest(id);
+  },
+
+  createAccessRequest: async (data: any) => {
+    const client = getClient();
+    return await client.createAccessRequest(data);
+  },
+
+  updateAccessRequest: async (id: string, data: any) => {
+    const client = getClient();
+    return await client.updateAccessRequest(id, data);
+  },
+
+  deleteAccessRequest: async (id: string) => {
+    const client = getClient();
+    return await client.deleteAccessRequest(id);
+  },
+
+  // Approval Requests
+  getApprovalRequests: async () => {
+    const client = getClient();
+    return await client.getApprovalRequests();
+  },
+
+  getApprovalRequest: async (id: string) => {
+    const client = getClient();
+    return await client.getApprovalRequest(id);
+  },
+
+  createApprovalRequest: async (data: any) => {
+    const client = getClient();
+    return await client.createApprovalRequest(data);
+  },
+
+  updateApprovalRequest: async (id: string, data: any) => {
+    const client = getClient();
+    return await client.updateApprovalRequest(id, data);
+  },
+
+  deleteApprovalRequest: async (id: string) => {
+    const client = getClient();
+    return await client.deleteApprovalRequest(id);
+  },
+
+  // Permissions
+  getFolderPermissions: async (folderId: string) => {
+    const client = getClient();
+    return await client.getFolderPermissions(folderId);
+  },
+
+  getFilePermissions: async (fileId: string, folderId?: string) => {
+    const client = getClient();
+    return await client.getFilePermissions(fileId, folderId);
+  },
+
+  updateFilePermissions: async (fileId: string, folderId: string, permissions: any) => {
+    const client = getClient();
+    return await client.updateFilePermissions(fileId, folderId, permissions);
+  },
+
+  checkPermission: async (
+    userId: string,
+    resourceType: 'folder' | 'file',
+    resourceId: string,
+    permission: 'read' | 'write' | 'delete' | 'share' | 'manage',
+  ) => {
+    const client = getClient();
+    return await client.checkPermission(userId, resourceType, resourceId, permission);
+  },
+
+  // Storage
+  getCompanyStorage: async (companyId: string) => {
+    const client = getClient();
+    return await client.getCompanyStorage(companyId);
+  },
+
+  getUserStorage: async () => {
+    const client = getClient();
+    return await client.getUserStorage();
+  },
+
+  getTotalStorage: async () => {
+    const client = getClient();
+    return await client.getTotalStorage();
+  },
+
+  // Activity
+  getActivity: async (queryParams?: string) => {
+    const client = getClient();
+    return await client.getActivity(queryParams);
+  },
+
+  getRecentActivity: async (limit: number = 50) => {
+    const client = getClient();
+    return await client.getRecentActivity(limit);
+  },
+
+  // File Upload
+  uploadFile: async (
+    file: File,
+    data: {
+      scopeLevel: string;
+      folderId?: string;
+      departmentId?: string;
+      divisionId?: string;
+    },
+  ) => {
+    const client = getClient();
+    return await client.uploadFile(file, data);
+  },
+
+  // Document Notes
+  getDocumentNotes: async (documentId: string) => {
+    const client = getClient();
+    return await client.getDocumentNotes(documentId);
+  },
+
+  createDocumentNote: async (documentId: string, data: { content: string; isPublic: boolean }) => {
+    const client = getClient();
+    return await client.createDocumentNote(documentId, data);
+  },
+
+  updateDocumentNote: async (noteId: string, data: { content?: string; isPublic?: boolean }) => {
+    const client = getClient();
+    return await client.updateDocumentNote(noteId, data);
+  },
+
+  deleteDocumentNote: async (noteId: string) => {
+    const client = getClient();
+    return await client.deleteDocumentNote(noteId);
+  },
+
   // Dashboard Stats
   getDashboardStats: async () => {
     const client = getClient();
-    const [documents, workflows, actions] = await Promise.all([
+    const [documents, workflows, actions, storageData] = await Promise.all([
       client.getFiles().catch(() => []),
       client.getWorkflows().catch(() => []),
       client.getActions().catch(() => []),
+      client.getStorageStats().catch(() => ({ bytes: 0 })),
     ]);
 
     return {
@@ -322,7 +463,7 @@ export const api = {
         ).length || 0,
       pendingActions:
         actions?.filter((a: any) => a.status === "pending").length || 0,
-      storageUsed: 0, // TODO: Calculate from actual file sizes when available
+      storageUsed: storageData?.bytes || 0,
     };
   },
 };

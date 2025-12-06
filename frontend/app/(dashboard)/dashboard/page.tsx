@@ -2,6 +2,7 @@
 
 import { useMemo } from "react";
 import { useRouter } from "next/navigation";
+import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { DocumentCard } from "@/components/common";
 import { FileText, Workflow, CheckSquare, HardDrive } from "lucide-react";
@@ -24,8 +25,16 @@ export default function DashboardPage() {
   const { data: workflows = [], isLoading: workflowsLoading } = useWorkflows();
   const { data: actions = [], isLoading: actionsLoading } = useActions();
   const { data: goals = [], isLoading: goalsLoading } = useMyGoals();
+  const { data: storageData, isLoading: storageLoading } = useQuery({
+    queryKey: ["userStorage", currentUser?.id],
+    queryFn: async () => {
+      if (!currentUser?.id) return { bytes: 0, formatted: "0 B" };
+      return await api.getUserStorage();
+    },
+    enabled: !!currentUser?.id,
+  });
 
-  const isLoading = documentsLoading || workflowsLoading || actionsLoading || goalsLoading;
+  const isLoading = documentsLoading || workflowsLoading || actionsLoading || goalsLoading || storageLoading;
 
   // Filter actions to only show user's assigned actions
   const myActions = useMemo(() => {
@@ -78,7 +87,7 @@ export default function DashboardPage() {
       ).length,
       pendingActions: myActions.filter((a: any) => a.status === "pending").length,
       myGoals: goals.filter((g: any) => g.status !== "achieved").length,
-      storageUsed: 0, // TODO: Calculate from actual file sizes when available
+      storageUsed: storageData?.bytes || 0,
     };
   }, [documents, myWorkflows, myActions, goals]);
 
@@ -138,7 +147,7 @@ export default function DashboardPage() {
     },
     {
       label: "Storage Used",
-      value: formatBytes(stats.storageUsed),
+      value: storageData?.formatted || formatBytes(stats.storageUsed),
       icon: HardDrive,
       change: null,
     },

@@ -80,7 +80,6 @@ export default function AccessRequestsPage() {
         },
       });
 
-      // TODO: Create notification via API when endpoint is available
       toast.success("Access request approved");
     } catch (error: any) {
       console.error("Failed to approve:", error);
@@ -112,7 +111,6 @@ export default function AccessRequestsPage() {
         },
       });
 
-      // TODO: Create notification via API when endpoint is available
       toast.success("Access request rejected");
       setRejectDialogOpen(false);
       setSelectedRequest(null);

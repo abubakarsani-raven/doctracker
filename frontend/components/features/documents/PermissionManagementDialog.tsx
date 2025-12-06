@@ -33,6 +33,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
 import { Users, UserPlus, X, Shield } from "lucide-react";
 import { useUsers } from "@/lib/hooks/use-users";
+import { api } from "@/lib/api";
 
 interface PermissionManagementDialogProps {
   open: boolean;
@@ -69,9 +70,28 @@ export function PermissionManagementDialog({
   }, [open, folderId, documentId]);
 
   const loadPermissions = async () => {
-    // TODO: Load actual permissions from API
-    // For now, show empty list
-    setPermissions([]);
+    try {
+      if (documentId) {
+        const data = await api.getFilePermissions(documentId, folderId);
+        if (data.explicitPermissions && Array.isArray(data.explicitPermissions)) {
+          setPermissions(data.explicitPermissions);
+        } else {
+          setPermissions([]);
+        }
+      } else if (folderId) {
+        const data = await api.getFolderPermissions(folderId);
+        if (data.explicitPermissions && Array.isArray(data.explicitPermissions)) {
+          setPermissions(data.explicitPermissions);
+        } else {
+          setPermissions([]);
+        }
+      } else {
+        setPermissions([]);
+      }
+    } catch (error: any) {
+      console.error("Failed to load permissions:", error);
+      setPermissions([]);
+    }
   };
 
   const handleAddPermission = () => {
@@ -115,8 +135,15 @@ export function PermissionManagementDialog({
   const handleSave = async () => {
     setSaving(true);
     try {
-      // TODO: Replace with actual API call
-      await new Promise((resolve) => setTimeout(resolve, 1000));
+      if (documentId && folderId) {
+        await api.updateFilePermissions(documentId, folderId, permissions);
+      } else {
+        // Folder permissions would need a separate endpoint
+        // For now, show error
+        toast.error("Folder permissions update not yet implemented");
+        setSaving(false);
+        return;
+      }
       toast.success("Permissions updated successfully");
       onOpenChange(false);
     } catch (error) {

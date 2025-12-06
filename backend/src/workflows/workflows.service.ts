@@ -1,9 +1,15 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { WebSocketGateway } from '../websocket/websocket.gateway';
+import { ActivityService } from '../activity/activity.service';
 
 @Injectable()
 export class WorkflowsService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private wsGateway: WebSocketGateway,
+    private activityService: ActivityService,
+  ) {}
 
   /**
    * Transform workflow data to include assignedTo object and resolve names
@@ -120,9 +126,39 @@ export class WorkflowsService {
     return Promise.all(workflows.map((w) => this.transformWorkflow(w)));
   }
 
-  async findAll() {
+  async findAll(userId?: string, companyId?: string) {
     try {
+      const where: any = {};
+      
+      // Filter by company if provided
+      if (companyId) {
+        where.companyId = companyId;
+      }
+      
+      // If userId provided, filter to workflows visible to user
+      if (userId) {
+        const user = await this.prisma.user.findUnique({
+          where: { id: userId },
+          include: {
+            userRoles: {
+              include: {
+                role: true,
+              },
+            },
+          },
+        });
+        
+        const userRole = user?.userRoles[0]?.role?.name || 'Staff';
+        if (user && userRole !== 'Master') {
+          // Non-Master users see workflows from their company only
+          if (user.companyId) {
+            where.companyId = user.companyId;
+          }
+        }
+      }
+      
       const workflows = await this.prisma.workflow.findMany({
+        where,
         include: {
           company: {
             select: {
@@ -219,7 +255,7 @@ export class WorkflowsService {
     return this.transformWorkflows(workflows);
   }
 
-  async findOne(id: string) {
+  async findOne(id: string, currentUser?: any) {
     const workflow = await this.prisma.workflow.findUnique({
       where: { id },
       include: {
@@ -242,7 +278,19 @@ export class WorkflowsService {
         },
       },
     });
-    return workflow ? this.transformWorkflow(workflow) : null;
+    
+    if (!workflow) {
+      return null;
+    }
+    
+    // Check access control - user must be from same company (unless Master)
+    if (currentUser) {
+      if (currentUser.role !== 'Master' && workflow.companyId !== currentUser.companyId) {
+        throw new Error('Access denied: Workflow belongs to a different company');
+      }
+    }
+    
+    return this.transformWorkflow(workflow);
   }
 
   async create(data: any, currentUser: any) {
@@ -353,10 +401,29 @@ export class WorkflowsService {
         routingHistory: true,
       },
     });
-    return this.transformWorkflow(workflow);
+    const transformed = this.transformWorkflow(workflow);
+    
+    // Emit WebSocket event
+    this.wsGateway.emitWorkflowUpdate(workflow.id, transformed);
+    
+    // Log activity
+    try {
+      await this.activityService.createActivity({
+        userId: currentUser.id,
+        companyId: workflow.companyId,
+        activityType: 'workflow_created',
+        resourceType: 'workflow',
+        resourceId: workflow.id,
+        description: `Workflow "${workflow.title}" was created`,
+      });
+    } catch (error) {
+      console.error('Failed to log activity:', error);
+    }
+    
+    return transformed;
   }
 
-  async update(id: string, data: any) {
+  async update(id: string, data: any, currentUser?: any) {
     // Transform frontend data to match Prisma schema
     const updateData: any = {};
 
@@ -530,6 +597,22 @@ export class WorkflowsService {
         };
       }
     }
+    
+    // Check access control before updating
+    const existingWorkflow = await this.prisma.workflow.findUnique({
+      where: { id },
+      select: { companyId: true },
+    });
+    
+    if (!existingWorkflow) {
+      throw new Error('Workflow not found');
+    }
+    
+    if (currentUser) {
+      if (currentUser.role !== 'Master' && existingWorkflow.companyId !== currentUser.companyId) {
+        throw new Error('Access denied: Cannot update workflow from different company');
+      }
+    }
 
     const workflow = await this.prisma.workflow.update({
       where: { id },
@@ -545,7 +628,27 @@ export class WorkflowsService {
         },
       },
     });
-    return this.transformWorkflow(workflow);
+    const transformed = this.transformWorkflow(workflow);
+    
+    // Emit WebSocket event
+    this.wsGateway.emitWorkflowUpdate(id, transformed);
+    
+    // Log activity
+    try {
+      await this.activityService.createActivity({
+        userId: currentUser?.id || workflow.assignedBy,
+        companyId: workflow.companyId,
+        activityType: 'workflow_updated',
+        resourceType: 'workflow',
+        resourceId: id,
+        description: `Workflow "${workflow.title}" was updated`,
+        metadata: { status: data.status, progress: data.progress },
+      });
+    } catch (error) {
+      console.error('Failed to log activity:', error);
+    }
+    
+    return transformed;
   }
 
   // Goals methods
@@ -796,7 +899,27 @@ export class WorkflowsService {
     });
   }
 
-  async updateGoal(goalId: string, data: any) {
+  async updateGoal(goalId: string, data: any, currentUser?: any) {
+    // Check access control
+    const goal = await this.prisma.workflowGoal.findUnique({
+      where: { id: goalId },
+      include: {
+        workflow: {
+          select: { companyId: true },
+        },
+      },
+    });
+    
+    if (!goal) {
+      throw new Error('Goal not found');
+    }
+    
+    if (currentUser) {
+      if (currentUser.role !== 'Master' && goal.workflow.companyId !== currentUser.companyId) {
+        throw new Error('Access denied: Cannot update goal from different company');
+      }
+    }
+    
     return this.prisma.workflowGoal.update({
       where: { id: goalId },
       data: {
@@ -836,7 +959,27 @@ export class WorkflowsService {
     });
   }
 
-  async deleteGoal(goalId: string) {
+  async deleteGoal(goalId: string, currentUser?: any) {
+    // Check access control
+    const goal = await this.prisma.workflowGoal.findUnique({
+      where: { id: goalId },
+      include: {
+        workflow: {
+          select: { companyId: true },
+        },
+      },
+    });
+    
+    if (!goal) {
+      throw new Error('Goal not found');
+    }
+    
+    if (currentUser) {
+      if (currentUser.role !== 'Master' && goal.workflow.companyId !== currentUser.companyId) {
+        throw new Error('Access denied: Cannot delete goal from different company');
+      }
+    }
+    
     return this.prisma.workflowGoal.delete({
       where: { id: goalId },
     });

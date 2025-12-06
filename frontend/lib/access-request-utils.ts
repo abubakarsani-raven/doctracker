@@ -110,8 +110,8 @@ export function createAccessRequest(data: {
   });
 
   localStorage.setItem("notifications", JSON.stringify(notifications));
-  window.dispatchEvent(new CustomEvent("notificationsUpdated"));
-  window.dispatchEvent(new CustomEvent("accessRequestsUpdated"));
+    // React Query will automatically refetch notifications and access requests
+    // No need for window events
 
   return request;
 }
@@ -173,8 +173,8 @@ export function approveAccessRequest(
   });
   localStorage.setItem("notifications", JSON.stringify(notifications));
   
-  window.dispatchEvent(new CustomEvent("accessRequestsUpdated"));
-  window.dispatchEvent(new CustomEvent("notificationsUpdated"));
+  // React Query will automatically refetch notifications and access requests
+  // No need for window events
 
   return true;
 }
@@ -218,8 +218,8 @@ export function rejectAccessRequest(
   });
   localStorage.setItem("notifications", JSON.stringify(notifications));
   
-  window.dispatchEvent(new CustomEvent("accessRequestsUpdated"));
-  window.dispatchEvent(new CustomEvent("notificationsUpdated"));
+  // React Query will automatically refetch notifications and access requests
+  // No need for window events
 
   return true;
 }

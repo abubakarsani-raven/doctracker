@@ -8,13 +8,13 @@ export class ActionsController {
   constructor(private actionsService: ActionsService) {}
 
   @Get()
-  async findAll() {
-    return this.actionsService.findAll();
+  async findAll(@Request() req: any) {
+    return this.actionsService.findAll(req.user?.id, req.user?.companyId);
   }
 
   @Get(':id')
-  async findOne(@Param('id') id: string) {
-    return this.actionsService.findOne(id);
+  async findOne(@Param('id') id: string, @Request() req: any) {
+    return this.actionsService.findOne(id, req.user);
   }
 
   @Post()
@@ -23,7 +23,7 @@ export class ActionsController {
   }
 
   @Put(':id')
-  async update(@Param('id') id: string, @Body() updateActionDto: any) {
-    return this.actionsService.update(id, updateActionDto);
+  async update(@Param('id') id: string, @Body() updateActionDto: any, @Request() req: any) {
+    return this.actionsService.update(id, updateActionDto, req.user);
   }
 }

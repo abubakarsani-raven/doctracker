@@ -5,8 +5,21 @@ import { PrismaService } from '../prisma/prisma.service';
 export class CompaniesService {
   constructor(private prisma: PrismaService) {}
 
-  async findAll() {
+  async findAll(currentUser?: any) {
+    const where: any = {};
+    
+    // Non-Master users only see their own company
+    if (currentUser && currentUser.role !== 'Master') {
+      if (currentUser.companyId) {
+        where.id = currentUser.companyId;
+      } else {
+        // User has no company, return empty
+        return [];
+      }
+    }
+    
     return this.prisma.company.findMany({
+      where,
       include: {
         departments: {
           include: {

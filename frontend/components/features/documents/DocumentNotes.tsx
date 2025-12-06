@@ -11,6 +11,10 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Plus, MessageSquare } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { Separator } from "@/components/ui/separator";
+import { api } from "@/lib/api";
+import { useCurrentUser } from "@/lib/hooks/use-users";
+import { useRealtimeUpdates } from "@/lib/hooks/use-realtime";
+import { toast } from "sonner";
 
 interface Note {
   id: string;
@@ -33,17 +37,29 @@ export function DocumentNotes({ documentId }: DocumentNotesProps) {
     loadNotes();
   }, [documentId]);
 
+  const { data: currentUser } = useCurrentUser();
+
+  // Listen for real-time note updates
+  useRealtimeUpdates('document', documentId, (data) => {
+    if (data.type === 'note_added' || data.type === 'note_updated') {
+      loadNotes();
+    }
+  });
+
   const loadNotes = async () => {
     setLoading(true);
     try {
-      // TODO: Replace with actual API call when backend endpoint is available
-      // const notesData = await api.getDocumentNotes(documentId);
-      // setNotes(notesData);
-      
-      // For now, show empty state (no dummy data)
-      setNotes([]);
+      const notesData = await api.getDocumentNotes(documentId);
+      setNotes(notesData.map((note: any) => ({
+        id: note.id,
+        content: note.content,
+        isPublic: note.isPublic,
+        createdBy: note.creator?.name || note.createdBy || "Unknown",
+        createdAt: new Date(note.createdAt),
+      })));
     } catch (error) {
       console.error("Failed to load notes:", error);
+      setNotes([]);
     } finally {
       setLoading(false);
     }
@@ -58,19 +74,25 @@ export function DocumentNotes({ documentId }: DocumentNotesProps) {
     setAddingNote(true);
 
     try {
-      // TODO: Replace with actual API call
-      await new Promise((resolve) => setTimeout(resolve, 500));
-
-      const note: Note = {
-        id: Date.now().toString(),
+      const createdNote = await api.createDocumentNote(documentId, {
         content: newNote,
         isPublic: isPublic,
-        createdBy: "Current User", // Replace with actual user
-        createdAt: new Date(),
+      });
+
+      const note: Note = {
+        id: createdNote.id,
+        content: createdNote.content,
+        isPublic: createdNote.isPublic,
+        createdBy: currentUser?.name || currentUser?.email || "Unknown",
+        createdAt: new Date(createdNote.createdAt),
       };
 
       setNotes([note, ...notes]);
       setNewNote("");
+      toast.success("Note added successfully");
+    } catch (error: any) {
+      console.error("Failed to add note:", error);
+      toast.error(error.message || "Failed to add note");
     } finally {
       setAddingNote(false);
     }

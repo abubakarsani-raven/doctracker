@@ -63,9 +63,29 @@ export function NotificationDropdown() {
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-80">
         <DropdownMenuLabel className="flex items-center justify-between">
-          Notifications
+          <span>Notifications</span>
           {unreadCount > 0 && (
-            <Button variant="ghost" size="sm" className="h-auto p-0 text-xs">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-auto p-0 text-xs"
+              onClick={async (e) => {
+                e.stopPropagation();
+                // Mark all as read
+                if (notifications.length > 0) {
+                  const unreadNotifications = notifications.filter((n: any) => !n.read);
+                  for (const notif of unreadNotifications) {
+                    if (notif.id) {
+                      try {
+                        await markAsRead.mutateAsync(notif.id);
+                      } catch (error) {
+                        console.error('Failed to mark notification as read:', error);
+                      }
+                    }
+                  }
+                }
+              }}
+            >
               Mark all read
             </Button>
           )}

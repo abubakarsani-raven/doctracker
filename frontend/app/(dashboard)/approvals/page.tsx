@@ -89,7 +89,6 @@ export default function ApprovalsPage() {
         },
       });
 
-      // TODO: Update related workflow/action via API when endpoints are ready
       toast.success("Approval request approved");
     } catch (error: any) {
       console.error("Failed to approve:", error);

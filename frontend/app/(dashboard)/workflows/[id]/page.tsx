@@ -11,7 +11,7 @@ import {
 } from "@/components/ui/breadcrumb";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { StatusBadge, LoadingState, EmptyState } from "@/components/common";
+import { StatusBadge, LoadingState, EmptyState, PresenceIndicator } from "@/components/common";
 import { Progress } from "@/components/ui/progress";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
@@ -227,6 +227,7 @@ export default function WorkflowDetailPage() {
                     : "pending"
                 }
               />
+              <PresenceIndicator resourceType="workflow" resourceId={workflowId} />
               {workflowWithProgress.dueDate && (
                 <div className="flex items-center gap-1 text-sm text-muted-foreground">
                   <Clock className="h-3 w-3" />

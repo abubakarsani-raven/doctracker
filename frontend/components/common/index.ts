@@ -13,3 +13,4 @@ export { ActionCard } from "./ActionCard";
 export type { ActionData } from "./ActionCard";
 export { FileUpload } from "./FileUpload";
 export type { FileWithMetadata } from "./FileUpload";
+export { PresenceIndicator } from "./PresenceIndicator";

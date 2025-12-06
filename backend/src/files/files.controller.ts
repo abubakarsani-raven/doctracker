@@ -1,6 +1,22 @@
-import { Controller, Get, Post, Put, Param, Query, Body, UseGuards, Request } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Put,
+  Param,
+  Query,
+  Body,
+  UseGuards,
+  Request,
+  UseInterceptors,
+  UploadedFile,
+} from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { FilesService } from './files.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import * as multer from 'multer';
+import * as path from 'path';
+import * as fs from 'fs';
 
 @Controller('files')
 @UseGuards(JwtAuthGuard)
@@ -20,8 +36,8 @@ export class FilesController {
   }
 
   @Get('folders/:id')
-  async getFolder(@Param('id') id: string) {
-    return this.filesService.getFolder(id);
+  async getFolder(@Param('id') id: string, @Request() req: any) {
+    return this.filesService.getFolder(id, req.user);
   }
 
   @Post('folders')
@@ -61,8 +77,8 @@ export class FilesController {
   }
 
   @Get(':id')
-  async getFile(@Param('id') id: string) {
-    return this.filesService.getFile(id);
+  async getFile(@Param('id') id: string, @Request() req: any) {
+    return this.filesService.getFile(id, req.user);
   }
 
   @Post()
@@ -94,6 +110,67 @@ export class FilesController {
       divisionId: body.divisionId,
       createdBy: user.id,
     });
+  }
+
+  @Post('upload')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      storage: multer.diskStorage({
+        destination: (req, file, cb) => {
+          const user = (req as any).user;
+          const uploadPath = path.join(process.cwd(), 'uploads', user?.companyId || 'default');
+          // Create directory if it doesn't exist
+          if (!fs.existsSync(uploadPath)) {
+            fs.mkdirSync(uploadPath, { recursive: true });
+          }
+          cb(null, uploadPath);
+        },
+        filename: (req, file, cb) => {
+          const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
+          cb(null, `${uniqueSuffix}-${file.originalname}`);
+        },
+      }),
+      limits: {
+        fileSize: 50 * 1024 * 1024, // 50MB limit
+      },
+    }),
+  )
+  async uploadFile(
+    @Request() req: any,
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    const user = req.user;
+    if (!user || !user.companyId) {
+      throw new Error('User company not found');
+    }
+
+    if (!file) {
+      throw new Error('No file uploaded');
+    }
+
+    // Get form data from request body (multer puts non-file fields in req.body)
+    const scopeLevel = req.body.scopeLevel || 'company';
+    const folderId = req.body.folderId;
+    const departmentId = req.body.departmentId;
+    const divisionId = req.body.divisionId;
+
+    const relativePath = path.join('uploads', user.companyId, file.filename);
+    const fileSize = file.size;
+
+    const createdFile = await this.filesService.createFile({
+      fileName: file.originalname,
+      fileType: path.extname(file.originalname).slice(1) || 'unknown',
+      storagePath: relativePath,
+      scopeLevel,
+      companyId: user.companyId,
+      folderId,
+      departmentId,
+      divisionId,
+      createdBy: user.id,
+      fileSize,
+    });
+
+    return createdFile;
   }
 
   @Post('rich-text')

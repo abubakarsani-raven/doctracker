@@ -8,8 +8,8 @@ export class WorkflowsController {
   constructor(private workflowsService: WorkflowsService) {}
 
   @Get()
-  async findAll() {
-    return this.workflowsService.findAll();
+  async findAll(@Request() req: any) {
+    return this.workflowsService.findAll(req.user?.id, req.user?.companyId);
   }
 
   @Get('folder/:folderId')
@@ -85,9 +85,10 @@ export class WorkflowsController {
   async updateGoal(
     @Param('goalId') goalId: string,
     @Body() updateGoalDto: any,
+    @Request() req: any,
   ) {
     try {
-      return await this.workflowsService.updateGoal(goalId, updateGoalDto);
+      return await this.workflowsService.updateGoal(goalId, updateGoalDto, req.user);
     } catch (error: any) {
       console.error('[WorkflowsController] Error updating goal:', error);
       throw new HttpException(
@@ -115,9 +116,9 @@ export class WorkflowsController {
   }
 
   @Post('goals/:goalId/delete')
-  async deleteGoal(@Param('goalId') goalId: string) {
+  async deleteGoal(@Param('goalId') goalId: string, @Request() req: any) {
     try {
-      return await this.workflowsService.deleteGoal(goalId);
+      return await this.workflowsService.deleteGoal(goalId, req.user);
     } catch (error: any) {
       console.error('[WorkflowsController] Error deleting goal:', error);
       throw new HttpException(
@@ -128,8 +129,8 @@ export class WorkflowsController {
   }
 
   @Get(':id')
-  async findOne(@Param('id') id: string) {
-    return this.workflowsService.findOne(id);
+  async findOne(@Param('id') id: string, @Request() req: any) {
+    return this.workflowsService.findOne(id, req.user);
   }
 
   @Post()
@@ -138,7 +139,7 @@ export class WorkflowsController {
   }
 
   @Put(':id')
-  async update(@Param('id') id: string, @Body() updateWorkflowDto: any) {
-    return this.workflowsService.update(id, updateWorkflowDto);
+  async update(@Param('id') id: string, @Body() updateWorkflowDto: any, @Request() req: any) {
+    return this.workflowsService.update(id, updateWorkflowDto, req.user);
   }
 }

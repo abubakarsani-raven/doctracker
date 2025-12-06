@@ -8,8 +8,8 @@ export class UsersController {
 
   @Get()
   @UseGuards(JwtAuthGuard)
-  async findAll() {
-    return this.usersService.findAll();
+  async findAll(@Request() req: any) {
+    return this.usersService.findAll(req.user);
   }
 
   @Get('me')

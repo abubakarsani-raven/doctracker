@@ -30,9 +30,12 @@ class ApiClient {
     const url = `${this.baseURL}${endpoint}`;
     console.log('[API Client] Making request:', options.method || 'GET', url);
     
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-    };
+    const headers: Record<string, string> = {};
+
+    // Only set Content-Type for JSON, not for FormData
+    if (!(options.body instanceof FormData)) {
+      headers['Content-Type'] = 'application/json';
+    }
 
     // Merge existing headers if provided
     if (options.headers) {
@@ -87,9 +90,22 @@ class ApiClient {
         throw new Error(error.message || error.error || `HTTP error! status: ${response.status}`);
       }
 
-      const data = await response.json();
-      console.log('[API Client] Request successful, data length:', Array.isArray(data) ? data.length : 'N/A');
-      return data;
+      // Handle response based on content type
+      const contentType = response.headers.get('content-type');
+      if (contentType && contentType.includes('application/json')) {
+        const data = await response.json();
+        console.log('[API Client] Request successful, data length:', Array.isArray(data) ? data.length : 'N/A');
+        return data;
+      } else {
+        // For non-JSON responses (e.g., file uploads), return text or blob
+        const text = await response.text();
+        try {
+          // Try to parse as JSON if possible
+          return JSON.parse(text);
+        } catch {
+          return text;
+        }
+      }
     } catch (error) {
       console.error('[API Client] Request error:', error);
       throw error;
@@ -338,6 +354,167 @@ class ApiClient {
   async markNotificationRead(id: string) {
     return this.request<any>(`/notifications/${id}/read`, {
       method: 'PUT',
+    });
+  }
+
+  // Access Requests
+  async getAccessRequests() {
+    return this.request<any[]>('/access-requests');
+  }
+
+  async getAccessRequest(id: string) {
+    return this.request<any>(`/access-requests/${id}`);
+  }
+
+  async createAccessRequest(data: any) {
+    return this.request<any>('/access-requests', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async updateAccessRequest(id: string, data: any) {
+    return this.request<any>(`/access-requests/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async deleteAccessRequest(id: string) {
+    return this.request<any>(`/access-requests/${id}`, {
+      method: 'DELETE',
+    });
+  }
+
+  // Approval Requests
+  async getApprovalRequests() {
+    return this.request<any[]>('/approval-requests');
+  }
+
+  async getApprovalRequest(id: string) {
+    return this.request<any>(`/approval-requests/${id}`);
+  }
+
+  async createApprovalRequest(data: any) {
+    return this.request<any>('/approval-requests', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async updateApprovalRequest(id: string, data: any) {
+    return this.request<any>(`/approval-requests/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async deleteApprovalRequest(id: string) {
+    return this.request<any>(`/approval-requests/${id}`, {
+      method: 'DELETE',
+    });
+  }
+
+  // Permissions
+  async getFolderPermissions(folderId: string) {
+    return this.request<any>(`/permissions/folder/${folderId}`);
+  }
+
+  async getFilePermissions(fileId: string, folderId?: string) {
+    const url = folderId
+      ? `/permissions/file/${fileId}?folderId=${folderId}`
+      : `/permissions/file/${fileId}`;
+    return this.request<any>(url);
+  }
+
+  async updateFilePermissions(fileId: string, folderId: string, permissions: any) {
+    return this.request<any>(`/permissions/file/${fileId}?folderId=${folderId}`, {
+      method: 'PUT',
+      body: JSON.stringify({ permissions }),
+    });
+  }
+
+  async checkPermission(
+    userId: string,
+    resourceType: 'folder' | 'file',
+    resourceId: string,
+    permission: 'read' | 'write' | 'delete' | 'share' | 'manage',
+  ) {
+    return this.request<{ hasPermission: boolean }>(
+      `/permissions/check?userId=${userId}&resourceType=${resourceType}&resourceId=${resourceId}&permission=${permission}`,
+    );
+  }
+
+  // Storage
+  async getCompanyStorage(companyId: string) {
+    return this.request<{ bytes: number; formatted: string }>(`/storage/company/${companyId}`);
+  }
+
+  async getUserStorage() {
+    return this.request<{ bytes: number; formatted: string }>('/storage/user');
+  }
+
+  async getTotalStorage() {
+    return this.request<{ bytes: number; formatted: string }>('/storage/total');
+  }
+
+  // Activity
+  async getActivity(queryParams?: string) {
+    const url = queryParams ? `/activity?${queryParams}` : '/activity';
+    return this.request<any[]>(url);
+  }
+
+  async getRecentActivity(limit: number = 50) {
+    return this.request<any[]>(`/activity/recent?limit=${limit}`);
+  }
+
+  // File Upload
+  async uploadFile(
+    file: File,
+    data: {
+      scopeLevel: string;
+      folderId?: string;
+      departmentId?: string;
+      divisionId?: string;
+    },
+  ) {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('scopeLevel', data.scopeLevel);
+    if (data.folderId) formData.append('folderId', data.folderId);
+    if (data.departmentId) formData.append('departmentId', data.departmentId);
+    if (data.divisionId) formData.append('divisionId', data.divisionId);
+
+    return this.request<any>('/files/upload', {
+      method: 'POST',
+      body: formData,
+      // Don't set Content-Type header - browser will set it with boundary for multipart/form-data
+      headers: {},
+    });
+  }
+
+  // Document Notes
+  async getDocumentNotes(documentId: string) {
+    return this.request<any[]>(`/document-notes/document/${documentId}`);
+  }
+
+  async createDocumentNote(documentId: string, data: { content: string; isPublic: boolean }) {
+    return this.request<any>(`/document-notes/document/${documentId}`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async updateDocumentNote(noteId: string, data: { content?: string; isPublic?: boolean }) {
+    return this.request<any>(`/document-notes/${noteId}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async deleteDocumentNote(noteId: string) {
+    return this.request<any>(`/document-notes/${noteId}`, {
+      method: 'DELETE',
     });
   }
 }

@@ -1,13 +1,57 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { WebSocketGateway } from '../websocket/websocket.gateway';
+import { ActivityService } from '../activity/activity.service';
 
 @Injectable()
 export class ActionsService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private wsGateway: WebSocketGateway,
+    private activityService: ActivityService,
+  ) {}
 
-  async findAll() {
+  async findAll(userId?: string, companyId?: string) {
     try {
+      const where: any = {};
+      
+      // Filter by company if provided
+      if (companyId) {
+        where.workflow = {
+          companyId: companyId,
+        };
+      }
+      
+      // If userId provided, filter to actions visible to user
+      if (userId) {
+        const user = await this.prisma.user.findUnique({
+          where: { id: userId },
+          include: {
+            userDepartments: {
+              include: { department: true },
+            },
+            userRoles: {
+              include: {
+                role: true,
+              },
+            },
+          },
+        });
+        
+        const userRole = user?.userRoles[0]?.role?.name || 'Staff';
+        if (user && userRole !== 'Master') {
+          // Non-Master users see actions from their company only
+          if (user.companyId) {
+            where.workflow = {
+              ...where.workflow,
+              companyId: user.companyId,
+            };
+          }
+        }
+      }
+      
       const actions = await this.prisma.action.findMany({
+        where,
         include: {
           workflow: {
             select: {
@@ -52,13 +96,16 @@ export class ActionsService {
     }
   }
 
-  async findOne(id: string) {
+  async findOne(id: string, currentUser?: any) {
     const action = await this.prisma.action.findUnique({
       where: { id },
       include: {
         workflow: {
-          include: {
-            company: true,
+          select: {
+            id: true,
+            title: true,
+            status: true,
+            companyId: true,
           },
         },
         document: true,
@@ -66,7 +113,16 @@ export class ActionsService {
       },
     });
     
-    if (!action) return null;
+    if (!action) {
+      return null;
+    }
+    
+    // Check access control - user must be from same company (unless Master)
+    if (currentUser) {
+      if (currentUser.role !== 'Master' && action.workflow?.companyId !== currentUser.companyId) {
+        throw new Error('Access denied: Action belongs to a different company');
+      }
+    }
     
     // Transform action to include assignedTo object for frontend compatibility
     return {
@@ -144,6 +200,9 @@ export class ActionsService {
     // Update workflow progress after creating action
     await this.updateWorkflowProgress(data.workflowId);
 
+    // Emit WebSocket event
+    this.wsGateway.emitActionUpdate(createdAction.id, createdAction);
+
     // Create notification for assigned user
     try {
       if (actionData.assignedToType === 'user' && actionData.assignedToId) {
@@ -200,15 +259,28 @@ export class ActionsService {
     return createdAction;
   }
 
-  async update(id: string, data: any) {
-    // Get the action to find workflowId
+  async update(id: string, data: any, currentUser?: any) {
+    // Get the action to find workflowId and check access
     const existingAction = await this.prisma.action.findUnique({
       where: { id },
-      select: { workflowId: true },
+      include: {
+        workflow: {
+          select: {
+            companyId: true,
+          },
+        },
+      },
     });
 
     if (!existingAction) {
       throw new Error('Action not found');
+    }
+    
+    // Check access control
+    if (currentUser) {
+      if (currentUser.role !== 'Master' && existingAction.workflow?.companyId !== currentUser.companyId) {
+        throw new Error('Access denied: Cannot update action from different company');
+      }
     }
 
     // Transform update data to match Prisma schema
@@ -261,6 +333,31 @@ export class ActionsService {
     // Automatically update workflow progress/status when action status changes
     if (data.status !== undefined) {
       await this.updateWorkflowProgress(existingAction.workflowId);
+    }
+
+    // Log activity for action status changes
+    try {
+      if (data.status === 'completed') {
+        await this.activityService.createActivity({
+          userId: updatedAction.completedBy || updatedAction.createdBy,
+          companyId: updatedAction.workflow?.companyId,
+          activityType: 'action_completed',
+          resourceType: 'action',
+          resourceId: id,
+          description: `Action "${updatedAction.title}" was completed`,
+        });
+      } else if (data.status !== undefined) {
+        await this.activityService.createActivity({
+          userId: updatedAction.createdBy,
+          companyId: updatedAction.workflow?.companyId,
+          activityType: 'action_updated',
+          resourceType: 'action',
+          resourceId: id,
+          description: `Action "${updatedAction.title}" was updated`,
+        });
+      }
+    } catch (error) {
+      console.error('Failed to log activity:', error);
     }
 
     // Transform action to include assignedTo object for frontend compatibility

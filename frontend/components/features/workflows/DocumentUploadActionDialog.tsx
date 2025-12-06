@@ -19,6 +19,7 @@ import { toast } from "sonner";
 import { useUpdateAction } from "@/lib/hooks/use-actions";
 import { useUpdateWorkflowProgress } from "@/lib/hooks/use-workflow-progress";
 import { useFolders } from "@/lib/hooks/use-documents";
+import { api } from "@/lib/api";
 
 interface DocumentUploadActionDialogProps {
   open: boolean;
@@ -90,14 +91,19 @@ export function DocumentUploadActionDialog({
     }
 
     try {
-      // TODO: Implement actual file upload to backend
-      // For now, just update the action status
-      
+      // Upload file to backend
+      const uploadedFile = await api.uploadFile(files[0].file, {
+        scopeLevel: "company", // Default scope, can be made configurable
+        folderId: action?.targetFolderId,
+      });
+
+      // Update action status with uploaded document info
       await updateAction.mutateAsync({
         id: actionId,
         data: {
           status: "document_uploaded",
           uploadedDocumentName: files[0].file.name,
+          uploadedDocumentId: uploadedFile.id,
           uploadedAt: new Date().toISOString(),
           uploadNotes: notes,
         },
@@ -107,8 +113,6 @@ export function DocumentUploadActionDialog({
       if (action?.workflowId) {
         await updateProgress(action.workflowId);
       }
-
-      // TODO: Create notification via backend API when endpoint is available
 
       toast.success(
         "Document uploaded successfully. You can mark the action as complete by clicking on it."

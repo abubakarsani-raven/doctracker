@@ -78,8 +78,18 @@ export class UsersService {
     return user;
   }
 
-  async findAll() {
+  async findAll(currentUser?: any) {
+    const where: any = {};
+    
+    // Non-Master users only see users from their company
+    if (currentUser && currentUser.role !== 'Master') {
+      if (currentUser.companyId) {
+        where.companyId = currentUser.companyId;
+      }
+    }
+    
     return this.prisma.user.findMany({
+      where,
       include: {
         company: true,
         userRoles: {

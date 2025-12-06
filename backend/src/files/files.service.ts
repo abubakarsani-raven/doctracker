@@ -1,9 +1,13 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { ActivityService } from '../activity/activity.service';
 
 @Injectable()
 export class FilesService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private activityService: ActivityService,
+  ) {}
 
   async getFiles(companyId?: string) {
     const where: any = {};
@@ -32,8 +36,8 @@ export class FilesService {
     });
   }
 
-  async getFile(id: string) {
-    return this.prisma.file.findUnique({
+  async getFile(id: string, currentUser?: any) {
+    const file = await this.prisma.file.findUnique({
       where: { id },
       include: {
         fileFolderLinks: {
@@ -88,8 +92,8 @@ export class FilesService {
     });
   }
 
-  async getFolder(id: string) {
-    return this.prisma.folder.findUnique({
+  async getFolder(id: string, currentUser?: any) {
+    const folder = await this.prisma.folder.findUnique({
       where: { id },
       include: {
         creator: {
@@ -106,6 +110,19 @@ export class FilesService {
         },
       },
     });
+    
+    if (!folder) {
+      return null;
+    }
+    
+    // Check access control - user must be from same company (unless Master)
+    if (currentUser) {
+      if (currentUser.role !== 'Master' && folder.companyId !== currentUser.companyId) {
+        throw new Error('Access denied: Folder belongs to a different company');
+      }
+    }
+    
+    return folder;
   }
 
   async createFolder(data: {
@@ -156,6 +173,7 @@ export class FilesService {
     departmentId?: string;
     divisionId?: string;
     createdBy: string;
+    fileSize?: number;
   }) {
     // Create the file
     const file = await this.prisma.file.create({
@@ -163,6 +181,7 @@ export class FilesService {
         fileName: data.fileName,
         fileType: data.fileType,
         storagePath: data.storagePath,
+        fileSize: data.fileSize ? BigInt(data.fileSize) : null,
         scopeLevel: data.scopeLevel,
         companyId: data.companyId,
         departmentId: data.departmentId,
@@ -191,7 +210,7 @@ export class FilesService {
     }
 
     // Return file with folder link
-    return this.prisma.file.findUnique({
+    const createdFile = await this.prisma.file.findUnique({
       where: { id: file.id },
       include: {
         creator: {
@@ -208,6 +227,22 @@ export class FilesService {
         },
       },
     });
+
+    // Log activity
+    try {
+      await this.activityService.createActivity({
+        userId: data.createdBy,
+        companyId: data.companyId,
+        activityType: 'document_uploaded',
+        resourceType: 'document',
+        resourceId: file.id,
+        description: `Document "${data.fileName}" was uploaded`,
+      });
+    } catch (error) {
+      console.error('Failed to log activity:', error);
+    }
+
+    return createdFile;
   }
 
   async createRichTextDocument(data: {
