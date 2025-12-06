@@ -13,6 +13,7 @@ async function bootstrap() {
   const trustedOrigins = [
     'http://localhost:3000', // Local development
     'https://doctracker-git-main-sani-abubakar-babaganas-projects.vercel.app', // Production Vercel
+    'https://doctracker-eight.vercel.app',
   ];
   
   // Add CORS_ORIGIN from environment if provided
