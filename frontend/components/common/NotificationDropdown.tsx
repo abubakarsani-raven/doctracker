@@ -18,13 +18,17 @@ import { useNotifications, useUnreadNotificationsCount, useMarkNotificationRead 
 import { formatDistanceToNow } from "date-fns";
 
 export function NotificationDropdown() {
-  const { data: notifications = [], isLoading } = useNotifications();
+  const { data: notifications = [], isLoading, error } = useNotifications();
   const unreadCount = useUnreadNotificationsCount();
   const markAsRead = useMarkNotificationRead();
 
   const handleNotificationClick = async (notification: any) => {
     if (!notification.read && notification.id) {
-      await markAsRead.mutateAsync(notification.id);
+      try {
+        await markAsRead.mutateAsync(notification.id);
+      } catch (error) {
+        console.error('[NotificationDropdown] Error marking notification as read:', error);
+      }
     }
   };
 
@@ -71,6 +75,10 @@ export function NotificationDropdown() {
           {isLoading ? (
             <div className="p-4 text-center text-sm text-muted-foreground">
               Loading notifications...
+            </div>
+          ) : error ? (
+            <div className="p-4 text-center text-sm text-destructive">
+              Failed to load notifications
             </div>
           ) : notifications.length === 0 ? (
             <div className="p-4 text-center text-sm text-muted-foreground">

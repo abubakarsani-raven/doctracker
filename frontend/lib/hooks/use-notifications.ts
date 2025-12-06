@@ -6,9 +6,16 @@ export function useNotifications() {
   return useQuery({
     queryKey: ["notifications"],
     queryFn: async () => {
-      return await api.getNotifications();
+      try {
+        return await api.getNotifications();
+      } catch (error: any) {
+        console.error('[useNotifications] Error fetching notifications:', error);
+        // Return empty array on error instead of throwing
+        return [];
+      }
     },
     refetchInterval: 30 * 1000, // Refetch every 30 seconds
+    retry: 1, // Only retry once on failure
   });
 }
 
