@@ -123,6 +123,31 @@ export default function AccessRequestsPage() {
     }
   };
 
+  const handleRevoke = async (request: AccessRequest) => {
+    if (!currentUser) {
+      toast.error("You must be logged in to revoke access");
+      return;
+    }
+
+    try {
+      await updateRequest.mutateAsync({
+        id: request.id,
+        data: {
+          status: "rejected",
+          rejectedBy: currentUser.id || currentUser.email || "Unknown",
+          rejectedByName: currentUser.name || currentUser.email || "Unknown User",
+          rejectionReason: "Access revoked by approver",
+          rejectedAt: new Date().toISOString(),
+        },
+      });
+
+      toast.success("Access revoked successfully");
+    } catch (error: any) {
+      console.error("Failed to revoke:", error);
+      toast.error(error.message || "Failed to revoke access");
+    }
+  };
+
   const scopeLabels: Record<string, string> = {
     company: "Company-wide",
     department: "Department-wide",
@@ -286,6 +311,21 @@ export default function AccessRequestsPage() {
                           >
                             <XCircle className="mr-2 h-4 w-4" />
                             Reject
+                          </Button>
+                        </div>
+                      )}
+                    {request.status === "approved" &&
+                      canApproveAccessRequest(request, currentUser) && (
+                        <div className="flex items-center gap-2 pt-2 border-t">
+                          <Button
+                            size="sm"
+                            variant="destructive"
+                            onClick={() => handleRevoke(request)}
+                            className="flex-1"
+                            disabled={updateRequest.isPending}
+                          >
+                            <XCircle className="mr-2 h-4 w-4" />
+                            Revoke Access
                           </Button>
                         </div>
                       )}

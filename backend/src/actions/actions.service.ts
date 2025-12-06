@@ -144,6 +144,59 @@ export class ActionsService {
     // Update workflow progress after creating action
     await this.updateWorkflowProgress(data.workflowId);
 
+    // Create notification for assigned user
+    try {
+      if (actionData.assignedToType === 'user' && actionData.assignedToId) {
+        await this.prisma.notification.create({
+          data: {
+            userId: actionData.assignedToId,
+            companyId: workflow.companyId,
+            type: 'action_assigned',
+            title: `New Action: ${createdAction.title}`,
+            message: `You have been assigned a new action: "${createdAction.title}"`,
+            resourceType: 'action',
+            resourceId: createdAction.id,
+            read: false,
+          },
+        });
+      } else if (actionData.assignedToType === 'department' && actionData.assignedToName) {
+        // Get all users in the department
+        const departmentUsers = await this.prisma.userDepartment.findMany({
+          where: {
+            department: {
+              name: actionData.assignedToName,
+            },
+          },
+          include: {
+            user: {
+              select: { id: true },
+            },
+          },
+        });
+
+        // Create notifications for all department users
+        if (departmentUsers.length > 0) {
+          const notifications = departmentUsers.map((ud: any) => ({
+            userId: ud.user.id,
+            companyId: workflow.companyId,
+            type: 'action_assigned',
+            title: `New Action: ${createdAction.title}`,
+            message: `A new action has been assigned to your department: "${createdAction.title}"`,
+            resourceType: 'action',
+            resourceId: createdAction.id,
+            read: false,
+          }));
+
+          await this.prisma.notification.createMany({
+            data: notifications,
+          });
+        }
+      }
+    } catch (error) {
+      console.error('[ActionsService] Failed to create notification:', error);
+      // Don't throw - notification failure shouldn't break action creation
+    }
+
     return createdAction;
   }
 

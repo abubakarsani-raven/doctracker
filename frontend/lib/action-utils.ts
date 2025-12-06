@@ -15,11 +15,33 @@ export function isAssignedToAction(action: any, currentUser: any): boolean {
   }
 
   // Check if assigned to user's department
-  if (action.assignedTo.type === "department" && currentUser.department) {
+  if (action.assignedTo.type === "department") {
     // Get department name or ID from assignedTo
     const assignedDeptName = action.assignedTo.name || action.assignedTo.id;
-    return currentUser.department === assignedDeptName || 
-           currentUser.department.toLowerCase() === assignedDeptName.toLowerCase();
+    
+    // Check single department field (backward compatibility)
+    if (currentUser.department) {
+      if (currentUser.department === assignedDeptName || 
+          currentUser.department.toLowerCase() === assignedDeptName.toLowerCase()) {
+        return true;
+      }
+    }
+    
+    // Check departments array (new structure)
+    if (currentUser.departments && Array.isArray(currentUser.departments)) {
+      return currentUser.departments.some((dept: string) => 
+        dept === assignedDeptName || dept.toLowerCase() === assignedDeptName.toLowerCase()
+      );
+    }
+    
+    // Check userDepartments relation if available
+    if (currentUser.userDepartments && Array.isArray(currentUser.userDepartments)) {
+      return currentUser.userDepartments.some((ud: any) => {
+        const deptName = ud.department?.name || ud.departmentId;
+        return deptName === assignedDeptName || 
+               deptName?.toLowerCase() === assignedDeptName.toLowerCase();
+      });
+    }
   }
 
   return false;
@@ -41,11 +63,35 @@ export function isWorkflowParticipant(action: any, workflow: any, currentUser: a
     if (workflow.assignedTo.type === "user" && workflow.assignedTo.id === currentUser.id) {
       return true;
     }
-    if (workflow.assignedTo.type === "department" && currentUser.department) {
+    if (workflow.assignedTo.type === "department") {
       const workflowDeptName = workflow.assignedTo.name || workflow.assignedTo.id;
-      if (currentUser.department === workflowDeptName || 
-          currentUser.department.toLowerCase() === workflowDeptName.toLowerCase()) {
-        return true;
+      
+      // Check single department field (backward compatibility)
+      if (currentUser.department) {
+        if (currentUser.department === workflowDeptName || 
+            currentUser.department.toLowerCase() === workflowDeptName.toLowerCase()) {
+          return true;
+        }
+      }
+      
+      // Check departments array
+      if (currentUser.departments && Array.isArray(currentUser.departments)) {
+        if (currentUser.departments.some((dept: string) => 
+          dept === workflowDeptName || dept.toLowerCase() === workflowDeptName.toLowerCase()
+        )) {
+          return true;
+        }
+      }
+      
+      // Check userDepartments relation
+      if (currentUser.userDepartments && Array.isArray(currentUser.userDepartments)) {
+        if (currentUser.userDepartments.some((ud: any) => {
+          const deptName = ud.department?.name || ud.departmentId;
+          return deptName === workflowDeptName || 
+                 deptName?.toLowerCase() === workflowDeptName.toLowerCase();
+        })) {
+          return true;
+        }
       }
     }
   }
@@ -57,22 +103,46 @@ export function isWorkflowParticipant(action: any, workflow: any, currentUser: a
       if (route.from && route.from.type === "user" && route.from.id === currentUser.id) {
         return true;
       }
-      if (route.from && route.from.type === "department" && currentUser.department) {
+      if (route.from && route.from.type === "department") {
         const fromDeptName = route.from.name || route.from.id;
-        if (currentUser.department === fromDeptName || 
-            currentUser.department.toLowerCase() === fromDeptName.toLowerCase()) {
+        
+        // Check single department field
+        if (currentUser.department && 
+            (currentUser.department === fromDeptName || 
+             currentUser.department.toLowerCase() === fromDeptName.toLowerCase())) {
           return true;
+        }
+        
+        // Check departments array
+        if (currentUser.departments && Array.isArray(currentUser.departments)) {
+          if (currentUser.departments.some((dept: string) => 
+            dept === fromDeptName || dept.toLowerCase() === fromDeptName.toLowerCase()
+          )) {
+            return true;
+          }
         }
       }
       // Check to
       if (route.to && route.to.type === "user" && route.to.id === currentUser.id) {
         return true;
       }
-      if (route.to && route.to.type === "department" && currentUser.department) {
+      if (route.to && route.to.type === "department") {
         const toDeptName = route.to.name || route.to.id;
-        if (currentUser.department === toDeptName || 
-            currentUser.department.toLowerCase() === toDeptName.toLowerCase()) {
+        
+        // Check single department field
+        if (currentUser.department && 
+            (currentUser.department === toDeptName || 
+             currentUser.department.toLowerCase() === toDeptName.toLowerCase())) {
           return true;
+        }
+        
+        // Check departments array
+        if (currentUser.departments && Array.isArray(currentUser.departments)) {
+          if (currentUser.departments.some((dept: string) => 
+            dept === toDeptName || dept.toLowerCase() === toDeptName.toLowerCase()
+          )) {
+            return true;
+          }
         }
       }
     }

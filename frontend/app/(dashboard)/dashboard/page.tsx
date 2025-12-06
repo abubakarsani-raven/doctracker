@@ -11,12 +11,15 @@ import { useDocuments } from "@/lib/hooks/use-documents";
 import { useWorkflows } from "@/lib/hooks/use-workflows";
 import { useActions } from "@/lib/hooks/use-actions";
 import { useMyGoals } from "@/lib/hooks/use-goals";
+import { useCurrentUser } from "@/lib/hooks/use-users";
+import { isAssignedToAction } from "@/lib/action-utils";
 import { api } from "@/lib/api";
 import { Target } from "lucide-react";
 import { format } from "date-fns";
 
 export default function DashboardPage() {
   const router = useRouter();
+  const { data: currentUser } = useCurrentUser();
   const { data: documents = [], isLoading: documentsLoading } = useDocuments();
   const { data: workflows = [], isLoading: workflowsLoading } = useWorkflows();
   const { data: actions = [], isLoading: actionsLoading } = useActions();
@@ -24,18 +27,60 @@ export default function DashboardPage() {
 
   const isLoading = documentsLoading || workflowsLoading || actionsLoading || goalsLoading;
 
-  // Calculate stats
+  // Filter actions to only show user's assigned actions
+  const myActions = useMemo(() => {
+    if (!currentUser) return [];
+    return actions.filter((action: any) => isAssignedToAction(action, currentUser));
+  }, [actions, currentUser]);
+
+  // Filter workflows to only show user's workflows (assigned to them or created by them)
+  const myWorkflows = useMemo(() => {
+    if (!currentUser) return [];
+    return workflows.filter((w: any) => {
+      // Created by user
+      if (w.assignedBy === currentUser.id || w.assignedBy === currentUser.email) {
+        return true;
+      }
+      // Assigned to user
+      if (w.assignedTo?.type === "user" && w.assignedTo.id === currentUser.id) {
+        return true;
+      }
+      // Assigned to user's department
+      if (w.assignedTo?.type === "department") {
+        const deptName = w.assignedTo.name || w.assignedTo.id;
+        
+        // Check single department field (backward compatibility)
+        if (currentUser.department && 
+            (currentUser.department === deptName || 
+             currentUser.department.toLowerCase() === deptName.toLowerCase())) {
+          return true;
+        }
+        
+        // Check departments array
+        if (currentUser.departments && Array.isArray(currentUser.departments)) {
+          if (currentUser.departments.some((dept: string) => 
+            dept === deptName || dept.toLowerCase() === deptName.toLowerCase()
+          )) {
+            return true;
+          }
+        }
+      }
+      return false;
+    });
+  }, [workflows, currentUser]);
+
+  // Calculate stats - only show user's own data
   const stats = useMemo(() => {
     return {
       totalDocuments: documents.length,
-      activeWorkflows: workflows.filter(
+      activeWorkflows: myWorkflows.filter(
         (w: any) => w.status !== "completed" && w.status !== "cancelled"
       ).length,
-      pendingActions: actions.filter((a: any) => a.status === "pending").length,
+      pendingActions: myActions.filter((a: any) => a.status === "pending").length,
       myGoals: goals.filter((g: any) => g.status !== "achieved").length,
       storageUsed: 0, // TODO: Calculate from actual file sizes when available
     };
-  }, [documents, workflows, actions, goals]);
+  }, [documents, myWorkflows, myActions, goals]);
 
   // Get recent documents
   const recentDocuments = useMemo(() => {

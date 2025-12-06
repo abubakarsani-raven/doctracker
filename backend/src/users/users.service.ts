@@ -16,14 +16,27 @@ export class UsersService {
             role: true,
           },
         },
+        userDepartments: {
+          include: {
+            department: {
+              select: {
+                id: true,
+                name: true,
+              },
+            },
+          },
+        },
       },
     });
     
-    // Transform user to include role from userRoles
+    // Transform user to include role from userRoles and department names
     if (user) {
+      const departmentNames = user.userDepartments.map((ud: any) => ud.department.name);
       return {
         ...user,
         role: user.userRoles[0]?.role?.name || 'Staff',
+        department: departmentNames[0] || null, // For backward compatibility
+        departments: departmentNames, // Array of all departments
       };
     }
     return user;
@@ -39,14 +52,27 @@ export class UsersService {
             role: true,
           },
         },
+        userDepartments: {
+          include: {
+            department: {
+              select: {
+                id: true,
+                name: true,
+              },
+            },
+          },
+        },
       },
     });
     
-    // Transform user to include role from userRoles
+    // Transform user to include role from userRoles and department names
     if (user) {
+      const departmentNames = user.userDepartments.map((ud: any) => ud.department.name);
       return {
         ...user,
         role: user.userRoles[0]?.role?.name || 'Staff',
+        department: departmentNames[0] || null, // For backward compatibility
+        departments: departmentNames, // Array of all departments
       };
     }
     return user;

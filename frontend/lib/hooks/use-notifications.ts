@@ -7,15 +7,22 @@ export function useNotifications() {
     queryKey: ["notifications"],
     queryFn: async () => {
       try {
-        return await api.getNotifications();
+        const notifications = await api.getNotifications();
+        console.log('[useNotifications] Fetched notifications:', notifications?.length || 0);
+        return notifications || [];
       } catch (error: any) {
         console.error('[useNotifications] Error fetching notifications:', error);
+        console.error('[useNotifications] Error details:', {
+          message: error.message,
+          stack: error.stack,
+        });
         // Return empty array on error instead of throwing
         return [];
       }
     },
     refetchInterval: 30 * 1000, // Refetch every 30 seconds
     retry: 1, // Only retry once on failure
+    staleTime: 0, // Always consider data stale to ensure fresh fetches
   });
 }
 

@@ -63,14 +63,20 @@ export function WorkflowRoutingSheet({
     "secretary" | "department" | "individual" | "department_head" | "original_sender" | "actions" | "file_documents"
   >("secretary");
   
+  // Check if current user is a secretary
+  const isSecretary = currentUser?.role === "Department Secretary" || currentUser?.role?.toLowerCase().includes("secretary");
+  
   // Reset routing type based on workflow status
   useEffect(() => {
-    if (workflow?.status === "completed") {
+    // Secretary can file workflows that are ready_for_review or completed
+    if (isSecretary && (workflow?.status === "completed" || workflow?.status === "ready_for_review")) {
+      setRoutingType("file_documents");
+    } else if (workflow?.status === "completed") {
       setRoutingType("file_documents");
     } else {
       setRoutingType("secretary");
     }
-  }, [workflow?.status]);
+  }, [workflow?.status, isSecretary]);
   
   const [selectedDepartment, setSelectedDepartment] = useState("");
   const [selectedIndividual, setSelectedIndividual] = useState("");
@@ -403,7 +409,8 @@ export function WorkflowRoutingSheet({
                 setSelectedIndividual("");
               }}
             >
-              {workflow?.status === "completed" ? (
+              {/* Show file option for completed workflows or for secretary when ready_for_review */}
+              {(workflow?.status === "completed" || (isSecretary && workflow?.status === "ready_for_review")) ? (
                 <div className="flex items-start space-x-2 space-y-0 rounded-md border p-4">
                   <RadioGroupItem value="file_documents" id="file_documents" className="mt-1" />
                   <div className="space-y-1 leading-none flex-1">
@@ -429,8 +436,8 @@ export function WorkflowRoutingSheet({
                 </div>
               )}
 
-              {/* Only show other routing options if workflow is not completed */}
-              {workflow?.status !== "completed" && (
+              {/* Only show other routing options if workflow is not completed and not being filed by secretary */}
+              {workflow?.status !== "completed" && !(isSecretary && workflow?.status === "ready_for_review") && (
                 <>
                   {originalSender && (
                 <div className="flex items-start space-x-2 space-y-0 rounded-md border p-4">
