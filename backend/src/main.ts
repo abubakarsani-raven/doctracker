@@ -107,6 +107,13 @@ async function bootstrap() {
   await app.listen(port);
   console.log(`Backend server running on http://localhost:${port}`);
   console.log(`CORS enabled for origins: ${trustedOrigins.join(', ')}`);
+
+  // Seed after listen so Railway healthchecks are not blocked if seed is slow.
+  void import('./seed/run-seed')
+    .then(({ runSeed }) => runSeed())
+    .catch((error) => {
+      console.error('Startup seed failed (app is still running):', error);
+    });
 }
 
 bootstrap();

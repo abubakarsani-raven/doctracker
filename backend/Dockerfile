@@ -40,7 +40,7 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 ENV DATABASE_URL=postgresql://placeholder:placeholder@localhost:5432/placeholder
 # Bust cache when seed/boot path changes
-ENV DOCTRACKER_SEED_REV=2
+ENV DOCTRACKER_SEED_REV=3
 RUN npx prisma generate && npm run build
 
 # ---------------------------------------------------------------------------
@@ -51,10 +51,9 @@ ENV NODE_ENV=production
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/prisma ./prisma
-# Seed is compiled into dist/seed/run-seed.js (from src/seed/run-seed.ts).
-# Railway startCommand runs: migrate deploy → seed → main (seed failure must not block boot).
-# Bump to bust Railway layer cache when seed changes.
-ENV DOCTRACKER_SEED_REV=2
+# Seed runs after listen from dist/main.js (see src/main.ts) so /health is not blocked.
+# Bump to bust Railway layer cache when seed/boot path changes.
+ENV DOCTRACKER_SEED_REV=3
 COPY package.json prisma.config.ts ./
 EXPOSE 4003
 CMD ["node", "dist/main.js"]
