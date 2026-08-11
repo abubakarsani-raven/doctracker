@@ -10,6 +10,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { FileUpload, FileWithMetadata } from "@/components/common";
 import { toast } from "sonner";
@@ -33,6 +34,7 @@ export function UploadNewVersionDialog({
   onUploaded,
 }: UploadNewVersionDialogProps) {
   const [file, setFile] = useState<FileWithMetadata | null>(null);
+  const [changeNote, setChangeNote] = useState("");
   const [uploading, setUploading] = useState(false);
 
   const handleFileSelected = (files: FileWithMetadata[]) => {
@@ -55,16 +57,23 @@ export function UploadNewVersionDialog({
 
     setUploading(true);
     try {
-      // Multipart upload of the real file bytes (field name `file`).
-      await api.uploadFileVersion(documentId, file.file, file.file.name);
+      await api.uploadFileVersion(
+        documentId,
+        file.file,
+        file.file.name,
+        changeNote.trim() || undefined,
+      );
 
       toast.success("New version uploaded successfully");
       setFile(null);
+      setChangeNote("");
       onUploaded?.();
       onOpenChange(false);
     } catch (error: any) {
       console.error("Upload failed:", error);
-      toast.error(error?.message || "Failed to upload new version. Please try again.");
+      toast.error(
+        error?.message || "Failed to upload new version. Please try again.",
+      );
     } finally {
       setUploading(false);
     }
@@ -72,6 +81,7 @@ export function UploadNewVersionDialog({
 
   const handleClose = () => {
     setFile(null);
+    setChangeNote("");
     onOpenChange(false);
   };
 
@@ -91,7 +101,8 @@ export function UploadNewVersionDialog({
           <Alert>
             <AlertCircle className="h-4 w-4" />
             <AlertDescription>
-              Only the 10 most recent versions are kept. Older versions will be automatically deleted to save space.
+              Only the 10 most recent versions are kept. Older versions will be
+              automatically deleted to save space.
             </AlertDescription>
           </Alert>
 
@@ -101,16 +112,33 @@ export function UploadNewVersionDialog({
               onFilesSelected={handleFileSelected}
               onFilesRemoved={handleFileRemoved}
               multiple={false}
-              maxSize={100 * 1024 * 1024} // 100MB
+              maxSize={100 * 1024 * 1024}
               accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx"
             />
           </div>
 
           {file && (
             <div className="text-sm text-muted-foreground">
-              Selected: <span className="font-medium">{file.file.name}</span> ({(file.file.size / 1024 / 1024).toFixed(2)} MB)
+              Selected: <span className="font-medium">{file.file.name}</span> (
+              {(file.file.size / 1024 / 1024).toFixed(2)} MB)
             </div>
           )}
+
+          <div className="space-y-2">
+            <Label htmlFor="change-note">What changed? (optional)</Label>
+            <Input
+              id="change-note"
+              placeholder="e.g. Corrected page 2 figures"
+              value={changeNote}
+              onChange={(e) => setChangeNote(e.target.value)}
+              maxLength={200}
+              disabled={uploading}
+            />
+            <p className="text-xs text-muted-foreground">
+              Shown in version history so others know why this snapshot was
+              saved.
+            </p>
+          </div>
         </div>
 
         <DialogFooter>

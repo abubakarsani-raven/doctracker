@@ -348,7 +348,13 @@ export class SignaturesService {
   }
 
   async listForFile(fileId: string, userId: string) {
-    await this.permissionsService.assertPermission(userId, 'file', fileId, 'read');
+    const isParticipant = await this.prisma.signatureParticipant.findFirst({
+      where: { userId, request: { fileId } },
+      select: { id: true },
+    });
+    if (!isParticipant) {
+      await this.permissionsService.assertPermission(userId, 'file', fileId, 'read');
+    }
 
     return this.prisma.signatureRequest.findMany({
       where: { fileId },
@@ -361,6 +367,177 @@ export class SignaturesService {
       },
       orderBy: { createdAt: 'desc' },
     });
+  }
+
+  // ── Saved signatures (reusable profile stamps) ──────────────────────────
+
+  private static readonly MAX_SAVED_SIGNATURES = 8;
+  private static readonly MAX_IMAGE_DATA_CHARS = 900_000; // ~675KB base64
+
+  private assertSignatureImageData(imageData: string) {
+    if (!imageData || typeof imageData !== 'string') {
+      throw new BadRequestException('Signature image is required');
+    }
+    if (!imageData.startsWith('data:image/')) {
+      throw new BadRequestException('Signature must be an image data URL');
+    }
+    if (imageData.length > SignaturesService.MAX_IMAGE_DATA_CHARS) {
+      throw new BadRequestException('Signature image is too large');
+    }
+  }
+
+  private normalizeLabel(label: string): string {
+    const trimmed = (label || '').trim();
+    if (!trimmed) throw new BadRequestException('Label is required');
+    if (trimmed.length > 80) {
+      throw new BadRequestException('Label must be 80 characters or fewer');
+    }
+    return trimmed;
+  }
+
+  async listSavedSignatures(userId: string) {
+    return this.prisma.userSavedSignature.findMany({
+      where: { userId },
+      orderBy: [{ isDefault: 'desc' }, { updatedAt: 'desc' }],
+      select: {
+        id: true,
+        label: true,
+        imageData: true,
+        isDefault: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
+  }
+
+  async createSavedSignature(
+    userId: string,
+    data: { label: string; imageData: string; isDefault?: boolean },
+  ) {
+    const label = this.normalizeLabel(data.label);
+    this.assertSignatureImageData(data.imageData);
+
+    const count = await this.prisma.userSavedSignature.count({
+      where: { userId },
+    });
+    if (count >= SignaturesService.MAX_SAVED_SIGNATURES) {
+      throw new BadRequestException(
+        `You can save up to ${SignaturesService.MAX_SAVED_SIGNATURES} signatures. Delete one first.`,
+      );
+    }
+
+    const makeDefault = data.isDefault === true || count === 0;
+
+    return this.prisma.$transaction(async (tx) => {
+      if (makeDefault) {
+        await tx.userSavedSignature.updateMany({
+          where: { userId, isDefault: true },
+          data: { isDefault: false },
+        });
+      }
+      return tx.userSavedSignature.create({
+        data: {
+          userId,
+          label,
+          imageData: data.imageData,
+          isDefault: makeDefault,
+        },
+        select: {
+          id: true,
+          label: true,
+          imageData: true,
+          isDefault: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+      });
+    });
+  }
+
+  async updateSavedSignature(
+    userId: string,
+    id: string,
+    data: { label?: string; imageData?: string; isDefault?: boolean },
+  ) {
+    const existing = await this.prisma.userSavedSignature.findUnique({
+      where: { id },
+    });
+    if (!existing || existing.userId !== userId) {
+      throw new NotFoundException('Saved signature not found');
+    }
+
+    const nextLabel =
+      data.label !== undefined ? this.normalizeLabel(data.label) : undefined;
+    if (data.imageData !== undefined) {
+      this.assertSignatureImageData(data.imageData);
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      if (data.isDefault === true) {
+        await tx.userSavedSignature.updateMany({
+          where: { userId, isDefault: true, NOT: { id } },
+          data: { isDefault: false },
+        });
+      }
+
+      return tx.userSavedSignature.update({
+        where: { id },
+        data: {
+          ...(nextLabel !== undefined ? { label: nextLabel } : {}),
+          ...(data.imageData !== undefined
+            ? { imageData: data.imageData }
+            : {}),
+          ...(data.isDefault !== undefined
+            ? { isDefault: data.isDefault }
+            : {}),
+        },
+        select: {
+          id: true,
+          label: true,
+          imageData: true,
+          isDefault: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+      });
+    });
+  }
+
+  async deleteSavedSignature(userId: string, id: string) {
+    const existing = await this.prisma.userSavedSignature.findUnique({
+      where: { id },
+    });
+    if (!existing || existing.userId !== userId) {
+      throw new NotFoundException('Saved signature not found');
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.userSavedSignature.delete({ where: { id } });
+      if (existing.isDefault) {
+        const next = await tx.userSavedSignature.findFirst({
+          where: { userId },
+          orderBy: { updatedAt: 'desc' },
+        });
+        if (next) {
+          await tx.userSavedSignature.update({
+            where: { id: next.id },
+            data: { isDefault: true },
+          });
+        }
+      }
+    });
+
+    return { ok: true };
+  }
+
+  async getSavedSignatureImage(userId: string, id: string): Promise<string> {
+    const row = await this.prisma.userSavedSignature.findUnique({
+      where: { id },
+    });
+    if (!row || row.userId !== userId) {
+      throw new NotFoundException('Saved signature not found');
+    }
+    return row.imageData;
   }
 
   async sign(
@@ -409,8 +586,20 @@ export class SignaturesService {
       throw new ForbiddenException('Email mismatch');
     }
 
-    if (participant.status === 'signed') {
-      throw new ForbiddenException('Participant has already signed');
+    const isResign = participant.status === 'signed';
+
+    // Later signers may already have stamped on top of this signature — editing
+    // would erase their work, so only the latest signer may revise.
+    if (isResign) {
+      const laterSigned = request.participants.some(
+        (p) =>
+          p.signingOrder > participant.signingOrder && p.status === 'signed',
+      );
+      if (laterSigned) {
+        throw new ForbiddenException(
+          'Cannot edit signature after a later participant has already signed',
+        );
+      }
     }
 
     const previousParticipants = request.participants.filter(
@@ -423,6 +612,17 @@ export class SignaturesService {
 
     const lastEvent = request.events[0];
     const previousHash = lastEvent ? lastEvent.contentHash : null;
+    const priorSignEvent = isResign
+      ? request.events.find(
+          (e) =>
+            e.participantId === participantId &&
+            (e.eventType === 'signature' || e.eventType === 'signature_revised'),
+        )
+      : null;
+    const priorMeta = (priorSignEvent?.metadata ?? null) as Record<
+      string,
+      unknown
+    > | null;
 
     const isPdf =
       request.file.fileType === 'pdf' ||
@@ -433,6 +633,45 @@ export class SignaturesService {
       !!request.file.richTextDoc ||
       request.file.fileType === 'html' ||
       request.file.fileType === 'text/html';
+
+    // Restore the pre-stamp file so a corrected signature replaces the old one
+    // instead of stacking a second stamp.
+    if (isResign && isPdf) {
+      let restorePath =
+        typeof priorMeta?.preSignStoragePath === 'string'
+          ? (priorMeta.preSignStoragePath as string)
+          : null;
+      if (!restorePath) {
+        // Legacy signatures (before preSignStoragePath was stored): use the
+        // version snapshot created at sign time (points at the pre-stamp file).
+        const snap = await this.prisma.fileVersion.findFirst({
+          where: {
+            fileId: request.fileId,
+            createdBy: user.id,
+            createdAt: participant.signedAt
+              ? {
+                  gte: new Date(
+                    new Date(participant.signedAt).getTime() - 60_000,
+                  ),
+                  lte: new Date(
+                    new Date(participant.signedAt).getTime() + 60_000,
+                  ),
+                }
+              : undefined,
+          },
+          orderBy: { versionNumber: 'desc' },
+        });
+        restorePath = snap?.storagePath ?? null;
+      }
+      if (!restorePath) {
+        throw new BadRequestException(
+          'Cannot revise this signature because the previous version is unavailable. Ask for a new signature request.',
+        );
+      }
+      request.file.storagePath = restorePath;
+    }
+
+    const preSignStoragePath = request.file.storagePath ?? null;
 
     const result = await this.prisma.$transaction(async (tx) => {
       let contentHash: string;
@@ -446,6 +685,13 @@ export class SignaturesService {
           user,
           signatureImageData,
           placement: { ...placement, widthPercent },
+          description: isResign
+            ? `Saved before signature update by ${
+                participant.name || user.name || user.email || 'signer'
+              }`
+            : `Saved before signature by ${
+                participant.name || user.name || user.email || 'signer'
+              }`,
         });
       } else if (isRichText && request.file.richTextDoc) {
         contentHash = await this.stampRichText({
@@ -455,6 +701,14 @@ export class SignaturesService {
           user,
           signatureImageData,
           placement: { ...placement, widthPercent },
+          replaceExisting: isResign,
+          description: isResign
+            ? `Saved before signature update by ${
+                participant.name || user.name || user.email || 'signer'
+              }`
+            : `Saved before signature by ${
+                participant.name || user.name || user.email || 'signer'
+              }`,
         });
       } else {
         contentHash = crypto
@@ -484,7 +738,7 @@ export class SignaturesService {
         data: {
           requestId,
           participantId,
-          eventType: 'signature',
+          eventType: isResign ? 'signature_revised' : 'signature',
           contentHash,
           previousHash,
           ipAddress,
@@ -492,6 +746,8 @@ export class SignaturesService {
           metadata: {
             participantName: participant.name,
             participantEmail: participant.email,
+            revised: isResign,
+            preSignStoragePath: isPdf ? preSignStoragePath : undefined,
             placement: {
               page: placement.page,
               xPercent: placement.xPercent,
@@ -511,6 +767,12 @@ export class SignaturesService {
         await tx.signatureRequest.update({
           where: { id: requestId },
           data: { status: 'completed' },
+        });
+      } else if (isResign && request.status === 'completed') {
+        // Should not normally happen, but keep request pending if resign broke completion.
+        await tx.signatureRequest.update({
+          where: { id: requestId },
+          data: { status: 'pending' },
         });
       }
 
@@ -549,14 +811,17 @@ export class SignaturesService {
         email: user.email,
       });
 
-      await this.notifyRequestCompleted({
-        requestId,
-        fileId: result.fileId,
-        fileName: request.file.fileName,
-        companyId: request.companyId,
-        createdBy: request.createdBy,
-        signerName: participant.name || user.name || user.email || 'A signer',
-      });
+      // Don't spam the requester when a signer is only revising their stamp.
+      if (!isResign) {
+        await this.notifyRequestCompleted({
+          requestId,
+          fileId: result.fileId,
+          fileName: request.file.fileName,
+          companyId: request.companyId,
+          createdBy: request.createdBy,
+          signerName: participant.name || user.name || user.email || 'A signer',
+        });
+      }
     }
 
     const { fileId: _fileId, ...response } = result;
@@ -588,8 +853,10 @@ export class SignaturesService {
     user: any;
     signatureImageData: string;
     placement: SignaturePlacement & { widthPercent: number };
+    description?: string;
   }): Promise<string> {
-    const { tx, request, participant, user, signatureImageData, placement } = args;
+    const { tx, request, participant, user, signatureImageData, placement, description } =
+      args;
 
     try {
       const fileStream = await this.objectStorage.getStream(request.file.storagePath);
@@ -644,6 +911,11 @@ export class SignaturesService {
           versionNumber: nextVersion,
           storagePath: request.file.storagePath,
           createdBy: user.id,
+          description:
+            description ||
+            `Saved before signature by ${
+              participant.name || user.name || user.email || 'signer'
+            }`,
         },
       });
 
@@ -691,9 +963,46 @@ export class SignaturesService {
     user: any;
     signatureImageData: string;
     placement: SignaturePlacement & { widthPercent: number };
+    replaceExisting?: boolean;
+    description?: string;
   }): Promise<string> {
-    const { tx, request, participant, user, signatureImageData, placement } = args;
-    const current = request.file.richTextDoc.htmlContent || '';
+    const {
+      tx,
+      request,
+      participant,
+      user,
+      signatureImageData,
+      placement,
+      replaceExisting = false,
+      description,
+    } = args;
+    let current = request.file.richTextDoc.htmlContent || '';
+
+    // If we restored pre-sign HTML already, current is clean. Otherwise strip
+    // any prior stamp for this participant before applying the replacement.
+    if (replaceExisting) {
+      current = current.replace(
+        new RegExp(
+          `<div\\s+class="dt-signature-stamp"[^>]*data-participant-id="${escapeRegExp(
+            participant.id,
+          )}"[^>]*>[\\s\\S]*?<\\/div>`,
+          'gi',
+        ),
+        '',
+      );
+      // Legacy stamps (before data-participant-id) keyed by signer name.
+      if (participant.name) {
+        current = current.replace(
+          new RegExp(
+            `<div\\s+class="dt-signature-stamp"[^>]*data-signer="${escapeRegExp(
+              escapeHtml(participant.name),
+            )}"[^>]*>[\\s\\S]*?<\\/div>`,
+            'gi',
+          ),
+          '',
+        );
+      }
+    }
 
     // Snapshot current HTML before stamping so rollback works
     const lastVersion = await tx.fileVersion.findFirst({
@@ -707,11 +1016,16 @@ export class SignaturesService {
         versionNumber: (lastVersion?.versionNumber ?? 0) + 1,
         storagePath: `rich-text-content://${Buffer.from(current).toString('base64')}`,
         createdBy: user.id,
+        description:
+          description ||
+          `Saved before signature by ${
+            participant.name || user.name || user.email || 'signer'
+          }`,
       },
     });
 
     const stamp = `
-<div class="dt-signature-stamp" data-signer="${escapeHtml(participant.name || '')}" data-signed-at="${new Date().toISOString()}" style="position:absolute;left:${placement.xPercent}%;top:${placement.yPercent}%;width:${placement.widthPercent}%;z-index:5;pointer-events:none;">
+<div class="dt-signature-stamp" data-participant-id="${escapeHtml(participant.id)}" data-signer="${escapeHtml(participant.name || '')}" data-signed-at="${new Date().toISOString()}" style="position:absolute;left:${placement.xPercent}%;top:${placement.yPercent}%;width:${placement.widthPercent}%;z-index:5;pointer-events:none;">
   <img src="${signatureImageData}" alt="Signature" style="width:100%;height:auto;display:block;" />
 </div>`.trim();
 
@@ -749,4 +1063,8 @@ function escapeHtml(value: string): string {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }

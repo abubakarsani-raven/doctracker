@@ -46,7 +46,8 @@ import {
   FileText,
   X,
   CheckSquare,
-  Square
+  Square,
+  RefreshCw,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
@@ -70,17 +71,50 @@ import { useCompanies } from "@/lib/hooks/use-companies";
 import { useFolders } from "@/lib/hooks/use-documents";
 import { useDocuments } from "@/lib/hooks/use-documents";
 import { countDocumentsInFolderTree } from "@/lib/folder-utils";
+import { useQueryClient } from "@tanstack/react-query";
 
 export default function DocumentsPage() {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const { data: currentUser } = useCurrentUser();
   const { can, canOn, whyNot, isMaster, permissions, scopeDescription } =
     usePermissions();
   const { data: companies = [] } = useCompanies();
-  const { data: allFolders = [], isLoading: foldersLoading } = useFolders();
-  const { data: allDocuments = [], isLoading: documentsLoading } = useDocuments();
+  const {
+    data: allFolders = [],
+    isLoading: foldersLoading,
+    isFetching: foldersFetching,
+    refetch: refetchFolders,
+  } = useFolders();
+  const {
+    data: allDocuments = [],
+    isLoading: documentsLoading,
+    isFetching: documentsFetching,
+    refetch: refetchDocuments,
+  } = useDocuments();
   
   const loading = foldersLoading || documentsLoading;
+  const refreshingFolders = foldersFetching && !foldersLoading;
+  const refreshingDocuments = documentsFetching && !documentsLoading;
+
+  const refreshFolders = async () => {
+    await Promise.all([
+      refetchFolders(),
+      queryClient.invalidateQueries({ queryKey: ["folders"] }),
+    ]);
+  };
+
+  const refreshDocuments = async () => {
+    await Promise.all([
+      refetchDocuments(),
+      queryClient.invalidateQueries({ queryKey: ["documents"] }),
+    ]);
+  };
+
+  const refreshAll = async () => {
+    await Promise.all([refreshFolders(), refreshDocuments()]);
+    toast.success("Folders and documents refreshed");
+  };
   
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
   const [searchQuery, setSearchQuery] = useState("");
@@ -410,20 +444,23 @@ export default function DocumentsPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
           <p className="register-label">Registry</p>
-          <h1 className="mt-1 text-3xl font-bold tracking-tight">Documents</h1>
+          <h1 className="mt-1 break-words text-2xl font-bold tracking-tight sm:text-3xl">
+            Documents
+          </h1>
           <p className="text-muted-foreground">
             {scopeDescription}
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <PermissionButton
             variant="outline"
             allowed={can("documents.create")}
             reason={`The ${permissions.role} role cannot create documents.`}
             onClick={() => setCreateRichTextDialogOpen(true)}
+            className="flex-1 sm:flex-none"
           >
             <FileText className="mr-2 h-4 w-4" />
             New Document
@@ -433,6 +470,7 @@ export default function DocumentsPage() {
             allowed={can("folders.create")}
             reason={`The ${permissions.role} role cannot create folders.`}
             onClick={() => setCreateFolderDialogOpen(true)}
+            className="flex-1 sm:flex-none"
           >
             <FolderPlus className="mr-2 h-4 w-4" />
             New Folder
@@ -441,6 +479,7 @@ export default function DocumentsPage() {
             allowed={can("documents.create")}
             reason={`The ${permissions.role} role cannot upload documents.`}
             onClick={() => setUploadDialogOpen(true)}
+            className="flex-1 sm:flex-none"
           >
             <Upload className="mr-2 h-4 w-4" />
             Upload
@@ -462,8 +501,8 @@ export default function DocumentsPage() {
       </Breadcrumb>
 
       {/* Toolbar */}
-      <div className="flex items-center gap-4 flex-wrap">
-        <div className="relative flex-1 min-w-[200px]">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:flex-wrap sm:gap-4">
+        <div className="relative w-full min-w-0 flex-1 sm:min-w-[200px]">
           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
             placeholder="Search documents and folders..."
@@ -473,35 +512,50 @@ export default function DocumentsPage() {
           />
         </div>
         
-        <DocumentFilters
-          value={filters}
-          onChange={setFilters}
-          facets={facets}
-          showCompanies={isMaster}
-        />
+        <div className="flex flex-wrap items-center gap-2 sm:gap-4">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={refreshAll}
+            disabled={refreshingFolders || refreshingDocuments}
+          >
+            <RefreshCw
+              className={`mr-2 h-4 w-4 ${
+                refreshingFolders || refreshingDocuments ? "animate-spin" : ""
+              }`}
+            />
+            Refresh
+          </Button>
+          <DocumentFilters
+            value={filters}
+            onChange={setFilters}
+            facets={facets}
+            showCompanies={isMaster}
+          />
 
-        <Select value={sortBy} onValueChange={setSortBy}>
-          <SelectTrigger className="w-[180px]">
-            <SelectValue placeholder="Sort by" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="modified">Last Modified</SelectItem>
-            <SelectItem value="name">Name</SelectItem>
-            <SelectItem value="size">Size</SelectItem>
-            <SelectItem value="created">Date Created</SelectItem>
-          </SelectContent>
-        </Select>
-        
-        <Tabs value={viewMode} onValueChange={(v) => setViewMode(v as "grid" | "list")}>
-          <TabsList>
-            <TabsTrigger value="grid">
-              <Grid3x3 className="h-4 w-4" />
-            </TabsTrigger>
-            <TabsTrigger value="list">
-              <List className="h-4 w-4" />
-            </TabsTrigger>
-          </TabsList>
-        </Tabs>
+          <Select value={sortBy} onValueChange={setSortBy}>
+            <SelectTrigger className="w-full sm:w-[180px]">
+              <SelectValue placeholder="Sort by" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="modified">Last Modified</SelectItem>
+              <SelectItem value="name">Name</SelectItem>
+              <SelectItem value="size">Size</SelectItem>
+              <SelectItem value="created">Date Created</SelectItem>
+            </SelectContent>
+          </Select>
+          
+          <Tabs value={viewMode} onValueChange={(v) => setViewMode(v as "grid" | "list")}>
+            <TabsList>
+              <TabsTrigger value="grid">
+                <Grid3x3 className="h-4 w-4" />
+              </TabsTrigger>
+              <TabsTrigger value="list">
+                <List className="h-4 w-4" />
+              </TabsTrigger>
+            </TabsList>
+          </Tabs>
+        </div>
       </div>
 
       {/* What is currently filtered, so it is never hidden behind the popover */}
@@ -524,9 +578,23 @@ export default function DocumentsPage() {
           {/* Folders Section */}
           {sortedFolders.length > 0 && (
             <div>
-              <div className="flex items-center justify-between mb-4">
+              <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                 <h2 className="text-xl font-semibold">Folders</h2>
-                {sortedFolders.length > 0 && (
+                <div className="flex flex-wrap items-center gap-1">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={async () => {
+                      await refreshFolders();
+                      toast.success("Folders refreshed");
+                    }}
+                    disabled={refreshingFolders}
+                  >
+                    <RefreshCw
+                      className={`mr-2 h-4 w-4 ${refreshingFolders ? "animate-spin" : ""}`}
+                    />
+                    Refresh
+                  </Button>
                   <Button
                     variant="ghost"
                     size="sm"
@@ -539,12 +607,12 @@ export default function DocumentsPage() {
                     )}
                     Select All Folders
                   </Button>
-                )}
+                </div>
               </div>
               <div
                 className={
                   viewMode === "grid"
-                    ? "grid gap-4 md:grid-cols-2 lg:grid-cols-3"
+                    ? "grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3"
                     : "space-y-4"
                 }
               >
@@ -579,9 +647,23 @@ export default function DocumentsPage() {
           {/* Documents Section */}
           {sortedDocuments.length > 0 && (
             <div>
-              <div className="flex items-center justify-between mb-4">
+              <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                 <h2 className="text-xl font-semibold">Documents</h2>
-                {sortedDocuments.length > 0 && (
+                <div className="flex flex-wrap items-center gap-1">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={async () => {
+                      await refreshDocuments();
+                      toast.success("Documents refreshed");
+                    }}
+                    disabled={refreshingDocuments}
+                  >
+                    <RefreshCw
+                      className={`mr-2 h-4 w-4 ${refreshingDocuments ? "animate-spin" : ""}`}
+                    />
+                    Refresh
+                  </Button>
                   <Button
                     variant="ghost"
                     size="sm"
@@ -594,12 +676,12 @@ export default function DocumentsPage() {
                     )}
                     Select All Documents
                   </Button>
-                )}
+                </div>
               </div>
               <div
                 className={
                   viewMode === "grid"
-                    ? "grid gap-4 md:grid-cols-2 lg:grid-cols-3"
+                    ? "grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3"
                     : "space-y-4"
                 }
               >

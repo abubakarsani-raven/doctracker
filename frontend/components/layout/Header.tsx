@@ -18,6 +18,7 @@ import { useState, useMemo, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { NotificationDropdown } from "@/components/common/NotificationDropdown";
 import { ThemeToggle } from "@/components/layout/ThemeToggle";
+import { FontSizeToggle } from "@/components/layout/FontSizeToggle";
 import { useCurrentUser } from "@/lib/hooks/use-users";
 import { useCompanies } from "@/lib/hooks/use-companies";
 import { usePermissions } from "@/lib/hooks/use-permissions";
@@ -126,6 +127,7 @@ export function Header() {
 
         {/* Actions */}
         <div className="flex items-center gap-2">
+          <FontSizeToggle />
           <ThemeToggle />
 
           {/* Notifications */}

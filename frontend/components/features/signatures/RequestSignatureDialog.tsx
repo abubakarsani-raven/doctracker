@@ -142,7 +142,9 @@ export function RequestSignatureDialog({
           <DialogTitle>Request signatures</DialogTitle>
           <DialogDescription>
             Ask people to sign “{fileName || "this document"}”. They choose the
-            page and exact spot when they sign.
+            page and exact spot when they sign. Signers can be in another
+            company — pick them from the directory (if you can see them) or
+            invite by email.
           </DialogDescription>
         </DialogHeader>
 

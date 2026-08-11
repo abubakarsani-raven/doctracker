@@ -15,10 +15,17 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
 import { toast } from "sonner";
-import { User, Bell, Shield, Palette, Building2 } from "lucide-react";
 import { useCurrentUser, useUpdateOwnProfile } from "@/lib/hooks/use-users";
 import { useCompanies } from "@/lib/hooks/use-companies";
 import { useMemo } from "react";
+import {
+  FONT_SCALE_OPTIONS,
+  getStoredFontScale,
+  setFontScale,
+  type FontScale,
+} from "@/lib/font-scale";
+import { cn } from "@/lib/utils";
+import { ManageSavedSignatures } from "@/components/features/signatures/ManageSavedSignatures";
 
 export default function SettingsPage() {
   const { data: currentUser } = useCurrentUser();
@@ -29,6 +36,7 @@ export default function SettingsPage() {
     email: "",
     phone: "",
   });
+  const [fontScale, setFontScaleState] = useState<FontScale>("md");
 
   // Get company name from companyId
   const companyName = useMemo(() => {
@@ -46,6 +54,10 @@ export default function SettingsPage() {
       });
     }
   }, [currentUser]);
+
+  useEffect(() => {
+    setFontScaleState(getStoredFontScale());
+  }, []);
 
   const [notificationPreferences, setNotificationPreferences] = useState({
     assignments: { email: true, inApp: true },
@@ -71,6 +83,12 @@ export default function SettingsPage() {
     }
   };
 
+  const handleFontScaleChange = (scale: FontScale) => {
+    setFontScaleState(scale);
+    setFontScale(scale);
+    toast.success("Text size updated");
+  };
+
   // Notification preferences have no store behind them yet — there is no
   // preference model on the API. Rather than report a save that did not
   // happen, the controls stay read-only until that lands.
@@ -89,6 +107,8 @@ export default function SettingsPage() {
       <Tabs defaultValue="profile" className="space-y-6">
         <TabsList>
           <TabsTrigger value="profile">Profile</TabsTrigger>
+          <TabsTrigger value="signatures">Signatures</TabsTrigger>
+          <TabsTrigger value="appearance">Appearance</TabsTrigger>
           <TabsTrigger value="notifications">Notifications</TabsTrigger>
           <TabsTrigger value="security">Security</TabsTrigger>
         </TabsList>
@@ -160,6 +180,73 @@ export default function SettingsPage() {
               <Button onClick={handleSaveProfile} disabled={saving}>
                 {saving ? "Saving..." : "Save Changes"}
               </Button>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="signatures">
+          <Card>
+            <CardHeader>
+              <CardTitle>Saved signatures</CardTitle>
+              <CardDescription>
+                Draw or upload signatures once, then select them when you sign
+                documents.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <ManageSavedSignatures />
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="appearance">
+          <Card>
+            <CardHeader>
+              <CardTitle>Text size</CardTitle>
+              <CardDescription>
+                Make the whole app easier to read. You can also use A− / A+ in
+                the header. This preference stays on this device.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                {FONT_SCALE_OPTIONS.map((option) => (
+                  <button
+                    key={option.value}
+                    type="button"
+                    onClick={() => handleFontScaleChange(option.value)}
+                    className={cn(
+                      "rounded-lg border px-4 py-3 text-left transition-colors hover:bg-muted/50",
+                      fontScale === option.value &&
+                        "border-primary bg-primary/5 ring-1 ring-primary",
+                    )}
+                  >
+                    <span
+                      className="block font-semibold leading-none"
+                      style={{ fontSize: `${option.percent}%` }}
+                    >
+                      {option.sample}
+                    </span>
+                    <span className="mt-2 block text-sm font-medium">
+                      {option.label}
+                    </span>
+                    <span className="text-xs text-muted-foreground">
+                      {option.percent}%
+                    </span>
+                  </button>
+                ))}
+              </div>
+              <p
+                className="rounded-md border bg-muted/40 px-3 py-2 text-sm text-muted-foreground"
+                style={{
+                  fontSize: `${
+                    FONT_SCALE_OPTIONS.find((o) => o.value === fontScale)
+                      ?.percent ?? 100
+                  }%`,
+                }}
+              >
+                Sample: File, route and approve documents across departments.
+              </p>
             </CardContent>
           </Card>
         </TabsContent>

@@ -339,7 +339,11 @@ export class WorkflowsService {
       }
     }
     
-    return this.transformWorkflow(workflow);
+    const transformed = await this.transformWorkflow(workflow);
+    return {
+      ...transformed,
+      canSetEndPoint: await this.canSetEndPoint(workflow, currentUser),
+    };
   }
 
   async create(data: any, currentUser: any) {
@@ -485,7 +489,10 @@ export class WorkflowsService {
     if (data.type !== undefined) updateData.type = data.type;
     if (data.status !== undefined) updateData.status = data.status;
     if (data.progress !== undefined) updateData.progress = data.progress;
-    if (data.dueDate !== undefined) updateData.dueDate = data.dueDate ? new Date(data.dueDate) : null;
+    if (data.dueDate !== undefined) {
+      await this.assertCanSetEndPoint(id, currentUser);
+      updateData.dueDate = data.dueDate ? new Date(data.dueDate) : null;
+    }
     if (data.folderId !== undefined) updateData.folderId = data.folderId;
     if (data.documentId !== undefined) updateData.documentId = data.documentId;
 
@@ -706,6 +713,105 @@ export class WorkflowsService {
       console.error('Failed to log activity:', error);
     }
     
+    return transformed;
+  }
+
+  /**
+   * Who may set the workflow end point:
+   * creator, Company Secretary / Department Head of the workflow's company,
+   * Group Secretary, or Master.
+   */
+  async canSetEndPoint(
+    workflow: { assignedBy: string; companyId: string },
+    currentUser?: any,
+  ): Promise<boolean> {
+    if (!currentUser?.id) return false;
+
+    if (
+      currentUser?.permissions?.dataScope === 'all' ||
+      currentUser.role === 'Master' ||
+      currentUser.role === 'Group Secretary'
+    ) {
+      return true;
+    }
+
+    if (workflow.assignedBy === currentUser.id) {
+      return true;
+    }
+
+    const sameCompany =
+      !!currentUser.companyId && currentUser.companyId === workflow.companyId;
+    if (!sameCompany) return false;
+
+    const role =
+      currentUser.role ||
+      currentUser.permissions?.role ||
+      currentUser.userRoles?.[0]?.role?.name;
+
+    return role === 'Company Secretary' || role === 'Department Head';
+  }
+
+  private async assertCanSetEndPoint(workflowId: string, currentUser?: any) {
+    const workflow = await this.prisma.workflow.findUnique({
+      where: { id: workflowId },
+      select: { id: true, assignedBy: true, companyId: true, status: true },
+    });
+    if (!workflow) {
+      throw new NotFoundException('Workflow not found');
+    }
+    const allowed = await this.canSetEndPoint(workflow, currentUser);
+    if (!allowed) {
+      throw new ForbiddenException(
+        'Only the workflow creator, the company secretary, a department head of that company, the group secretary, or the master can set the end point.',
+      );
+    }
+    return workflow;
+  }
+
+  /**
+   * Set or clear the workflow end point (dueDate).
+   */
+  async setEndPoint(
+    id: string,
+    dueDate: string | null | undefined,
+    currentUser: any,
+  ) {
+    await this.assertCanSetEndPoint(id, currentUser);
+
+    const workflow = await this.prisma.workflow.update({
+      where: { id },
+      data: {
+        dueDate: dueDate ? new Date(dueDate) : null,
+      },
+      include: {
+        company: true,
+        document: true,
+        creator: true,
+        routingHistory: {
+          orderBy: { routedAt: 'asc' },
+        },
+      },
+    });
+
+    const transformed = await this.transformWorkflow(workflow);
+    this.wsGateway.emitWorkflowUpdate(id, transformed);
+
+    try {
+      await this.activityService.createActivity({
+        userId: currentUser.id,
+        companyId: workflow.companyId,
+        activityType: 'workflow_updated',
+        resourceType: 'workflow',
+        resourceId: id,
+        description: dueDate
+          ? `End point set to ${new Date(dueDate).toLocaleDateString()}`
+          : 'End point cleared',
+        metadata: { dueDate: dueDate ?? null },
+      });
+    } catch (error) {
+      console.error('Failed to log activity:', error);
+    }
+
     return transformed;
   }
 

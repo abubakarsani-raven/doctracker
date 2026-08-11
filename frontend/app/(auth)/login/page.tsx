@@ -28,7 +28,7 @@ export default function LoginPage() {
 
     try {
       // Authenticate with backend or mock API
-      const result = await api.login(email, password);
+      await api.login(email, password, rememberMe);
       
       // Token is already stored by api-client
       const params = new URLSearchParams(window.location.search);
@@ -120,19 +120,26 @@ export default function LoginPage() {
                 />
               </div>
 
-              <div className="flex items-center space-x-2">
+              <div className="flex items-start space-x-2">
                 <Checkbox
                   id="remember"
                   checked={rememberMe}
                   onCheckedChange={(checked) => setRememberMe(checked === true)}
                   disabled={loading}
+                  className="mt-0.5"
                 />
-                <Label
-                  htmlFor="remember"
-                  className="text-sm font-normal cursor-pointer"
-                >
-                  Remember me
-                </Label>
+                <div className="space-y-0.5">
+                  <Label
+                    htmlFor="remember"
+                    className="text-sm font-normal cursor-pointer"
+                  >
+                    Remember me
+                  </Label>
+                  <p className="text-xs text-muted-foreground">
+                    Stay signed in on this device for 30 days. Leave unchecked
+                    to sign out when you close the browser.
+                  </p>
+                </div>
               </div>
 
               <Button type="submit" className="w-full" disabled={loading}>

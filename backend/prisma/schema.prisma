@@ -60,6 +60,7 @@ model User {
   refreshTokens       RefreshToken[]
   passwordResetTokens PasswordResetToken[]
   signatureParticipants SignatureParticipant[]
+  savedSignatures     UserSavedSignature[]
   workflowFiles       WorkflowFile[]       @relation("WorkflowFileAdder")
 
   @@map("users")
@@ -244,6 +245,8 @@ model FileVersion {
   fileId        String   @map("file_id")
   versionNumber Int      @map("version_number")
   storagePath   String   @map("storage_path")
+  /** Short note: why this snapshot exists (upload, signature, restore, edit). */
+  description   String?
   createdBy     String   @map("created_by")
   createdAt     DateTime @default(now()) @map("created_at")
 
@@ -600,12 +603,14 @@ model FileTag {
 // ============ AUTHENTICATION TOKENS ============
 
 model RefreshToken {
-  id        String    @id @default(uuid())
-  userId    String    @map("user_id")
-  tokenHash String    @unique @map("token_hash")
-  expiresAt DateTime  @map("expires_at")
-  revokedAt DateTime? @map("revoked_at")
-  createdAt DateTime  @default(now()) @map("created_at")
+  id         String    @id @default(uuid())
+  userId     String    @map("user_id")
+  tokenHash  String    @unique @map("token_hash")
+  expiresAt  DateTime  @map("expires_at")
+  revokedAt  DateTime? @map("revoked_at")
+  /** When true, cookies persist across browser restarts (long-lived session). */
+  rememberMe Boolean   @default(false) @map("remember_me")
+  createdAt  DateTime  @default(now()) @map("created_at")
 
   // Relations
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -681,4 +686,21 @@ model SignatureEvent {
   request SignatureRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
 
   @@map("signature_events")
+}
+
+/** Reusable signature images owned by a user (draw / upload once, reuse when signing). */
+model UserSavedSignature {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  label     String
+  /** PNG data URL (or future storage key). */
+  imageData String   @map("image_data")
+  isDefault Boolean  @default(false) @map("is_default")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("user_saved_signatures")
 }

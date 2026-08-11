@@ -47,13 +47,27 @@ const USER_INCLUDE = {
 export class UsersService {
   constructor(private prisma: PrismaService) {}
 
-  async findByEmail(email: string) {
-    const user = await this.prisma.user.findUnique({
-      where: { email },
+  /**
+   * Look a user up by email without regard to case.
+   *
+   * Postgres compares text case-sensitively, so a `@unique` email column treats
+   * "Aisha@Example.com" and "aisha@example.com" as different people. Nobody
+   * types their address the same way twice, so every lookup goes through here
+   * rather than `findUnique`. New rows are lowercased on write (see
+   * `normaliseEmail`); this also keeps rows created before that worked.
+   */
+  private async findUserByEmailInsensitive(email: string) {
+    const normalised = normaliseEmail(email);
+    if (!normalised) return null;
+
+    return this.prisma.user.findFirst({
+      where: { email: { equals: normalised, mode: 'insensitive' } },
       include: USER_INCLUDE,
     });
+  }
 
-    return decorateUser(user);
+  async findByEmail(email: string) {
+    return decorateUser(await this.findUserByEmailInsensitive(email));
   }
 
   /**
@@ -62,10 +76,7 @@ export class UsersService {
    * `findByEmail` so the hash never reaches a response body.
    */
   async findByEmailForAuth(email: string) {
-    const user = await this.prisma.user.findUnique({
-      where: { email },
-      include: USER_INCLUDE,
-    });
+    const user = await this.findUserByEmailInsensitive(email);
 
     if (!user) return null;
 
@@ -144,7 +155,7 @@ export class UsersService {
     const passwordHash = await bcrypt.hash(data.password, 10);
     return this.prisma.user.create({
       data: {
-        email: data.email,
+        email: normaliseEmail(data.email),
         passwordHash,
         name: data.name,
         companyId: data.companyId,
@@ -171,7 +182,7 @@ export class UsersService {
 
     const user = await this.prisma.user.create({
       data: {
-        email: data.email,
+        email: normaliseEmail(data.email),
         name: data.name,
         passwordHash,
         status: 'invited',
@@ -244,7 +255,7 @@ export class UsersService {
 
     const user = await this.prisma.user.create({
       data: {
-        email: data.email,
+        email: normaliseEmail(data.email),
         name: data.name,
         passwordHash,
         status: (data.status || 'active').toLowerCase(),
@@ -413,6 +424,15 @@ export class UsersService {
  * Flatten the relational shape into the fields the frontend reads, and drop the
  * password hash so it can never leak through a response.
  */
+/**
+ * Canonical form for storage and comparison: trimmed and lowercased. Email
+ * local-parts are technically case-sensitive per RFC 5321, but no real provider
+ * treats them that way, and users do not remember how they capitalised it.
+ */
+export function normaliseEmail(email: string): string {
+  return (email ?? '').trim().toLowerCase();
+}
+
 function decorateUser(user: Record<string, any> | null): any {
   if (!user) return null;
 

@@ -560,6 +560,7 @@ export class FilesService {
           versionNumber: newVersionNumber,
           storagePath: `rich-text-content://${Buffer.from(currentRichText.htmlContent).toString('base64')}`, // Store HTML content as base64 in storagePath
           createdBy: updatedBy,
+          description: 'Saved before document edit',
         },
       });
     }
@@ -673,6 +674,7 @@ export class FilesService {
     createdBy: string,
     fileSize?: number,
     fileName?: string,
+    changeNote?: string,
   ) {
     // Get current max version number
     const maxVersion = await this.prisma.fileVersion.findFirst({
@@ -692,6 +694,11 @@ export class FilesService {
       throw new NotFoundException('File not found');
     }
 
+    const note = changeNote?.trim();
+    const description = note
+      ? `Saved before new upload — ${note}`
+      : 'Saved before new upload';
+
     // Save current file as a version before updating
     await this.prisma.fileVersion.create({
       data: {
@@ -699,6 +706,7 @@ export class FilesService {
         versionNumber: newVersionNumber,
         storagePath: file.storagePath, // Save current storage path
         createdBy,
+        description,
       },
     });
 
@@ -803,6 +811,7 @@ export class FilesService {
           versionNumber: newVersionNumber,
           storagePath: file.storagePath,
           createdBy: restoredBy,
+          description: `Saved before restore to version ${version.versionNumber}`,
         },
       });
 
@@ -1412,6 +1421,7 @@ export class FilesService {
     mimeType?: string;
     sizeBytes?: number;
     uploadedBy: string;
+    description?: string;
   }) {
     return this.prisma.fileVersion.create({
       data: {
@@ -1419,6 +1429,7 @@ export class FilesService {
         versionNumber: versionData.versionNumber,
         storagePath: versionData.storagePath,
         createdBy: versionData.uploadedBy,
+        description: versionData.description ?? 'Saved as a new version',
       },
     });
   }

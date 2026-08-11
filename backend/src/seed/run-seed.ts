@@ -23,7 +23,12 @@ import {
 dotenv.config({ path: path.resolve(process.cwd(), '.env') });
 
 const SEED_PASSWORD = process.env.SEED_PASSWORD || 'Password123!';
-const ADMIN_EMAIL = process.env.SEED_ADMIN_EMAIL || 'aisha@example.com';
+// Lowercased to match how the API stores and looks up emails. Seeding
+// "Admin@Company.com" while sign-in normalises to lowercase would create an
+// account nobody can log into.
+const ADMIN_EMAIL = (process.env.SEED_ADMIN_EMAIL || 'aisha@example.com')
+  .trim()
+  .toLowerCase();
 const ADMIN_NAME = process.env.SEED_ADMIN_NAME || 'Aisha Yusuf';
 
 function log(message: string): void {
@@ -75,7 +80,11 @@ export async function runSeed(): Promise<void> {
     }
 
     log('👤 Admin');
-    let admin = await prisma.user.findUnique({ where: { email: ADMIN_EMAIL } });
+    // Matched case-insensitively so a re-run finds an admin seeded before
+    // emails were normalised, rather than colliding on the unique index.
+    let admin = await prisma.user.findFirst({
+      where: { email: { equals: ADMIN_EMAIL, mode: 'insensitive' } },
+    });
     let created = false;
 
     if (!admin) {

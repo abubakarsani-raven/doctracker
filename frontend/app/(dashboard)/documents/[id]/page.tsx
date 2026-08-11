@@ -39,6 +39,7 @@ import { WorkflowList } from "@/components/features/workflows/WorkflowList";
 import { usePermissions } from "@/lib/hooks/use-permissions";
 import { PermissionButton } from "@/components/common/PermissionButton";
 import { RequestSignatureDialog } from "@/components/features/signatures/RequestSignatureDialog";
+import { ConfirmDialog } from "@/components/common/ConfirmDialog";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
 
@@ -67,6 +68,7 @@ export default function DocumentDetailPage() {
     useState(false);
   const [requestSignatureOpen, setRequestSignatureOpen] = useState(false);
   const [permissionsDialogOpen, setPermissionsDialogOpen] = useState(false);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
@@ -138,14 +140,12 @@ export default function DocumentDetailPage() {
 
   const handleDelete = async () => {
     if (!document) return;
-    if (!window.confirm(`Delete “${document.name}”? This cannot be undone.`)) {
-      return;
-    }
     setDeleting(true);
     try {
       await api.deleteDocument(documentId);
       toast.success("Document deleted");
       queryClient.invalidateQueries({ queryKey: ["documents"] });
+      setDeleteConfirmOpen(false);
       router.push("/documents");
     } catch (err: any) {
       toast.error(err?.message || "Failed to delete document");
@@ -334,9 +334,9 @@ export default function DocumentDetailPage() {
               <DropdownMenuItem
                 className="text-destructive"
                 disabled={!canDelete || deleting}
-                onClick={() => canDelete && handleDelete()}
+                onClick={() => canDelete && setDeleteConfirmOpen(true)}
               >
-                {deleting ? "Deleting…" : "Delete"}
+                Delete
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
@@ -537,6 +537,17 @@ export default function DocumentDetailPage() {
         onOpenChange={setPermissionsDialogOpen}
         documentId={documentId}
         resourceName={document.name}
+      />
+
+      <ConfirmDialog
+        open={deleteConfirmOpen}
+        onOpenChange={setDeleteConfirmOpen}
+        title="Delete document?"
+        description={`“${document.name}” will be permanently deleted. This cannot be undone.`}
+        confirmLabel="Delete document"
+        variant="destructive"
+        loading={deleting}
+        onConfirm={handleDelete}
       />
     </div>
   );

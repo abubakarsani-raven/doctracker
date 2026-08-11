@@ -27,6 +27,7 @@ import {
   entryKey,
   normaliseAcl,
   signatureAclSource,
+  isSignatureAclSource,
   stampAcl,
 } from './acl';
 
@@ -88,6 +89,7 @@ export interface AccessDecision {
     | 'instance_scope'
     | 'company_scope'
     | 'explicit_grant'
+    | 'signature_invite'
     | 'creator'
     | 'explicit_deny'
     | 'missing_capability'
@@ -608,8 +610,8 @@ export class PermissionsService {
 
   /**
    * Check a client-supplied ACL: entries must be well formed, and every subject
-   * must exist and belong to the same company as the resource. Without that
-   * check an administrator could grant access to an outsider.
+   * must exist and belong to the same company as the resource — except temporary
+   * signature invites, which may name a signer in another company.
    */
   private async validateAcl(
     permissions: unknown,
@@ -668,9 +670,18 @@ export class PermissionsService {
         }
         // Group-level staff have no home company and may legitimately be named.
         if (user.companyId && user.companyId !== companyId) {
-          throw new ForbiddenException(
-            'You cannot grant access to someone in another company.',
+          // Signature invites are the one intentional cross-company share.
+          const entriesForUser = acl.filter(
+            (e) => e.subjectType === 'user' && e.subjectId === id,
           );
+          const allSignatureInvites = entriesForUser.every((e) =>
+            isSignatureAclSource(e.source),
+          );
+          if (!allSignatureInvites) {
+            throw new ForbiddenException(
+              'You cannot grant access to someone in another company.',
+            );
+          }
         }
       }
     }
@@ -953,7 +964,8 @@ export class PermissionsService {
    * does not by itself let that department in.
    *
    *   1. Master reaches everything — there must always be a way back in.
-   *   2. Another company's resource is always refused.
+   *   2. Another company's resource is refused, except temporary signature
+   *      invites (ACL source `signature:<requestId>`) and active invitees.
    *   3. A matching deny beats any grant.
    *   4. The role must carry the capability for this verb.
    *   5. Company-wide roles reach their own company; everyone else needs an ACL
@@ -998,11 +1010,6 @@ export class PermissionsService {
       return { allowed: true, reason: 'instance_scope' };
     }
 
-    // 2. Company isolation is absolute below that level.
-    if (!resource.companyId || resource.companyId !== permissions.companyId) {
-      return { allowed: false, reason: 'other_company' };
-    }
-
     const subject: SubjectContext = {
       userId,
       departmentIds: permissions.departmentIds,
@@ -1011,6 +1018,35 @@ export class PermissionsService {
 
     const acl = await this.resolveAclFor(resourceType, resource);
     const applicable = acl.filter((entry) => entryApplies(entry, subject));
+
+    const crossCompany =
+      !resource.companyId || resource.companyId !== permissions.companyId;
+
+    const hasSignatureAclGrant =
+      crossCompany &&
+      applicable.some(
+        (entry) =>
+          entry.effect !== 'deny' &&
+          entry.permissions.includes(permission) &&
+          isSignatureAclSource(entry.source),
+      );
+
+    // 2. Company isolation — signature invites are the deliberate exception so
+    //    a company can request sign-off from someone in another company.
+    if (crossCompany && !hasSignatureAclGrant) {
+      if (
+        resourceType === 'file' &&
+        permission === 'read' &&
+        (await this.isActiveSignatureInvitee(userId, resourceId))
+      ) {
+        const capability = REQUIRED_CAPABILITY[resourceType][permission];
+        if (!permissions.capabilities.includes(capability)) {
+          return { allowed: false, reason: 'missing_capability' };
+        }
+        return { allowed: true, reason: 'signature_invite' };
+      }
+      return { allowed: false, reason: 'other_company' };
+    }
 
     // 3. Any matching deny wins, whichever subject it arrived through.
     if (
@@ -1029,8 +1065,9 @@ export class PermissionsService {
     }
 
     // 5a. A company-wide administrative scope reaches its own company. Someone
-    //     has to be able to administer the company's records.
-    if (permissions.dataScope === 'company') {
+    //     has to be able to administer the company's records. Never apply this
+    //     across companies — signature invites stay limited to the granted verbs.
+    if (!crossCompany && permissions.dataScope === 'company') {
       return { allowed: true, reason: 'company_scope' };
     }
 
@@ -1052,6 +1089,33 @@ export class PermissionsService {
     }
 
     return { allowed: false, reason: 'no_grant' };
+  }
+
+  /**
+   * True when this user is still an invitee on an open signature request for
+   * the file. Used so cross-company signers can open the document even if the
+   * temporary ACL grant was missed (e.g. older requests).
+   */
+  private async isActiveSignatureInvitee(
+    userId: string,
+    fileId: string,
+  ): Promise<boolean> {
+    try {
+      const row = await this.prisma.signatureParticipant.findFirst({
+        where: {
+          userId,
+          status: { in: ['pending', 'signed'] },
+          request: {
+            fileId,
+            status: 'pending',
+          },
+        },
+        select: { id: true },
+      });
+      return !!row;
+    } catch {
+      return false;
+    }
   }
 
   /** Assert a permission, raising 403/404 rather than returning false. */

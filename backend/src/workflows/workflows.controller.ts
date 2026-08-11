@@ -6,6 +6,7 @@ import {
   CreateWorkflowDto,
   UpdateWorkflowDto,
   AttachWorkflowFileDto,
+  SetWorkflowEndPointDto,
 } from './dto/workflow.dto';
 import {
   CreateWorkflowGoalDto,
@@ -175,6 +176,17 @@ export class WorkflowsController {
   @UseGuards(JwtAuthGuard, CapabilityGuard)
   async create(@Body() createWorkflowDto: CreateWorkflowDto, @Request() req: any) {
     return this.workflowsService.create(createWorkflowDto, req.user);
+  }
+
+  @Put(':id/end-point')
+  @RequireCapability('workflows.view')
+  @UseGuards(JwtAuthGuard, CapabilityGuard)
+  async setEndPoint(
+    @Param('id') id: string,
+    @Body() body: SetWorkflowEndPointDto,
+    @Request() req: any,
+  ) {
+    return this.workflowsService.setEndPoint(id, body.dueDate ?? null, req.user);
   }
 
   @Put(':id')

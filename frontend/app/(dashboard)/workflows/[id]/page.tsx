@@ -20,6 +20,7 @@ import { WorkflowRoutingSheet } from "@/components/features/workflows/WorkflowRo
 import { AddFileToWorkflowDialog } from "@/components/features/workflows/AddFileToWorkflowDialog";
 import { CreateActionFromWorkflowDialog } from "@/components/features/workflows/CreateActionFromWorkflowDialog";
 import { WorkflowActionsList } from "@/components/features/workflows/WorkflowActionsList";
+import { SetWorkflowEndPointDialog } from "@/components/features/workflows/SetWorkflowEndPointDialog";
 import {
   ArrowLeft,
   Send,
@@ -32,9 +33,10 @@ import {
   FolderOpen,
   Target,
   CheckCircle2,
+  CalendarClock,
 } from "lucide-react";
 import { useParams, useRouter } from "next/navigation";
-import { formatDistanceToNow } from "date-fns";
+import { format, formatDistanceToNow } from "date-fns";
 import { WorkflowTimeline } from "@/components/features/workflows/WorkflowTimeline";
 import { WorkflowFiles } from "@/components/features/workflows/WorkflowFiles";
 import { ActionResults } from "@/components/features/workflows/ActionResults";
@@ -80,6 +82,7 @@ export default function WorkflowDetailPage() {
   const [createActionDialogOpen, setCreateActionDialogOpen] = useState(false);
   const [createGoalDialogOpen, setCreateGoalDialogOpen] = useState(false);
   const [completeWorkflowDialogOpen, setCompleteWorkflowDialogOpen] = useState(false);
+  const [endPointDialogOpen, setEndPointDialogOpen] = useState(false);
 
   // Calculate progress from actions
   const progress = useMemo(() => {
@@ -129,6 +132,30 @@ export default function WorkflowDetailPage() {
 
     return isCreator || isAssignee;
   }, [currentUser, workflow, progress, actions]);
+
+  const canSetEndPoint = useMemo(() => {
+    if (!currentUser || !workflow) return false;
+    if (workflow.canSetEndPoint === true) return true;
+    if (seesAllCompanies(currentUser)) return true;
+
+    const isCreator =
+      workflow.creator?.id === currentUser.id ||
+      workflow.assignedBy === currentUser.id;
+    if (isCreator) return true;
+
+    const role =
+      currentUser.role ||
+      currentUser.permissions?.role ||
+      "";
+    const sameCompany =
+      !!currentUser.companyId &&
+      currentUser.companyId === workflow.companyId;
+
+    return (
+      sameCompany &&
+      (role === "Company Secretary" || role === "Department Head")
+    );
+  }, [currentUser, workflow]);
 
   if (isLoading) {
     return <LoadingState type="card" />;
@@ -227,8 +254,8 @@ export default function WorkflowDetailPage() {
                   <Clock className="h-3 w-3" />
                   <span className={isOverdue ? "text-destructive" : ""}>
                     {isOverdue
-                      ? "Overdue"
-                      : `Due ${formatDistanceToNow(
+                      ? "Past end point"
+                      : `Ends ${formatDistanceToNow(
                           new Date(workflowWithProgress.dueDate),
                           { addSuffix: true }
                         )}`}
@@ -238,7 +265,16 @@ export default function WorkflowDetailPage() {
             </div>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          {canSetEndPoint && workflowWithProgress?.status !== "completed" && (
+            <Button
+              variant="outline"
+              onClick={() => setEndPointDialogOpen(true)}
+            >
+              <CalendarClock className="mr-2 h-4 w-4" />
+              {workflowWithProgress.dueDate ? "Change end point" : "Set end point"}
+            </Button>
+          )}
           {canCompleteWorkflow && workflowWithProgress?.status !== "completed" && (
             <Button
               onClick={() => setCompleteWorkflowDialogOpen(true)}
@@ -351,6 +387,40 @@ export default function WorkflowDetailPage() {
                   <Progress value={progress} />
                   <p className="text-sm">{progress}% complete</p>
                 </div>
+              </div>
+              <Separator />
+              <div>
+                <div className="mb-1 flex items-center justify-between gap-2">
+                  <p className="text-sm font-medium text-muted-foreground">
+                    End point
+                  </p>
+                  {canSetEndPoint &&
+                    workflowWithProgress.status !== "completed" && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 px-2 text-xs"
+                        onClick={() => setEndPointDialogOpen(true)}
+                      >
+                        {workflowWithProgress.dueDate ? "Change" : "Set"}
+                      </Button>
+                    )}
+                </div>
+                {workflowWithProgress.dueDate ? (
+                  <p
+                    className={`text-sm ${
+                      isOverdue ? "text-destructive font-medium" : ""
+                    }`}
+                  >
+                    {format(
+                      new Date(workflowWithProgress.dueDate),
+                      "PPp",
+                    )}
+                    {isOverdue ? " (past)" : ""}
+                  </p>
+                ) : (
+                  <p className="text-sm text-muted-foreground">Not set</p>
+                )}
               </div>
               <Separator />
               <div>
@@ -541,6 +611,13 @@ export default function WorkflowDetailPage() {
         onWorkflowCompleted={() => {
           setCompleteWorkflowDialogOpen(false);
         }}
+      />
+
+      <SetWorkflowEndPointDialog
+        open={endPointDialogOpen}
+        onOpenChange={setEndPointDialogOpen}
+        workflowId={workflowId}
+        currentEndPoint={workflowWithProgress.dueDate}
       />
     </div>
   );

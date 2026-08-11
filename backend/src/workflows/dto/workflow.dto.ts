@@ -10,6 +10,7 @@ import {
   Max,
   MaxLength,
   Min,
+  ValidateIf,
 } from 'class-validator';
 
 /** `{ type, id, name }` — the workflow's current assignee. */
@@ -184,6 +185,15 @@ export class UpdateWorkflowDto {
   @IsOptional()
   @IsArray()
   routingHistory?: any[];
+}
+
+/** Set or clear the workflow end point (stored as dueDate). */
+export class SetWorkflowEndPointDto {
+  /** ISO date string, or null to clear. */
+  @IsOptional()
+  @ValidateIf((_, value) => value !== null && value !== undefined)
+  @IsDateString()
+  dueDate?: string | null;
 }
 
 export class AttachWorkflowFileDto {

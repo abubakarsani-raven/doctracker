@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { PenTool, Loader2 } from "lucide-react";
+import { PenTool, Loader2, Pencil } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { useCurrentUser } from "@/lib/hooks/use-users";
@@ -36,6 +36,7 @@ export function DocumentSignaturesPanel({
   const [signTarget, setSignTarget] = useState<{
     requestId: string;
     participantId: string;
+    isEditing: boolean;
   } | null>(null);
 
   const load = async () => {
@@ -55,12 +56,26 @@ export function DocumentSignaturesPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fileId]);
 
+  const isMine = (p: any) =>
+    p.userId === currentUser?.id || p.email === currentUser?.email;
+
   const myPending = (request: any) =>
     request.participants?.find(
-      (p: any) =>
-        p.status === "pending" &&
-        (p.userId === currentUser?.id || p.email === currentUser?.email),
+      (p: any) => p.status === "pending" && isMine(p),
     );
+
+  /** Signed participants can revise until a later signer has stamped. */
+  const myEditable = (request: any) => {
+    const mine = request.participants?.find(
+      (p: any) => p.status === "signed" && isMine(p),
+    );
+    if (!mine) return null;
+    const laterSigned = (request.participants || []).some(
+      (p: any) =>
+        p.signingOrder > mine.signingOrder && p.status === "signed",
+    );
+    return laterSigned ? null : mine;
+  };
 
   return (
     <>
@@ -90,7 +105,8 @@ export function DocumentSignaturesPanel({
             </p>
           ) : (
             requests.map((request) => {
-              const mine = myPending(request);
+              const pending = myPending(request);
+              const editable = !pending ? myEditable(request) : null;
               return (
                 <div
                   key={request.id}
@@ -114,7 +130,7 @@ export function DocumentSignaturesPanel({
                         key={p.id}
                         className="flex items-center justify-between gap-2"
                       >
-                        <span className="truncate">
+                        <span className="min-w-0 break-words">
                           {p.signingOrder}. {p.name || p.email}
                         </span>
                         <Badge variant="outline" className="shrink-0 text-[10px]">
@@ -123,19 +139,37 @@ export function DocumentSignaturesPanel({
                       </li>
                     ))}
                   </ul>
-                  {mine && can("documents.sign") && (
+                  {pending && can("documents.sign") && (
                     <Button
                       size="sm"
                       className="w-full"
                       onClick={() =>
                         setSignTarget({
                           requestId: request.id,
-                          participantId: mine.id,
+                          participantId: pending.id,
+                          isEditing: false,
                         })
                       }
                     >
                       <PenTool className="mr-1.5 h-3.5 w-3.5" />
                       Sign now
+                    </Button>
+                  )}
+                  {editable && can("documents.sign") && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="w-full"
+                      onClick={() =>
+                        setSignTarget({
+                          requestId: request.id,
+                          participantId: editable.id,
+                          isEditing: true,
+                        })
+                      }
+                    >
+                      <Pencil className="mr-1.5 h-3.5 w-3.5" />
+                      Edit my signature
                     </Button>
                   )}
                 </div>
@@ -163,6 +197,7 @@ export function DocumentSignaturesPanel({
           documentName={fileName}
           isRichText={isRichText}
           pageCount={pageCount}
+          isEditing={signTarget.isEditing}
           onSuccess={() => {
             setSignTarget(null);
             load();

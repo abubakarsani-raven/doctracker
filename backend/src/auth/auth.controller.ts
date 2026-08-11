@@ -16,7 +16,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { Request as ExpressRequest, Response as ExpressResponse } from 'express';
 import { Throttle } from '@nestjs/throttler';
-import { AuthService } from './auth.service';
+import { AuthService, ACCESS_TOKEN_MS, REMEMBER_REFRESH_MS } from './auth.service';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { LoginDto } from './dto/login.dto';
 import {
@@ -33,48 +33,74 @@ export class AuthController {
     private configService: ConfigService,
   ) {}
 
+  private cookieBase() {
+    const isProduction = this.configService.get('NODE_ENV') === 'production';
+    return {
+      isProduction,
+      httpOnly: true,
+      secure: isProduction,
+      sameSite: (isProduction ? 'none' : 'lax') as 'none' | 'lax',
+      path: '/',
+    };
+  }
+
+  /**
+   * Access cookie is always short-lived. Refresh + CSRF are persistent when
+   * rememberMe is on; otherwise they are browser-session cookies (cleared on
+   * close) so "Remember me" actually means something.
+   */
+  private setAuthCookies(
+    res: ExpressResponse,
+    tokens: {
+      access_token: string;
+      refresh_token: string;
+      csrfToken: string;
+    },
+    rememberMe: boolean,
+  ) {
+    const { httpOnly, secure, sameSite, path } = this.cookieBase();
+    const base = { httpOnly, secure, sameSite, path };
+    const persistMs = rememberMe ? REMEMBER_REFRESH_MS : undefined;
+
+    res.cookie('dt_access', tokens.access_token, {
+      ...base,
+      maxAge: ACCESS_TOKEN_MS,
+    });
+
+    res.cookie('dt_refresh', tokens.refresh_token, {
+      ...base,
+      ...(persistMs !== undefined ? { maxAge: persistMs } : {}),
+    });
+
+    res.cookie('dt_csrf', tokens.csrfToken, {
+      secure,
+      sameSite,
+      path,
+      ...(persistMs !== undefined ? { maxAge: persistMs } : {}),
+    });
+  }
+
   @Post('login')
   async login(
     @Body() loginDto: LoginDto,
     @Res({ passthrough: true }) res: ExpressResponse,
   ) {
     try {
-      const result = await this.authService.login(loginDto.email, loginDto.password);
-      
-      // Set cookie options
-      const isProduction = this.configService.get('NODE_ENV') === 'production';
-      const cookieOptions = {
-        httpOnly: true,
-        secure: isProduction,
-        sameSite: isProduction ? 'none' as const : 'lax' as const,
-        path: '/',
-      };
+      const rememberMe = Boolean(loginDto.rememberMe);
+      const result = await this.authService.login(
+        loginDto.email,
+        loginDto.password,
+        rememberMe,
+      );
 
-      // Set access token cookie (15 minutes)
-      res.cookie('dt_access', result.access_token, {
-        ...cookieOptions,
-        maxAge: 15 * 60 * 1000, // 15 minutes
-      });
-
-      // Set refresh token cookie (7 days)
-      res.cookie('dt_refresh', result.refresh_token, {
-        ...cookieOptions,
-        maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
-      });
-
-      // Set CSRF token cookie (not httpOnly so JS can read it)
-      res.cookie('dt_csrf', result.csrfToken, {
-        secure: isProduction,
-        sameSite: isProduction ? 'none' as const : 'lax' as const,
-        path: '/',
-        maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
-      });
+      this.setAuthCookies(res, result, rememberMe);
 
       // Return user and CSRF token (access_token included for backward compatibility)
       return {
         user: result.user,
         csrfToken: result.csrfToken,
         access_token: result.access_token, // Temporary backward compatibility
+        rememberMe,
       };
     } catch (error) {
       // Deliberate responses (deactivated account, bad credentials) pass
@@ -150,39 +176,12 @@ export class AuthController {
 
     try {
       const result = await this.authService.refresh(refreshToken);
-      
-      // Set cookie options
-      const isProduction = this.configService.get('NODE_ENV') === 'production';
-      const cookieOptions = {
-        httpOnly: true,
-        secure: isProduction,
-        sameSite: isProduction ? 'none' as const : 'lax' as const,
-        path: '/',
-      };
-
-      // Set new access token cookie
-      res.cookie('dt_access', result.access_token, {
-        ...cookieOptions,
-        maxAge: 15 * 60 * 1000, // 15 minutes
-      });
-
-      // Set new refresh token cookie
-      res.cookie('dt_refresh', result.refresh_token, {
-        ...cookieOptions,
-        maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
-      });
-
-      // Set new CSRF token cookie
-      res.cookie('dt_csrf', result.csrfToken, {
-        secure: isProduction,
-        sameSite: isProduction ? 'none' as const : 'lax' as const,
-        path: '/',
-        maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
-      });
+      this.setAuthCookies(res, result, Boolean(result.rememberMe));
 
       return {
         user: result.user,
         csrfToken: result.csrfToken,
+        rememberMe: result.rememberMe,
       };
     } catch (error) {
       this.logger.warn(`Token refresh failed: ${error.message}`);
