@@ -9,6 +9,7 @@
  */
 import { PrismaClient } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
+import { Pool } from 'pg';
 import * as bcrypt from 'bcrypt';
 import * as path from 'path';
 import * as dotenv from 'dotenv';
@@ -25,6 +26,11 @@ const SEED_PASSWORD = process.env.SEED_PASSWORD || 'Password123!';
 const ADMIN_EMAIL = process.env.SEED_ADMIN_EMAIL || 'aisha@example.com';
 const ADMIN_NAME = process.env.SEED_ADMIN_NAME || 'Aisha Yusuf';
 
+function log(message: string): void {
+  // Railway captures stdout as a pipe — force flush so hangs still leave a trail.
+  process.stdout.write(`${message}\n`);
+}
+
 export async function runSeed(): Promise<void> {
   if (!process.env.DATABASE_URL) {
     throw new Error(
@@ -32,14 +38,19 @@ export async function runSeed(): Promise<void> {
     );
   }
 
+  log('🌱 Seeding roles + Master admin only');
+
+  const pool = new Pool({
+    connectionString: process.env.DATABASE_URL,
+    connectionTimeoutMillis: 15_000,
+    idleTimeoutMillis: 5_000,
+  });
   const prisma = new PrismaClient({
-    adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL }),
+    adapter: new PrismaPg(pool),
   });
 
   try {
-    console.log('🌱 Seeding roles + Master admin only\n');
-
-    console.log('📋 Roles');
+    log('📋 Roles');
     let masterRoleId: string | null = null;
     for (const definition of ROLE_DEFINITIONS) {
       const permissionsJson = toRolePermissionsJson(definition);
@@ -56,14 +67,14 @@ export async function runSeed(): Promise<void> {
         },
       });
       if (definition.name === 'Master') masterRoleId = role.id;
-      console.log(`  ✓ ${definition.name}`);
+      log(`  ✓ ${definition.name}`);
     }
 
     if (!masterRoleId) {
       throw new Error('Master role missing from ROLE_DEFINITIONS');
     }
 
-    console.log('\n👤 Admin');
+    log('👤 Admin');
     let admin = await prisma.user.findUnique({ where: { email: ADMIN_EMAIL } });
     let created = false;
 
@@ -109,26 +120,26 @@ export async function runSeed(): Promise<void> {
       },
     });
 
-    console.log(
+    log(
       `  ✓ ${ADMIN_EMAIL}  Master  ${ADMIN_NAME}${created ? ' (created)' : ' (exists)'}`,
     );
-    console.log('\n✅ Seed complete\n');
+    log('✅ Seed complete');
     if (created) {
-      console.log(`   Sign in: ${ADMIN_EMAIL}`);
-      console.log(`   Password: ${SEED_PASSWORD}`);
+      log(`   Sign in: ${ADMIN_EMAIL}`);
+      log(`   Password: ${SEED_PASSWORD}`);
     } else {
-      console.log(`   Sign in: ${ADMIN_EMAIL} (password unchanged)`);
+      log(`   Sign in: ${ADMIN_EMAIL} (password unchanged)`);
     }
   } finally {
     await prisma.$disconnect();
+    await pool.end();
   }
 }
 
 // Allow `node dist/seed/run-seed.js` as a standalone entrypoint.
 if (require.main === module) {
   runSeed().catch((error) => {
-    console.error('\n❌ Seed failed:');
-    console.error(error);
+    process.stderr.write(`\n❌ Seed failed:\n${error}\n`);
     process.exit(1);
   });
 }

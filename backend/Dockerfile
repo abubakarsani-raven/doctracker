@@ -39,6 +39,8 @@ FROM base AS build
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 ENV DATABASE_URL=postgresql://placeholder:placeholder@localhost:5432/placeholder
+# Bust cache when seed/boot path changes
+ENV DOCTRACKER_SEED_REV=2
 RUN npx prisma generate && npm run build
 
 # ---------------------------------------------------------------------------
@@ -50,7 +52,9 @@ COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/prisma ./prisma
 # Seed is compiled into dist/seed/run-seed.js (from src/seed/run-seed.ts).
-# Railway startCommand runs: migrate deploy → seed → main.
+# Railway startCommand runs: migrate deploy → seed → main (seed failure must not block boot).
+# Bump to bust Railway layer cache when seed changes.
+ENV DOCTRACKER_SEED_REV=2
 COPY package.json prisma.config.ts ./
 EXPOSE 4003
 CMD ["node", "dist/main.js"]
