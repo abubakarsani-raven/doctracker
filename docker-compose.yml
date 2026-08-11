@@ -35,6 +35,7 @@ services:
   backend:
     build:
       context: ./backend
+      dockerfile: Dockerfile.compose
       target: dev
     container_name: doctracker-backend
     restart: unless-stopped

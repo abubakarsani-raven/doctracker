@@ -9,6 +9,8 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
     // Create PostgreSQL connection pool
     const pool = new Pool({
       connectionString: process.env.DATABASE_URL,
+      // Fail fast on Railway instead of hanging past the healthcheck window.
+      connectionTimeoutMillis: 10_000,
     });
 
     // Create Prisma adapter (required for Prisma 7)

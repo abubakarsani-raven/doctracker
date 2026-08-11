@@ -32,6 +32,11 @@ function resolveTrustProxySetting(): boolean | number | string {
 }
 
 async function bootstrap() {
+  const port = Number(process.env.PORT) || 4003;
+  console.log(
+    `Bootstrapping (PORT=${process.env.PORT ?? 'unset'}, fallback=${port}, NODE_ENV=${process.env.NODE_ENV ?? 'unset'})`,
+  );
+
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
 
   // Without this, Express reports the proxy IP for every request and the
@@ -107,7 +112,6 @@ async function bootstrap() {
   // Bind 0.0.0.0 explicitly: the default host is not reachable from outside the
   // container on every platform, and a healthcheck that cannot connect reads as
   // "service unavailable" with nothing in the logs to explain it.
-  const port = Number(process.env.PORT) || 4003;
   await app.listen(port, '0.0.0.0');
   console.log(`Backend listening on 0.0.0.0:${port} (PORT=${process.env.PORT ?? 'unset'})`);
   console.log(`CORS enabled for origins: ${trustedOrigins.join(', ')}`);
@@ -120,4 +124,7 @@ async function bootstrap() {
     });
 }
 
-bootstrap();
+bootstrap().catch((error) => {
+  console.error('Fatal bootstrap error:', error);
+  process.exit(1);
+});
