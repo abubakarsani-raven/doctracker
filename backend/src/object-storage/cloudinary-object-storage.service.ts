@@ -90,18 +90,105 @@ export class CloudinaryObjectStorageService extends ObjectStorageService {
     }
   }
 
+  /**
+   * Fetch raw bytes for streaming to clients.
+   *
+   * Production accounts often enable Restricted media types for `raw`, which
+   * makes unsigned delivery URLs return 401. We therefore:
+   *  1. Resolve the resource via the Admin API (authoritative public_id/version)
+   *  2. Try a correctly signed delivery URL (no invalid `expires_at` on url())
+   *  3. Fall back to `private_download_url` (time-limited authenticated download)
+   */
   async getStream(key: string): Promise<Readable> {
-    const url = await this.getSignedUrl(key, 600);
+    const publicId = this.toPublicId(key);
+    const candidates: string[] = [];
+
+    let version: number | string | undefined;
     try {
-      const response = await fetch(url);
-      if (!response.ok || !response.body) {
-        throw new Error(`HTTP ${response.status} fetching ${key}`);
-      }
-      return Readable.fromWeb(response.body as any);
+      const resource = await cloudinary.api.resource(publicId, {
+        resource_type: 'raw',
+      });
+      version = resource.version;
+      if (resource.secure_url) candidates.push(resource.secure_url);
+      if (resource.url) candidates.push(resource.url);
     } catch (error: any) {
-      this.logger.error(`Cloudinary download failed for ${key}:`, error);
-      throw new Error(`Failed to retrieve file from Cloudinary: ${error.message}`);
+      this.logger.warn(
+        `Cloudinary admin lookup failed for ${publicId}: ${error?.message || error}`,
+      );
     }
+
+    candidates.push(
+      cloudinary.url(publicId, {
+        resource_type: 'raw',
+        type: 'upload',
+        secure: true,
+        sign_url: true,
+        ...(version ? { version } : {}),
+      }),
+    );
+
+    // Unsigned — works when Restricted media types is off.
+    candidates.push(
+      cloudinary.url(publicId, {
+        resource_type: 'raw',
+        type: 'upload',
+        secure: true,
+        ...(version ? { version } : {}),
+      }),
+    );
+
+    const format = this.extensionOf(key);
+    const publicIdNoExt = format
+      ? publicId.replace(new RegExp(`\\.${format}$`, 'i'), '')
+      : publicId;
+    try {
+      candidates.push(
+        cloudinary.utils.private_download_url(publicIdNoExt, format || '', {
+          resource_type: 'raw',
+          type: 'upload',
+          expires_at: Math.floor(Date.now() / 1000) + 600,
+        }),
+      );
+      // Some raw assets keep the extension inside public_id.
+      candidates.push(
+        cloudinary.utils.private_download_url(publicId, format || '', {
+          resource_type: 'raw',
+          type: 'upload',
+          expires_at: Math.floor(Date.now() / 1000) + 600,
+        }),
+      );
+    } catch (error: any) {
+      this.logger.warn(
+        `Could not build private_download_url for ${publicId}: ${error?.message || error}`,
+      );
+    }
+
+    const unique = [...new Set(candidates.filter(Boolean))];
+    let lastStatus = 0;
+    let lastError: unknown;
+
+    for (const url of unique) {
+      try {
+        const response = await fetch(url, { redirect: 'follow' });
+        if (response.ok && response.body) {
+          return Readable.fromWeb(response.body as any);
+        }
+        lastStatus = response.status;
+        this.logger.debug(
+          `Cloudinary candidate returned HTTP ${response.status} for ${publicId}`,
+        );
+      } catch (error) {
+        lastError = error;
+      }
+    }
+
+    this.logger.error(
+      `Cloudinary download failed for ${key}: HTTP ${lastStatus || 'n/a'}`,
+      lastError as any,
+    );
+    throw new Error(
+      `Failed to retrieve file from Cloudinary: HTTP ${lastStatus || 'error'} fetching ${key}`,
+    );
   }
 
   async delete(key: string): Promise<void> {
@@ -147,13 +234,18 @@ export class CloudinaryObjectStorageService extends ObjectStorageService {
 
   async getSignedUrl(key: string, expiresIn: number = 3600): Promise<string> {
     const publicId = this.toPublicId(key);
+    const format = this.extensionOf(key);
+    const publicIdNoExt = format
+      ? publicId.replace(new RegExp(`\\.${format}$`, 'i'), '')
+      : publicId;
     const expiresAt = Math.floor(Date.now() / 1000) + expiresIn;
+
     try {
-      return cloudinary.url(publicId, {
+      // Prefer the authenticated download helper — `expires_at` on cloudinary.url()
+      // is not a valid delivery-signature option and produced HTTP 401 in production.
+      return cloudinary.utils.private_download_url(publicIdNoExt, format || '', {
         resource_type: 'raw',
         type: 'upload',
-        secure: true,
-        sign_url: true,
         expires_at: expiresAt,
       });
     } catch (error: any) {

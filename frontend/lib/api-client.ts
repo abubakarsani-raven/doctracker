@@ -1132,7 +1132,18 @@ class ApiClient {
     }
 
     if (!response.ok) {
-      const err = new ApiError(response.status, 'Failed to load document');
+      let detail = 'Failed to load document';
+      try {
+        const body = await response.json();
+        if (body?.message) {
+          detail = Array.isArray(body.message)
+            ? body.message.join(', ')
+            : String(body.message);
+        }
+      } catch {
+        // non-JSON error body
+      }
+      const err = new ApiError(response.status, detail);
       this.notifyAuthFailure(err);
       throw err;
     }
