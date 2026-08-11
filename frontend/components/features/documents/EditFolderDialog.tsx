@@ -58,11 +58,7 @@ export function EditFolderDialog({
 
     setLoading(true);
     try {
-      // TODO: Replace with actual API call
-      // const folder = await api.getFolder(folderId);
-      // For now, get from folders list
-      const folders = await api.getFolders();
-      const folder = folders.find((f: any) => f.id === folderId);
+      const folder = await api.getFolder(folderId);
 
       if (folder) {
         setName(folder.name || "");
@@ -91,18 +87,16 @@ export function EditFolderDialog({
     }
 
     setSaving(true);
-
     try {
-      // TODO: Replace with actual API call
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-      // await api.updateFolder(folderId, { name, description, scope });
-
-      toast.success("Folder updated successfully");
+      await api.updateFolder(folderId, {
+        name: name.trim(),
+        description: description.trim(),
+      });
+      toast.success("Folder updated");
       onFolderUpdated?.();
       onOpenChange(false);
-    } catch (error) {
-      console.error("Failed to update folder:", error);
-      toast.error("Failed to update folder. Please try again.");
+    } catch (error: any) {
+      toast.error(error?.message || "Failed to update folder");
     } finally {
       setSaving(false);
     }
@@ -132,7 +126,6 @@ export function EditFolderDialog({
                 onChange={(e) => setName(e.target.value)}
                 placeholder="My Folder"
                 required
-                disabled={saving}
               />
             </div>
 
@@ -144,19 +137,12 @@ export function EditFolderDialog({
                 onChange={(e) => setDescription(e.target.value)}
                 placeholder="Optional description..."
                 rows={3}
-                disabled={saving}
               />
             </div>
 
             <div className="space-y-2">
               <Label>Folder Scope</Label>
-              <Select
-                value={scope}
-                onValueChange={(value: "company" | "department" | "division") =>
-                  setScope(value)
-                }
-                disabled={saving}
-              >
+              <Select value={scope} disabled>
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
@@ -167,7 +153,8 @@ export function EditFolderDialog({
                 </SelectContent>
               </Select>
               <p className="text-xs text-muted-foreground">
-                Choose who can access this folder by default
+                Scope controls who can reach this folder and cannot be changed
+                after creation. Use folder permissions to grant access instead.
               </p>
             </div>
 
@@ -176,11 +163,11 @@ export function EditFolderDialog({
                 type="button"
                 variant="outline"
                 onClick={() => onOpenChange(false)}
-                disabled={saving || loading}
+                disabled={loading || saving}
               >
                 Cancel
               </Button>
-              <Button type="submit" disabled={saving || loading}>
+              <Button type="submit" disabled={loading || saving}>
                 {saving ? "Saving..." : "Save Changes"}
               </Button>
             </DialogFooter>

@@ -2,9 +2,95 @@
  * API Client for making HTTP requests to the backend
  */
 
+/**
+ * An error carrying the HTTP status, so callers can tell "you may not do this"
+ * (403) apart from "you are signed out" (401) and from a transport failure.
+ * Previously every failure collapsed into a generic Error and the UI could only
+ * report "something went wrong".
+ */
+export class ApiError extends Error {
+  readonly status: number;
+  readonly body: unknown;
+
+  constructor(status: number, message: string, body?: unknown) {
+    super(message);
+    this.name = 'ApiError';
+    this.status = status;
+    this.body = body;
+  }
+
+  /** The signed-in user is not allowed to perform this action. */
+  get isForbidden() {
+    return this.status === 403;
+  }
+
+  /** No valid session — the token is missing, expired or rejected. */
+  get isUnauthorized() {
+    return this.status === 401;
+  }
+
+  get isNotFound() {
+    return this.status === 404;
+  }
+}
+
+/** Notified whenever the API rejects a request for permission reasons. */
+type AuthFailureHandler = (error: ApiError) => void;
+
+let authFailureHandler: AuthFailureHandler | null = null;
+/** Prevents a burst of 401s from stacking redirects / toasts. */
+let sessionExpiryHandled = false;
+
+/**
+ * Register a single place to react to 401/403 responses — see
+ * `components/common/ApiErrorListener.tsx`. Kept out of the client itself so
+ * this module stays free of React and toast dependencies.
+ */
+export function onAuthFailure(handler: AuthFailureHandler | null) {
+  authFailureHandler = handler;
+  if (handler) {
+    // New listener (e.g. remount after login) may handle a fresh expiry.
+    sessionExpiryHandled = false;
+  }
+}
+
+/** Clear client-side auth leftovers. Cookies are cleared by /auth/logout. */
+export function clearClientSession() {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.removeItem("authToken");
+    localStorage.removeItem("access_token");
+    localStorage.removeItem("user");
+    localStorage.removeItem("sessionUser");
+    localStorage.removeItem("mockCurrentUser");
+    localStorage.removeItem("mockAuth");
+  } catch {
+    // ignore
+  }
+}
+
+/**
+ * Read CSRF token from dt_csrf cookie
+ */
+function getCSRFToken(): string | null {
+  if (typeof document === 'undefined') return null;
+  
+  const match = document.cookie.match(/dt_csrf=([^;]+)/);
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
+/**
+ * Check if method is mutating (requires CSRF token)
+ */
+function isMutatingMethod(method: string): boolean {
+  return ['POST', 'PUT', 'PATCH', 'DELETE'].includes(method.toUpperCase());
+}
+
 class ApiClient {
   private baseURL: string;
   private token: string | null = null;
+  /** Shared across concurrent 401s so only one refresh is issued. */
+  private refreshInFlight: Promise<any> | null = null;
 
   constructor(baseURL: string) {
     this.baseURL = baseURL;
@@ -12,7 +98,7 @@ class ApiClient {
     // Only access localStorage on client side to avoid hydration issues
     if (typeof window !== 'undefined') {
       try {
-        // Check for both authToken and access_token (for compatibility)
+        // Keep existing token loading for backward compatibility during migration
         this.token = localStorage.getItem('authToken') || localStorage.getItem('access_token');
         console.log('[API Client] Token loaded:', this.token ? 'exists' : 'not found');
       } catch (error) {
@@ -23,18 +109,99 @@ class ApiClient {
     }
   }
 
+  /**
+   * Make a request, refreshing the access token once if it has expired.
+   *
+   * Access tokens last 15 minutes. On 401 we refresh silently and retry —
+   * we must NOT notify the auth-failure handler until refresh has failed,
+   * otherwise the UI logs the user out while they are still working.
+   */
   private async request<T>(
+    endpoint: string,
+    options: RequestInit = {},
+  ): Promise<T> {
+    try {
+      return await this.rawRequest<T>(endpoint, options);
+    } catch (error) {
+      const canRetry =
+        error instanceof ApiError &&
+        error.isUnauthorized &&
+        !endpoint.startsWith('/auth/');
+
+      if (!canRetry) {
+        this.notifyAuthFailure(error);
+        throw error;
+      }
+
+      try {
+        await this.ensureFreshSession();
+      } catch {
+        this.notifyAuthFailure(error);
+        throw error;
+      }
+
+      try {
+        return await this.rawRequest<T>(endpoint, options);
+      } catch (retryError) {
+        this.notifyAuthFailure(retryError);
+        throw retryError;
+      }
+    }
+  }
+
+  /** Refresh the access cookie if needed; coalesces parallel callers. */
+  async ensureFreshSession(): Promise<void> {
+    this.refreshInFlight ??= this.rawRequest<any>('/auth/refresh', {
+      method: 'POST',
+    }).finally(() => {
+      this.refreshInFlight = null;
+    });
+    await this.refreshInFlight;
+  }
+
+  private notifyAuthFailure(error: unknown) {
+    if (!(error instanceof ApiError)) return;
+
+    // 403 = signed in but not allowed — toast only, stay on page.
+    if (error.isForbidden) {
+      authFailureHandler?.(error);
+      return;
+    }
+
+    if (!error.isUnauthorized) return;
+
+    // Session is dead (refresh already failed, or this was an auth call).
+    if (sessionExpiryHandled) return;
+    sessionExpiryHandled = true;
+    clearClientSession();
+    this.setToken(null);
+    authFailureHandler?.(error);
+  }
+
+  private async rawRequest<T>(
     endpoint: string,
     options: RequestInit = {}
   ): Promise<T> {
     const url = `${this.baseURL}${endpoint}`;
-    console.log('[API Client] Making request:', options.method || 'GET', url);
+    const method = options.method || 'GET';
+    console.log('[API Client] Making request:', method, url);
     
     const headers: Record<string, string> = {};
 
     // Only set Content-Type for JSON, not for FormData
     if (!(options.body instanceof FormData)) {
       headers['Content-Type'] = 'application/json';
+    }
+
+    // Add CSRF token for mutating requests
+    if (isMutatingMethod(method)) {
+      const csrfToken = getCSRFToken();
+      if (csrfToken) {
+        headers['X-CSRF-Token'] = csrfToken;
+        console.log('[API Client] Added CSRF token');
+      } else {
+        console.warn('[API Client] No CSRF token available for mutating request');
+      }
     }
 
     // Merge existing headers if provided
@@ -52,17 +219,19 @@ class ApiClient {
       }
     }
 
+    // Add Authorization header for backward compatibility (cookies are primary now)
     if (this.token) {
       headers['Authorization'] = `Bearer ${this.token}`;
       console.log('[API Client] Using auth token');
     } else {
-      console.warn('[API Client] No auth token available');
+      console.log('[API Client] Using cookie-based auth');
     }
 
     try {
       const response = await fetch(url, {
         ...options,
         headers,
+        credentials: 'include', // Always include cookies
       });
 
       console.log('[API Client] Response status:', response.status, response.statusText);
@@ -78,16 +247,30 @@ class ApiClient {
             error = { message: text || `HTTP error! status: ${response.status}` };
           }
         } catch (e) {
-          console.error('[API Client] Failed to parse error response:', e);
+          console.warn('[API Client] Failed to parse error response:', e);
           error = { message: `HTTP error! status: ${response.status}` };
         }
-        console.error('[API Client] Request failed:', {
-          status: response.status,
-          statusText: response.statusText,
-          url: url,
-          error: error,
-        });
-        throw new Error(error.message || error.error || `HTTP error! status: ${response.status}`);
+
+        const message = Array.isArray(error?.message)
+          ? error.message.join(', ')
+          : error?.message || error?.error || `Request failed (HTTP ${response.status})`;
+
+        // Expected auth/permission failures are handled by callers / ApiErrorListener.
+        // Logging them with console.error makes Next.js treat them as "Issues".
+        if (response.status === 401 || response.status === 403) {
+          console.warn('[API Client] Request rejected:', response.status, method, endpoint, message);
+        } else {
+          console.error('[API Client] Request failed:', {
+            status: response.status,
+            statusText: response.statusText,
+            url: url,
+            error: error,
+          });
+        }
+
+        // Do not call authFailureHandler here — `request()` refreshes on 401
+        // first. Premature logout was kicking users out mid-work.
+        throw new ApiError(response.status, message, error);
       }
 
       // Handle response based on content type
@@ -107,6 +290,7 @@ class ApiClient {
         }
       }
     } catch (error) {
+      if (error instanceof ApiError) throw error;
       console.error('[API Client] Request error:', error);
       throw error;
     }
@@ -120,20 +304,99 @@ class ApiClient {
         localStorage.setItem('authToken', token);
         localStorage.setItem('access_token', token);
       } else {
+        // Clear all localStorage auth data when logging out
         localStorage.removeItem('authToken');
         localStorage.removeItem('access_token');
+        localStorage.removeItem('user'); // Clear any stored user data
+        localStorage.removeItem('sessionUser'); // Alternative user storage
       }
     }
   }
 
   // Auth
   async login(email: string, password: string) {
-    const result = await this.request<{ access_token: string; user: any }>('/auth/login', {
+    const result = await this.request<{ access_token: string; user: any; csrfToken: string }>('/auth/login', {
       method: 'POST',
       body: JSON.stringify({ email, password }),
     });
-    this.setToken(result.access_token);
+    
+    // Clear any old localStorage tokens - we're using cookies now
+    this.setToken(null);
+    
+    console.log('[API Client] Login successful, using cookie-based auth');
     return result;
+  }
+
+  /**
+   * Refresh access token using refresh token cookie
+   */
+  async refreshToken() {
+    try {
+      await this.ensureFreshSession();
+      // A successful refresh means we are authenticated again.
+      sessionExpiryHandled = false;
+      console.log('[API Client] Token refreshed');
+    } catch (error) {
+      this.notifyAuthFailure(error);
+      throw error;
+    }
+  }
+
+  /**
+   * Logout - clear cookies and local state
+   */
+  async logout() {
+    try {
+      await this.request('/auth/logout', {
+        method: 'POST',
+      });
+    } catch (error) {
+      console.warn('[API Client] Logout request failed:', error);
+    }
+
+    clearClientSession();
+    this.setToken(null);
+    sessionExpiryHandled = false;
+    console.log('[API Client] Logged out');
+  }
+
+  /**
+   * Get current CSRF token
+   */
+  async getCSRFToken() {
+    return this.request<{ csrfToken: string }>('/auth/csrf');
+  }
+
+  /**
+   * Register new user account
+   */
+  async register(data: {
+    name: string;
+    email: string;
+    password: string;
+    confirmPassword: string;
+  }) {
+    return this.request<{ message: string }>('/auth/register', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  /**
+   * Request password reset
+   */
+  async forgotPassword(email: string) {
+    return this.request<{ message: string }>('/auth/forgot-password', {
+      method: 'POST',
+      body: JSON.stringify({ email }),
+    });
+  }
+
+  async resetPassword(token: string, password: string) {
+    return this.request<{ message: string }>('/auth/reset-password', {
+      method: 'POST',
+      body: JSON.stringify({ token, password }),
+    });
   }
 
   // Users
@@ -149,6 +412,58 @@ class ApiClient {
     return this.request<any>('/users/me');
   }
 
+  async inviteUser(data: {
+    email: string;
+    role: string;
+    departmentId?: string;
+    divisionId?: string;
+    sendEmail?: boolean;
+  }) {
+    return this.request<any>('/users/invite', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async createUser(data: {
+    email: string;
+    name: string;
+    role: string;
+    departmentId?: string;
+    divisionId?: string;
+  }) {
+    return this.request<any>('/users', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async updateUser(id: string, data: {
+    name?: string;
+    email?: string;
+    role?: string;
+    departmentId?: string;
+    divisionId?: string;
+  }) {
+    return this.request<any>(`/users/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async updateOwnProfile(data: { name?: string; phone?: string }) {
+    return this.request<any>('/users/me', {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async deactivateUser(id: string) {
+    return this.request<any>(`/users/${id}/deactivate`, {
+      method: 'PATCH',
+    });
+  }
+
   // Companies
   async getCompanies() {
     return this.request<any[]>('/companies');
@@ -156,6 +471,28 @@ class ApiClient {
 
   async getCompany(id: string) {
     return this.request<any>(`/companies/${id}`);
+  }
+
+  async createCompany(data: {
+    name: string;
+    description?: string;
+    address?: string;
+  }) {
+    return this.request<any>('/companies', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async updateCompany(id: string, data: {
+    name?: string;
+    description?: string;
+    address?: string;
+  }) {
+    return this.request<any>(`/companies/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
   }
 
   // Workflows
@@ -225,6 +562,20 @@ class ApiClient {
     return this.request<any[]>('/workflows/goals/my-goals');
   }
 
+  async getWorkflowFiles(workflowId: string) {
+    return this.request<any[]>(`/workflows/${workflowId}/files`);
+  }
+
+  async attachFileToWorkflow(
+    workflowId: string,
+    data: { fileId: string; actionId?: string; note?: string },
+  ) {
+    return this.request<any>(`/workflows/${workflowId}/files`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
   // Actions
   async getActions() {
     return this.request<any[]>('/actions');
@@ -249,8 +600,12 @@ class ApiClient {
   }
 
   // Files & Folders
-  async getFiles(companyId?: string) {
-    const query = companyId ? `?companyId=${companyId}` : '';
+  async getFiles(companyId?: string, includeArchived?: boolean, includeDeleted?: boolean) {
+    const params = new URLSearchParams();
+    if (companyId) params.append('companyId', companyId);
+    if (includeArchived !== undefined) params.append('includeArchived', includeArchived.toString());
+    if (includeDeleted !== undefined) params.append('includeDeleted', includeDeleted.toString());
+    const query = params.toString() ? `?${params.toString()}` : '';
     console.log('[API Client] getFiles called, URL:', `/files${query}`);
     const result = await this.request<any[]>(`/files${query}`);
     console.log('[API Client] getFiles result:', result?.length || 0, 'files');
@@ -259,6 +614,71 @@ class ApiClient {
 
   async getFile(id: string) {
     return this.request<any>(`/files/${id}`);
+  }
+
+  async searchFiles(query: string, skip?: number, take?: number) {
+    const params = new URLSearchParams();
+    params.append('q', query);
+    if (skip !== undefined) params.append('skip', skip.toString());
+    if (take !== undefined) params.append('take', take.toString());
+    return this.request<{items: any[], total: number}>(`/files/search?${params.toString()}`);
+  }
+
+  // Tags
+  async getTags(companyId?: string) {
+    const params = companyId ? `?companyId=${companyId}` : '';
+    return this.request<any[]>(`/tags${params}`);
+  }
+
+  async createTag(name: string) {
+    return this.request<any>('/tags', {
+      method: 'POST',
+      body: JSON.stringify({ name }),
+    });
+  }
+
+  async getFileTags(fileId: string) {
+    return this.request<any[]>(`/tags/files/${fileId}`);
+  }
+
+  async updateFileTags(fileId: string, tagIds: string[]) {
+    return this.request<any[]>(`/tags/files/${fileId}`, {
+      method: 'POST',
+      body: JSON.stringify({ tagIds }),
+    });
+  }
+
+  // Signatures
+  async createSignatureRequest(fileId: string, participants: Array<{email: string, name: string, signingOrder: number, userId?: string}>) {
+    return this.request<any>('/signatures/requests', {
+      method: 'POST',
+      body: JSON.stringify({ fileId, participants }),
+    });
+  }
+
+  async getSignatureRequest(requestId: string) {
+    return this.request<any>(`/signatures/requests/${requestId}`);
+  }
+
+  async signDocument(
+    requestId: string,
+    participantId: string,
+    signatureImageData: string,
+    placement: {
+      page: number;
+      xPercent: number;
+      yPercent: number;
+      widthPercent?: number;
+    },
+  ) {
+    return this.request<any>(`/signatures/requests/${requestId}/participants/${participantId}/sign`, {
+      method: 'POST',
+      body: JSON.stringify({ signatureImageData, placement }),
+    });
+  }
+
+  async getFileSignatureRequests(fileId: string) {
+    return this.request<any[]>(`/signatures/requests/file/${fileId}`);
   }
 
   async getFolders(companyId?: string, parentId?: string) {
@@ -283,6 +703,8 @@ class ApiClient {
     parentFolderId?: string;
     departmentId?: string;
     divisionId?: string;
+    /** Required when creating as Master (no company on the user). */
+    companyId?: string;
   }) {
     return this.request<any>('/files/folders', {
       method: 'POST',
@@ -311,6 +733,7 @@ class ApiClient {
     folderId: string;
     departmentId?: string;
     divisionId?: string;
+    companyId?: string;
   }) {
     return this.request<any>('/files/rich-text', {
       method: 'POST',
@@ -329,14 +752,18 @@ class ApiClient {
     return this.request<any[]>(`/files/${fileId}/versions`);
   }
 
-  async uploadFileVersion(fileId: string, data: {
-    storagePath: string;
-    fileName: string;
-    fileType: string;
-  }) {
+  async uploadFileVersion(fileId: string, file: File | Blob, fileName?: string) {
+    const formData = new FormData();
+    const name =
+      fileName ||
+      (file instanceof File && file.name ? file.name : 'upload');
+    formData.append('file', file, name);
+
     return this.request<any>(`/files/${fileId}/versions`, {
       method: 'POST',
-      body: JSON.stringify(data),
+      body: formData,
+      // Don't set Content-Type — browser sets multipart boundary
+      headers: {},
     });
   }
 
@@ -427,11 +854,32 @@ class ApiClient {
     return this.request<any>(url);
   }
 
-  async updateFilePermissions(fileId: string, folderId: string, permissions: any) {
+  async updateFilePermissions(
+    fileId: string,
+    folderId: string,
+    permissions: any,
+    onRevoke?: 'leave' | 'flag',
+  ) {
     return this.request<any>(`/permissions/file/${fileId}?folderId=${folderId}`, {
       method: 'PUT',
-      body: JSON.stringify({ permissions }),
+      body: JSON.stringify({ permissions, onRevoke }),
     });
+  }
+
+  async updateFolderPermissions(
+    folderId: string,
+    permissions: any,
+    onRevoke?: 'leave' | 'flag',
+  ) {
+    return this.request<any>(`/permissions/folder/${folderId}`, {
+      method: 'PUT',
+      body: JSON.stringify({ permissions, onRevoke }),
+    });
+  }
+
+  /** The caller's own resolved capabilities and data scope. */
+  async getMyPermissions() {
+    return this.request<any>('/permissions/me');
   }
 
   async checkPermission(
@@ -481,14 +929,20 @@ class ApiClient {
       folderId?: string;
       departmentId?: string;
       divisionId?: string;
+      /** Required when uploading as Master (no company on the user). */
+      companyId?: string;
+      /** Display name; the real extension is kept by the server. */
+      fileName?: string;
     },
   ) {
     const formData = new FormData();
     formData.append('file', file);
     formData.append('scopeLevel', data.scopeLevel);
+    if (data.fileName) formData.append('fileName', data.fileName);
     if (data.folderId) formData.append('folderId', data.folderId);
     if (data.departmentId) formData.append('departmentId', data.departmentId);
     if (data.divisionId) formData.append('divisionId', data.divisionId);
+    if (data.companyId) formData.append('companyId', data.companyId);
 
     return this.request<any>('/files/upload', {
       method: 'POST',
@@ -519,6 +973,170 @@ class ApiClient {
 
   async deleteDocumentNote(noteId: string) {
     return this.request<any>(`/document-notes/${noteId}`, {
+      method: 'DELETE',
+    });
+  }
+
+  // File Operations
+  /**
+   * Fetch a file as a Blob (authenticated). Caller must revoke any object URL
+   * created from the result.
+   */
+  async getDocumentBlob(fileId: string): Promise<{ blob: Blob; contentType: string; fileName?: string }> {
+    const doFetch = () =>
+      fetch(`${this.baseURL}/files/${fileId}/download`, {
+        credentials: 'include',
+        headers: {
+          'X-CSRF-Token': getCSRFToken() || '',
+        },
+      });
+
+    let response = await doFetch();
+    if (response.status === 401) {
+      try {
+        await this.ensureFreshSession();
+        response = await doFetch();
+      } catch {
+        const err = new ApiError(401, 'Failed to load document');
+        this.notifyAuthFailure(err);
+        throw err;
+      }
+    }
+
+    if (!response.ok) {
+      const err = new ApiError(response.status, 'Failed to load document');
+      this.notifyAuthFailure(err);
+      throw err;
+    }
+
+    const blob = await response.blob();
+    const contentType =
+      response.headers.get('content-type') || blob.type || 'application/octet-stream';
+    const contentDisposition = response.headers.get('content-disposition');
+    const fileName = contentDisposition
+      ?.split('filename=')[1]
+      ?.replace(/"/g, '')
+      ?.trim();
+
+    return { blob, contentType, fileName };
+  }
+
+  async downloadDocument(fileId: string): Promise<void> {
+    const { blob, fileName } = await this.getDocumentBlob(fileId);
+    const blobUrl = window.URL.createObjectURL(blob);
+
+    const link = document.createElement('a');
+    link.href = blobUrl;
+    link.style.display = 'none';
+    if (fileName) {
+      link.download = fileName;
+    }
+
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    window.URL.revokeObjectURL(blobUrl);
+  }
+
+  async downloadFileVersion(fileId: string, versionId: string): Promise<void> {
+    const doFetch = () =>
+      fetch(`${this.baseURL}/files/${fileId}/versions/${versionId}/download`, {
+        credentials: 'include',
+        headers: {
+          'X-CSRF-Token': getCSRFToken() || '',
+        },
+      });
+
+    let response = await doFetch();
+    if (response.status === 401) {
+      try {
+        await this.ensureFreshSession();
+        response = await doFetch();
+      } catch {
+        const err = new ApiError(401, 'Failed to download version');
+        this.notifyAuthFailure(err);
+        throw err;
+      }
+    }
+
+    if (!response.ok) {
+      const err = new ApiError(response.status, 'Failed to download version');
+      this.notifyAuthFailure(err);
+      throw err;
+    }
+
+    const blob = await response.blob();
+    const blobUrl = window.URL.createObjectURL(blob);
+    const contentDisposition = response.headers.get('content-disposition');
+    const fileName = contentDisposition
+      ?.split('filename=')[1]
+      ?.replace(/"/g, '')
+      ?.trim();
+
+    const link = document.createElement('a');
+    link.href = blobUrl;
+    link.style.display = 'none';
+    if (fileName) link.download = fileName;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    window.URL.revokeObjectURL(blobUrl);
+  }
+
+  async renameDocument(fileId: string, fileName: string) {
+    return this.request<any>(`/files/${fileId}/rename`, {
+      method: 'PATCH',
+      body: JSON.stringify({ fileName }),
+    });
+  }
+
+  async archiveDocument(fileId: string) {
+    return this.request<any>(`/files/${fileId}/archive`, {
+      method: 'POST',
+    });
+  }
+
+  async unarchiveDocument(fileId: string) {
+    return this.request<any>(`/files/${fileId}/unarchive`, {
+      method: 'POST',
+    });
+  }
+
+  async deleteDocument(fileId: string) {
+    return this.request<any>(`/files/${fileId}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async restoreDocument(fileId: string) {
+    return this.request<any>(`/files/${fileId}/restore`, {
+      method: 'POST',
+    });
+  }
+
+  async moveDocument(fileId: string, folderId: string) {
+    return this.request<any>(`/files/${fileId}/move`, {
+      method: 'POST',
+      body: JSON.stringify({ folderId }),
+    });
+  }
+
+  // Folder Operations
+  async updateFolder(folderId: string, data: { name?: string; description?: string }) {
+    return this.request<any>(`/files/folders/${folderId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async archiveFolder(folderId: string) {
+    return this.request<any>(`/files/folders/${folderId}/archive`, {
+      method: 'POST',
+    });
+  }
+
+  async deleteFolder(folderId: string) {
+    return this.request<any>(`/files/folders/${folderId}`, {
       method: 'DELETE',
     });
   }

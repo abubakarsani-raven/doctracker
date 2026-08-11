@@ -31,8 +31,9 @@ import { DocumentUploadActionDialog } from "@/components/features/workflows/Docu
 import { RequestResponseActionDialog } from "@/components/features/workflows/RequestResponseActionDialog";
 import { useAction } from "@/lib/hooks/use-actions";
 import { useWorkflow } from "@/lib/hooks/use-workflows";
-import { useCurrentUser } from "@/lib/hooks/use-users";
+import { useCurrentUser, useUsers } from "@/lib/hooks/use-users";
 import { canRespondToAction, isAssignedToAction } from "@/lib/action-utils";
+import { displayName } from "@/lib/display-name";
 import { CompanyBadge } from "@/components/features/workflows/CompanyBadge";
 
 export default function ActionDetailPage() {
@@ -42,6 +43,7 @@ export default function ActionDetailPage() {
 
   const { data: action, isLoading } = useAction(actionId);
   const { data: currentUser } = useCurrentUser();
+  const { data: users = [] } = useUsers();
   const { data: workflow } = useWorkflow(action?.workflowId || "");
 
   const [completionDialogOpen, setCompletionDialogOpen] = useState(false);
@@ -375,7 +377,15 @@ export default function ActionDetailPage() {
                   <p className="text-sm font-medium text-muted-foreground mb-1">
                     Created By
                   </p>
-                  <p className="text-sm">{action.createdBy}</p>
+                  <p className="text-sm">
+                    {displayName(
+                      action.creator ||
+                        action.createdByName ||
+                        action.createdBy,
+                      users,
+                      "Unknown",
+                    )}
+                  </p>
                 </div>
               )}
               {action.createdAt && (

@@ -40,17 +40,16 @@ export class StorageService {
   }
 
   async getTotalStorage(): Promise<number> {
-    // Calculate total storage across all companies
-    const companies = await this.prisma.company.findMany({
-      select: { id: true },
+    // One aggregate over every file, rather than one query per company.
+    // `File.companyId` is required and foreign-keyed, so summing without a
+    // filter covers exactly the same rows the per-company loop did.
+    const result = await this.prisma.file.aggregate({
+      _sum: {
+        fileSize: true,
+      },
     });
 
-    let total = 0;
-    for (const company of companies) {
-      total += await this.getCompanyStorage(company.id);
-    }
-
-    return total;
+    return result._sum.fileSize ? Number(result._sum.fileSize) : 0;
   }
 
   formatStorageSize(bytes: number): string {

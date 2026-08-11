@@ -52,13 +52,30 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { hasAccessToResource } from "@/lib/access-request-utils";
 import { useCurrentUser } from "@/lib/hooks/use-users";
+import { usePermissions } from "@/lib/hooks/use-permissions";
+import { PermissionButton } from "@/components/common/PermissionButton";
+import {
+  DocumentFilters,
+  ActiveFilterChips,
+  EMPTY_FILTERS,
+  countActiveFilters,
+  matchesFilters,
+  fileKind,
+  fileKindLabel,
+  type DocumentFilterState,
+  type DocumentFacets,
+} from "@/components/features/documents/DocumentFilters";
+
 import { useCompanies } from "@/lib/hooks/use-companies";
 import { useFolders } from "@/lib/hooks/use-documents";
 import { useDocuments } from "@/lib/hooks/use-documents";
+import { countDocumentsInFolderTree } from "@/lib/folder-utils";
 
 export default function DocumentsPage() {
   const router = useRouter();
   const { data: currentUser } = useCurrentUser();
+  const { can, canOn, whyNot, isMaster, permissions, scopeDescription } =
+    usePermissions();
   const { data: companies = [] } = useCompanies();
   const { data: allFolders = [], isLoading: foldersLoading } = useFolders();
   const { data: allDocuments = [], isLoading: documentsLoading } = useDocuments();
@@ -78,241 +95,31 @@ export default function DocumentsPage() {
   const [exportDialogOpen, setExportDialogOpen] = useState(false);
   const [archiveDialogOpen, setArchiveDialogOpen] = useState(false);
   const [selectedItems, setSelectedItems] = useState<string[]>([]);
-  const [filtersOpen, setFiltersOpen] = useState(false);
   
-  // Filter states
-  const [filterScope, setFilterScope] = useState<string>("all");
-  const [filterType, setFilterType] = useState<string>("all");
-  const [filterTags, setFilterTags] = useState<string[]>([]);
+  const [filters, setFilters] = useState<DocumentFilterState>(EMPTY_FILTERS);
 
-  // Get user's department and division IDs from companies data
-  const userContext = useMemo(() => {
-    if (!currentUser || !companies.length) {
-      return { userDeptId: null, userDivId: null, userCompanyId: null };
-    }
+  // Access checks come from lib/permissions, which reads the capability list
+  // the API resolved for this session. Previously each of these was a bespoke
+  // ladder of role-name comparisons that had to be kept in sync by hand — and
+  // was not: the folder page, this page and the API all disagreed.
+  const hasFolderPermission = (folder: any): boolean =>
+    canOn(folder, "read", "folder");
 
-    // First, try to get companyId directly from currentUser
-    let userCompanyId: string | null = currentUser.companyId || null;
-    
-    const userDeptName = currentUser.department;
-    const userDivName = currentUser.division;
-    let userDeptId: string | null = null;
-    let userDivId: string | null = null;
-
-    // If no companyId on user, try to find it via department
-    if (!userCompanyId) {
-      companies.forEach((company: any) => {
-        if (company.departments) {
-          company.departments.forEach((dept: any) => {
-            if (dept.name === userDeptName) {
-              userDeptId = dept.id;
-              if (!userCompanyId) {
-                userCompanyId = company.id;
-              }
-              if (dept.divisions && userDivName) {
-                dept.divisions.forEach((div: any) => {
-                  if (div.name === userDivName) {
-                    userDivId = div.id;
-                  }
-                });
-              }
-            }
-          });
-        }
-      });
-    } else {
-      // If we have companyId, find department/division IDs
-      const userCompany = companies.find((c: any) => c.id === userCompanyId);
-      if (userCompany?.departments) {
-        userCompany.departments.forEach((dept: any) => {
-          if (dept.name === userDeptName) {
-            userDeptId = dept.id;
-            if (dept.divisions && userDivName) {
-              dept.divisions.forEach((div: any) => {
-                if (div.name === userDivName) {
-                  userDivId = div.id;
-                }
-              });
-            }
-          }
-        });
-      }
-    }
-
-    return { userDeptId, userDivId, userCompanyId };
-  }, [currentUser, companies]);
-
-  // Helper function to check if access is explicitly revoked/denied
-  const isAccessRevoked = (folder: any): boolean => {
-    // Check permissionsJson for explicit denials (if permissions system is implemented)
-    // For now, this can be extended when explicit revocation is added
-    if (folder.permissionsJson) {
-      try {
-        const perms = typeof folder.permissionsJson === 'string' 
-          ? JSON.parse(folder.permissionsJson) 
-          : folder.permissionsJson;
-        // Check if there's a denied entry for this user
-        if (perms.denied && Array.isArray(perms.denied)) {
-          return perms.denied.includes(currentUser?.id);
-        }
-      } catch (e) {
-        // Invalid JSON, ignore
-      }
-    }
-    return false;
-  };
-
-  // Helper function to check if user has permission to a folder
-  const hasFolderPermission = (folder: any): boolean => {
-    if (!currentUser || !companies.length) return false;
-    const { userDeptId, userDivId, userCompanyId } = userContext;
-
-    // Check if access is explicitly revoked (by higher roles)
-    if (isAccessRevoked(folder)) {
-      return false;
-    }
-
-    // Master role can access everything (cannot be overridden)
-    if (currentUser.role === "Master") return true;
-
-    // Company Admin can access all folders in their company
-    if (currentUser.role === "Company Admin") {
-      return folder.companyId === userCompanyId;
-    }
-
-    // Use scopeLevel if available, fallback to scope
-    const folderScope = folder.scopeLevel || folder.scope;
-
-    // Department Head can access department-wide and division-wide folders in their department
-    if (currentUser.role === "Department Head") {
-      if (folderScope === "company") {
-        return folder.companyId === userCompanyId;
-      }
-      return folder.departmentId === userDeptId;
-    }
-
-    // Division Head can access division-wide folders in their division
-    if (currentUser.role === "Division Head") {
-      if (folderScope === "company") {
-        return folder.companyId === userCompanyId;
-      }
-      if (folderScope === "department") {
-        return folder.departmentId === userDeptId;
-      }
-      return folderScope === "division" && folder.departmentId === userDeptId;
-    }
-
-    // Regular users (Staff, Manager, etc.): scope-based access
-    let hasScopeAccess = false;
-    if (folderScope === "company") {
-      hasScopeAccess = folder.companyId === userCompanyId;
-    } else if (folderScope === "department") {
-      hasScopeAccess = folder.departmentId === userDeptId;
-    } else if (folderScope === "division") {
-      hasScopeAccess = folder.departmentId === userDeptId && userDivId !== null;
-    }
-
-    // If user has scope-based access, grant it
-    if (hasScopeAccess) {
-      return true;
-    }
-
-    // Creator has default access UNLESS explicitly revoked (checked above)
-    // This allows higher roles to revoke creator access
-    if (folder.createdBy === currentUser.id) {
-      return true;
-    }
-
-    return false;
-  };
-
-  // Helper function to check if document access is explicitly revoked/denied
-  const isDocumentAccessRevoked = (doc: any): boolean => {
-    // Check permissionsJson for explicit denials (if permissions system is implemented)
-    if (doc.permissionsJson) {
-      try {
-        const perms = typeof doc.permissionsJson === 'string' 
-          ? JSON.parse(doc.permissionsJson) 
-          : doc.permissionsJson;
-        // Check if there's a denied entry for this user
-        if (perms.denied && Array.isArray(perms.denied)) {
-          return perms.denied.includes(currentUser?.id);
-        }
-      } catch (e) {
-        // Invalid JSON, ignore
-      }
-    }
-    return false;
-  };
-
-  // Helper function to check if user has permission to a document
   const hasDocumentPermission = (doc: any): boolean => {
-    if (!currentUser || !companies.length) return false;
-    const { userDeptId, userDivId, userCompanyId } = userContext;
-
-    // Check if access is explicitly revoked (by higher roles)
-    if (isDocumentAccessRevoked(doc)) {
-      return false;
-    }
-
-    // Find the folder this document belongs to
-    const documentFolder = allFolders.find((f: any) => f.id === doc.folderId);
-    if (!documentFolder) {
-      return false;
-    }
-
-    // Master role can access everything (cannot be overridden)
-    if (currentUser.role === "Master") return true;
-
-    // Company Admin can access all documents in their company
-    if (currentUser.role === "Company Admin") {
-      return documentFolder.companyId === userCompanyId;
-    }
-
-    // Use scopeLevel if available, fallback to scope
-    const docScope = doc.scopeLevel || doc.scope;
-
-    // Department Head can access department-wide and division-wide documents in their department
-    if (currentUser.role === "Department Head") {
-      if (docScope === "company") {
-        return documentFolder.companyId === userCompanyId;
-      }
-      return documentFolder.departmentId === userDeptId;
-    }
-
-    // Division Head can access division-wide documents in their division
-    if (currentUser.role === "Division Head") {
-      if (docScope === "company") {
-        return documentFolder.companyId === userCompanyId;
-      }
-      if (docScope === "department") {
-        return documentFolder.departmentId === userDeptId;
-      }
-      return docScope === "division" && documentFolder.departmentId === userDeptId;
-    }
-
-    // Regular users (Staff, Manager, etc.): scope-based access
-    let hasScopeAccess = false;
-    if (docScope === "company") {
-      hasScopeAccess = documentFolder.companyId === userCompanyId;
-    } else if (docScope === "department") {
-      hasScopeAccess = documentFolder.departmentId === userDeptId;
-    } else if (docScope === "division") {
-      hasScopeAccess = documentFolder.departmentId === userDeptId && userDivId !== null;
-    }
-
-    // If user has scope-based access, grant it
-    if (hasScopeAccess) {
-      return true;
-    }
-
-    // Creator has default access UNLESS explicitly revoked (checked above)
-    // This allows higher roles to revoke creator access
-    if (doc.createdBy === currentUser.id) {
-      return true;
-    }
-
-    return false;
+    // A document inherits the scope of the folder holding it when its own
+    // scope fields are not populated.
+    const folder = allFolders.find((f: any) => f.id === doc.folderId);
+    return canOn(
+      {
+        ...doc,
+        companyId: doc.companyId ?? folder?.companyId,
+        departmentId: doc.departmentId ?? folder?.departmentId,
+        divisionId: doc.divisionId ?? folder?.divisionId,
+        scopeLevel: doc.scopeLevel ?? doc.scope ?? folder?.scopeLevel,
+      },
+      "read",
+      "document"
+    );
   };
 
   // Show folders from user's company (but restrict access)
@@ -324,21 +131,12 @@ export default function DocumentsPage() {
       return allFolders;
     }
 
-    const { userCompanyId } = userContext;
-
-    // Filter by company - users can only see folders from their company
-    // But show ALL folders from their company, even if they don't have access
-    const filtered = allFolders.filter((folder: any) => {
-      // Master can see all companies
-      if (currentUser.role === "Master") return true;
-      
-      // Others can only see folders from their company
-      // Show them even if they don't have permission - they can request access
-      return folder.companyId === userCompanyId;
-    });
-    
-    return filtered;
-  }, [allFolders, currentUser, userContext, companies]);
+    // Folders outside the user's own access are still listed so they can see
+    // what exists and request access; only other companies are filtered out.
+    return allFolders.filter((folder: any) =>
+      isMaster ? true : folder.companyId === permissions.companyId
+    );
+  }, [allFolders, currentUser, isMaster, permissions.companyId]);
 
   // Show documents from user's company (but restrict access)
   // IMPORTANT: Show ALL documents from user's company, regardless of permission
@@ -349,32 +147,18 @@ export default function DocumentsPage() {
       return allDocuments;
     }
 
-    const { userCompanyId } = userContext;
+    return allDocuments.filter((doc: any) => {
+      if (isMaster) return true;
 
-    // Filter by company - users can only see documents from their company
-    // But show ALL documents from their company, even if they don't have access
-    const filtered = allDocuments.filter((doc: any) => {
-      // Master can see all companies
-      if (currentUser.role === "Master") return true;
-      
-      // Check document's companyId first (if available)
-      if (doc.companyId) {
-        return doc.companyId === userCompanyId;
-      }
-      
-      // If no companyId on document, check via folder
-      const documentFolder = allFolders.find((f: any) => f.id === doc.folderId);
-      if (documentFolder) {
-        return documentFolder.companyId === userCompanyId;
-      }
-      
-      // If no folder and no companyId, include it (let access control handle it)
-      // This ensures documents aren't hidden just because they lack metadata
-      return true;
+      const companyId =
+        doc.companyId ??
+        allFolders.find((f: any) => f.id === doc.folderId)?.companyId;
+
+      // A document with no company attribution at all is left visible rather
+      // than hidden on a metadata gap; the access check still gates opening it.
+      return companyId ? companyId === permissions.companyId : true;
     });
-    
-    return filtered;
-  }, [allDocuments, allFolders, currentUser, userContext, companies]);
+  }, [allDocuments, allFolders, currentUser, isMaster, permissions.companyId]);
 
   // Only show root folders (no parent) in the folders list
   const rootFolders = folders.filter((f: any) => !f.parentFolderId);
@@ -383,13 +167,14 @@ export default function DocumentsPage() {
   const filteredFolders = useMemo(() => {
     return rootFolders
       .map((folder: any) => ({
-        id: folder.id,
-        name: folder.name,
-        description: folder.description,
-        scope: folder.scope,
-        documentCount: folder.documentCount || documents.filter((d: any) => d.folderId === folder.id).length,
+        // Spread the record rather than picking fields: the access check needs
+        // companyId, scopeLevel, departmentId, divisionId and permissionsJson,
+        // and a hand-written pick silently dropped them — which made every
+        // folder look like it belonged to another company.
+        ...folder,
+        // Include nested documents so registry parents are not stuck at "0 files".
+        documentCount: countDocumentsInFolderTree(folder.id, folders, documents),
         modifiedAt: new Date(folder.modifiedAt),
-        createdBy: folder.createdBy,
         type: "folder" as const,
       }))
       .filter((folder: any) => {
@@ -400,13 +185,13 @@ export default function DocumentsPage() {
         }
         
         // Scope filter
-        if (filterScope !== "all" && folder.scope !== filterScope) {
+        if (!matchesFilters({ ...folder, hasAccess: hasFolderPermission(folder) }, filters)) {
           return false;
         }
         
         return true;
       });
-  }, [rootFolders, documents, searchQuery, filterScope]);
+  }, [rootFolders, folders, documents, searchQuery, filters, canOn]);
 
   const filteredDocuments = useMemo(() => {
     return documents
@@ -420,20 +205,14 @@ export default function DocumentsPage() {
         );
         
         return {
-          id: doc.id,
-          name: doc.name,
-          type: doc.type,
-          size: doc.size,
+          // Spread rather than pick, so companyId / scopeLevel / departmentId /
+          // divisionId / permissionsJson survive for the access check.
+          ...doc,
           folder: folders.find((f: any) => f.id === doc.folderId)?.name || "",
-          folderId: doc.folderId,
-          folderCount: folderCount,
-          folderIds: folderIds,
-          folderNames: folderNames,
-          description: doc.description,
-          scope: doc.scope,
-          status: doc.status,
+          folderCount,
+          folderIds,
+          folderNames,
           modifiedAt: new Date(doc.modifiedAt),
-          createdBy: doc.createdBy,
           tags: doc.tags || [],
           fileType: doc.type,
         };
@@ -446,23 +225,13 @@ export default function DocumentsPage() {
         }
         
         // Scope filter
-        if (filterScope !== "all" && doc.scope !== filterScope) {
-          return false;
-        }
-        
-        // File type filter
-        if (filterType !== "all" && doc.fileType !== filterType) {
-          return false;
-        }
-        
-        // Tags filter
-        if (filterTags.length > 0 && !filterTags.some((tag: string) => doc.tags?.includes(tag))) {
+        if (!matchesFilters({ ...doc, hasAccess: hasDocumentPermission(doc) }, filters)) {
           return false;
         }
         
         return true;
       });
-  }, [documents, folders, searchQuery, filterScope, filterType, filterTags]);
+  }, [documents, folders, searchQuery, filters, canOn]);
 
   // Apply sorting
   const sortedFolders = useMemo(() => {
@@ -552,39 +321,130 @@ export default function DocumentsPage() {
     return Array.from(tags);
   }, [documents]);
 
-  const activeFiltersCount = (filterScope !== "all" ? 1 : 0) + 
-                            (filterType !== "all" ? 1 : 0) + 
-                            filterTags.length;
+  const activeFiltersCount = countActiveFilters(filters);
+
+  /**
+   * Option lists with counts, derived from what is actually on the page. A
+   * facet with no matches is dropped rather than shown as a dead end.
+   */
+  const facets: DocumentFacets = useMemo(() => {
+    const tally = (
+      items: any[],
+      key: (item: any) => string | null | undefined,
+    ) => {
+      const counts = new Map<string, number>();
+      for (const item of items) {
+        const value = key(item);
+        if (!value) continue;
+        counts.set(value, (counts.get(value) ?? 0) + 1);
+      }
+      return counts;
+    };
+
+    const everything = [...folders, ...documents];
+
+    const departmentNames = new Map<string, string>();
+    const companyNames = new Map<string, string>();
+    for (const company of companies as any[]) {
+      companyNames.set(company.id, company.name);
+      for (const department of company.departments ?? []) {
+        departmentNames.set(department.id, department.name);
+      }
+    }
+
+    const peopleNames = new Map<string, string>();
+    for (const item of everything) {
+      if (item.createdBy && item.createdByName) {
+        peopleNames.set(item.createdBy, item.createdByName);
+      }
+    }
+
+    const toOptions = (
+      counts: Map<string, number>,
+      label: (value: string) => string,
+    ) =>
+      [...counts.entries()]
+        .map(([value, count]) => ({ value, label: label(value), count }))
+        .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
+
+    const scopeLabels: Record<string, string> = {
+      company: "Company-wide",
+      department: "Department",
+      division: "Division",
+    };
+
+    const openCount = everything.filter((item: any) =>
+      item.folderId !== undefined
+        ? hasDocumentPermission(item)
+        : hasFolderPermission(item),
+    ).length;
+
+    return {
+      scopes: toOptions(
+        tally(everything, (i) => i.scopeLevel ?? i.scope),
+        (v) => scopeLabels[v] ?? v,
+      ),
+      fileTypes: toOptions(
+        tally(documents, (i) => fileKind(i.fileType ?? i.type).value),
+        (v) => fileKindLabel(v),
+      ),
+      departments: toOptions(
+        tally(everything, (i) => i.departmentId),
+        (v) => departmentNames.get(v) ?? "Unknown department",
+      ),
+      companies: toOptions(
+        tally(everything, (i) => i.companyId),
+        (v) => companyNames.get(v) ?? "Unknown company",
+      ),
+      people: toOptions(
+        tally(everything, (i) => i.createdBy),
+        (v) => peopleNames.get(v) ?? "Unknown",
+      ),
+      access: {
+        open: openCount,
+        restricted: everything.length - openCount,
+      },
+    };
+  }, [folders, documents, companies, canOn]);
 
   return (
     <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Documents</h1>
+          <p className="register-label">Registry</p>
+          <h1 className="mt-1 text-3xl font-bold tracking-tight">Documents</h1>
           <p className="text-muted-foreground">
-            Manage your documents and folders
+            {scopeDescription}
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Button
+          <PermissionButton
             variant="outline"
+            allowed={can("documents.create")}
+            reason={`The ${permissions.role} role cannot create documents.`}
             onClick={() => setCreateRichTextDialogOpen(true)}
           >
             <FileText className="mr-2 h-4 w-4" />
             New Document
-          </Button>
-          <Button
+          </PermissionButton>
+          <PermissionButton
             variant="outline"
+            allowed={can("folders.create")}
+            reason={`The ${permissions.role} role cannot create folders.`}
             onClick={() => setCreateFolderDialogOpen(true)}
           >
             <FolderPlus className="mr-2 h-4 w-4" />
             New Folder
-          </Button>
-          <Button onClick={() => setUploadDialogOpen(true)}>
+          </PermissionButton>
+          <PermissionButton
+            allowed={can("documents.create")}
+            reason={`The ${permissions.role} role cannot upload documents.`}
+            onClick={() => setUploadDialogOpen(true)}
+          >
             <Upload className="mr-2 h-4 w-4" />
             Upload
-          </Button>
+          </PermissionButton>
         </div>
       </div>
 
@@ -613,95 +473,13 @@ export default function DocumentsPage() {
           />
         </div>
         
-        <Popover open={filtersOpen} onOpenChange={setFiltersOpen}>
-          <PopoverTrigger asChild>
-            <Button variant="outline" className="relative">
-              <Filter className="mr-2 h-4 w-4" />
-              Filters
-              {activeFiltersCount > 0 && (
-                <Badge className="ml-2 h-5 w-5 rounded-full p-0 flex items-center justify-center">
-                  {activeFiltersCount}
-                </Badge>
-              )}
-            </Button>
-          </PopoverTrigger>
-          <PopoverContent className="w-80" align="end">
-            <div className="space-y-4">
-              <div className="space-y-2">
-                <Label>Scope</Label>
-                <Select value={filterScope} onValueChange={setFilterScope}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Scopes</SelectItem>
-                    <SelectItem value="company">Company-wide</SelectItem>
-                    <SelectItem value="department">Department-wide</SelectItem>
-                    <SelectItem value="division">Division-wide</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              
-              <div className="space-y-2">
-                <Label>File Type</Label>
-                <Select value={filterType} onValueChange={setFilterType}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Types</SelectItem>
-                    {uniqueFileTypes.map((type) => (
-                      <SelectItem key={type} value={type}>
-                        {type.toUpperCase()}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              
-              {uniqueTags.length > 0 && (
-                <div className="space-y-2">
-                  <Label>Tags</Label>
-                  <div className="flex flex-wrap gap-2 max-h-32 overflow-y-auto">
-                    {uniqueTags.map((tag) => (
-                      <Badge
-                        key={tag}
-                        variant={filterTags.includes(tag) ? "default" : "outline"}
-                        className="cursor-pointer"
-                        onClick={() => {
-                          if (filterTags.includes(tag)) {
-                            setFilterTags(filterTags.filter((t) => t !== tag));
-                          } else {
-                            setFilterTags([...filterTags, tag]);
-                          }
-                        }}
-                      >
-                        {tag}
-                      </Badge>
-                    ))}
-                  </div>
-                </div>
-              )}
-              
-              {(filterScope !== "all" || filterType !== "all" || filterTags.length > 0) && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="w-full"
-                  onClick={() => {
-                    setFilterScope("all");
-                    setFilterType("all");
-                    setFilterTags([]);
-                  }}
-                >
-                  <X className="mr-2 h-4 w-4" />
-                  Clear Filters
-                </Button>
-              )}
-            </div>
-          </PopoverContent>
-        </Popover>
-        
+        <DocumentFilters
+          value={filters}
+          onChange={setFilters}
+          facets={facets}
+          showCompanies={isMaster}
+        />
+
         <Select value={sortBy} onValueChange={setSortBy}>
           <SelectTrigger className="w-[180px]">
             <SelectValue placeholder="Sort by" />
@@ -725,6 +503,9 @@ export default function DocumentsPage() {
           </TabsList>
         </Tabs>
       </div>
+
+      {/* What is currently filtered, so it is never hidden behind the popover */}
+      <ActiveFilterChips value={filters} onChange={setFilters} facets={facets} />
 
       {/* Bulk Operations */}
       {allItems.length > 0 && (
@@ -782,6 +563,7 @@ export default function DocumentsPage() {
                         currentUser,
                         hasFolderPermission(folder)
                       )}
+                      accessReason={whyNot(folder, "read", "folder")}
                       onView={(id) => router.push(`/documents/folder/${id}`)}
                       onEdit={(id) => {
                         setEditingFolderId(id);
@@ -836,6 +618,7 @@ export default function DocumentsPage() {
                         currentUser,
                         hasDocumentPermission(doc)
                       )}
+                      accessReason={whyNot(doc, "read", "document")}
                       onView={(id) => router.push(`/documents/${id}`)}
                       onAddToFolder={(id) => {
                         setAddingDocumentId(id);

@@ -19,9 +19,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Progress } from "@/components/ui/progress";
 import { toast } from "sonner";
-import { Download, Folder } from "lucide-react";
+import { Download } from "lucide-react";
 
 interface ExportDialogProps {
   open: boolean;
@@ -39,29 +38,10 @@ export function ExportDialog({
   const [format, setFormat] = useState<"zip" | "pdf" | "csv">("zip");
   const [includeMetadata, setIncludeMetadata] = useState(true);
   const [includeVersions, setIncludeVersions] = useState(false);
-  const [exporting, setExporting] = useState(false);
-  const [progress, setProgress] = useState(0);
 
-  const handleExport = async () => {
-    setExporting(true);
-    setProgress(0);
-
-    try {
-      // Simulate export progress
-      for (let i = 0; i <= 100; i += 10) {
-        await new Promise((resolve) => setTimeout(resolve, 200));
-        setProgress(i);
-      }
-
-      // TODO: Replace with actual API call
-      toast.success(`Export started. Format: ${format.toUpperCase()}`);
-      onOpenChange(false);
-    } catch (error) {
-      toast.error("Failed to start export");
-    } finally {
-      setExporting(false);
-      setProgress(0);
-    }
+  const handleExport = () => {
+    // Export endpoint is not wired yet — do not fake success.
+    toast.error("This action is not available yet");
   };
 
   return (
@@ -115,27 +95,17 @@ export function ExportDialog({
             </div>
           </div>
 
-          {exporting && (
-            <div className="space-y-2">
-              <div className="flex items-center justify-between text-sm">
-                <span>Exporting...</span>
-                <span>{progress}%</span>
-              </div>
-              <Progress value={progress} />
-            </div>
-          )}
         </div>
 
         <DialogFooter>
           <Button
             variant="outline"
             onClick={() => onOpenChange(false)}
-            disabled={exporting}
           >
             Cancel
           </Button>
-          <Button onClick={handleExport} disabled={exporting}>
-            {exporting ? "Exporting..." : "Start Export"}
+          <Button onClick={handleExport}>
+            Start Export
           </Button>
         </DialogFooter>
       </DialogContent>

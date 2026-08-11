@@ -31,14 +31,12 @@ interface DocumentLinkingProps {
 }
 
 export function DocumentLinking({
-  documentId,
   linkedDocuments = [],
 }: DocumentLinkingProps) {
-  const [linkedDocs, setLinkedDocs] = useState<LinkedDocument[]>(linkedDocuments);
+  const [linkedDocs] = useState<LinkedDocument[]>(linkedDocuments);
   const [linkDialogOpen, setLinkDialogOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [relationshipType, setRelationshipType] = useState("related");
-  const [linking, setLinking] = useState(false);
 
   // Mock search results - replace with API call
   const searchResults: LinkedDocument[] = [
@@ -46,38 +44,14 @@ export function DocumentLinking({
     { id: "2", name: "Amendment Letter.docx", type: "docx", relationshipType: "related" },
   ];
 
-  const handleLinkDocument = async (doc: LinkedDocument) => {
-    setLinking(true);
-    try {
-      // TODO: Replace with actual API call
-      await new Promise((resolve) => setTimeout(resolve, 500));
-
-      const linkedDoc: LinkedDocument = {
-        ...doc,
-        relationshipType,
-      };
-
-      setLinkedDocs([...linkedDocs, linkedDoc]);
-      setLinkDialogOpen(false);
-      setSearchQuery("");
-      toast.success("Document linked successfully");
-    } catch (error) {
-      toast.error("Failed to link document");
-    } finally {
-      setLinking(false);
-    }
+  const handleLinkDocument = () => {
+    // Document linking endpoint is not wired yet — do not fake success or mutate local state.
+    toast.error("This action is not available yet");
   };
 
-  const handleUnlinkDocument = async (docId: string) => {
-    try {
-      // TODO: Replace with actual API call
-      await new Promise((resolve) => setTimeout(resolve, 300));
-
-      setLinkedDocs(linkedDocs.filter((doc) => doc.id !== docId));
-      toast.success("Document unlinked");
-    } catch (error) {
-      toast.error("Failed to unlink document");
-    }
+  const handleUnlinkDocument = () => {
+    // Document linking endpoint is not wired yet — do not fake success or mutate local state.
+    toast.error("This action is not available yet");
   };
 
   return (
@@ -126,7 +100,7 @@ export function DocumentLinking({
                   variant="ghost"
                   size="icon"
                   className="h-8 w-8"
-                  onClick={() => handleUnlinkDocument(doc.id)}
+                  onClick={() => handleUnlinkDocument()}
                 >
                   <X className="h-4 w-4" />
                 </Button>
@@ -173,7 +147,7 @@ export function DocumentLinking({
                   <div
                     key={doc.id}
                     className="p-3 hover:bg-muted cursor-pointer flex items-center justify-between"
-                    onClick={() => handleLinkDocument(doc)}
+                    onClick={() => handleLinkDocument()}
                   >
                     <div className="flex items-center gap-2">
                       <FileText className="h-4 w-4" />
@@ -182,7 +156,6 @@ export function DocumentLinking({
                     <Button
                       variant="ghost"
                       size="sm"
-                      disabled={linking}
                     >
                       Link
                     </Button>

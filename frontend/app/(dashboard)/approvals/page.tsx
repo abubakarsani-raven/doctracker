@@ -19,10 +19,12 @@ import { useApprovalRequests, useUpdateApprovalRequest } from "@/lib/hooks/use-a
 import { useCurrentUser } from "@/lib/hooks/use-users";
 import { toast } from "sonner";
 import { useRouteProtection } from "@/lib/hooks/useRouteProtection";
+import { usePermissions } from "@/lib/hooks/use-permissions";
 
 export default function ApprovalsPage() {
   const { data: currentUser } = useCurrentUser();
-  useRouteProtection({ requireAdmin: true });
+  useRouteProtection({ requires: "approvals.review" });
+  const { isMaster } = usePermissions();
   const { data: approvals = [], isLoading } = useApprovalRequests();
   const updateApprovalRequest = useUpdateApprovalRequest();
 
@@ -39,7 +41,7 @@ export default function ApprovalsPage() {
 
     const approvalsArray = (approvals || []) as any[];
     
-    if (currentUser.role === "Master") {
+    if (isMaster) {
       return approvalsArray;
     }
 
@@ -49,7 +51,7 @@ export default function ApprovalsPage() {
     return approvalsArray.filter(
       (a: any) => a.targetCompanyId === userCompanyId || a.sourceCompanyId === userCompanyId
     );
-  }, [approvals, currentUser]);
+  }, [approvals, currentUser, isMaster]);
 
   const filteredApprovals = useMemo(() => {
     const approvalsArray = (filteredApprovalsForUser || []) as any[];

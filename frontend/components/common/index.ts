@@ -14,3 +14,7 @@ export type { ActionData } from "./ActionCard";
 export { FileUpload } from "./FileUpload";
 export type { FileWithMetadata } from "./FileUpload";
 export { PresenceIndicator } from "./PresenceIndicator";
+export { PermissionButton, PermissionGate } from "./PermissionButton";
+export { PermissionsPanel } from "./PermissionsPanel";
+export { ApiErrorListener } from "./ApiErrorListener";
+export { RequestProgress } from "./RequestProgress";

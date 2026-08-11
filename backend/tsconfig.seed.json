@@ -9,5 +9,13 @@
     "compilerOptions": {
       "module": "commonjs"
     }
-  }
+  },
+  "include": [
+    "src/**/*",
+    "prisma/**/*"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist"
+  ]
 }

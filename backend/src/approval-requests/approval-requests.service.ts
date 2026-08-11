@@ -1,4 +1,8 @@
-import { Injectable } from '@nestjs/common';
+import {
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
 
@@ -9,59 +13,94 @@ export class ApprovalRequestsService {
     private notificationsService: NotificationsService,
   ) {}
 
-  async findAll(userId: string) {
-    // Get user's company and role
+  private async loadActor(userId: string) {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
       include: {
         company: true,
-        userRoles: {
-          include: {
-            role: true,
-          },
-        },
+        userRoles: { include: { role: true } },
       },
     });
-
     if (!user) {
-      throw new Error('User not found');
+      throw new NotFoundException('User not found');
     }
+    return user;
+  }
 
-    // Get user's role (from userRoles relation)
-    const userRole = user.userRoles[0]?.role?.name || 'Staff';
+  private assertCanAccessApproval(
+    approval: {
+      sourceCompanyId: string | null;
+      targetCompanyId: string | null;
+    },
+    currentUser: any,
+  ) {
+    if (currentUser?.permissions?.dataScope === 'all') return;
+    const companyId = currentUser?.companyId;
+    if (
+      !companyId ||
+      (approval.sourceCompanyId !== companyId &&
+        approval.targetCompanyId !== companyId)
+    ) {
+      throw new ForbiddenException(
+        'That approval request belongs to another company.',
+      );
+    }
+  }
 
-    // Master can see all, others see only their company's approvals
+  async findAll(userId: string, currentUser?: any) {
+    const user = await this.loadActor(userId);
+    const seesAll =
+      currentUser?.permissions?.dataScope === 'all' ||
+      user.userRoles.some((ur) => {
+        try {
+          const json = ur.role?.permissionsJson as any;
+          return json?.dataScope === 'all';
+        } catch {
+          return false;
+        }
+      });
+
     const where: any = {};
-    if (userRole !== 'Master') {
+    if (!seesAll) {
       where.OR = [
         { targetCompanyId: user.companyId },
         { sourceCompanyId: user.companyId },
       ];
     }
 
-    const approvals = await this.prisma.crossCompanyApproval.findMany({
+    return this.prisma.crossCompanyApproval.findMany({
       where,
-      orderBy: {
-        requestedAt: 'desc',
-      },
+      orderBy: { requestedAt: 'desc' },
     });
-
-    return approvals;
   }
 
-  async findOne(id: string) {
-    return this.prisma.crossCompanyApproval.findUnique({
+  async findOne(id: string, currentUser: any) {
+    const approval = await this.prisma.crossCompanyApproval.findUnique({
       where: { id },
     });
+    if (!approval) {
+      throw new NotFoundException('Approval request not found');
+    }
+    this.assertCanAccessApproval(approval, currentUser);
+    return approval;
   }
 
   async create(data: any, currentUser: any) {
+    const sourceCompanyId =
+      currentUser?.permissions?.dataScope === 'all'
+        ? data.sourceCompanyId || currentUser.companyId
+        : currentUser.companyId;
+
+    if (!sourceCompanyId) {
+      throw new ForbiddenException('sourceCompanyId is required');
+    }
+
     const approval = await this.prisma.crossCompanyApproval.create({
       data: {
         workflowId: data.workflowId || null,
         actionId: data.actionId || null,
         requestType: data.requestType,
-        sourceCompanyId: data.sourceCompanyId,
+        sourceCompanyId,
         sourceCompanyName: data.sourceCompanyName,
         targetCompanyId: data.targetCompanyId,
         targetCompanyName: data.targetCompanyName,
@@ -78,20 +117,10 @@ export class ApprovalRequestsService {
       },
     });
 
-    // Create notification for target company admins
-    // Get target company admins (users with Company Admin role)
-    // Note: This assumes role is stored in userRoles relation
-    // If role is stored differently, adjust this query
     const targetCompanyUsers = await this.prisma.user.findMany({
-      where: {
-        companyId: data.targetCompanyId,
-      },
+      where: { companyId: data.targetCompanyId },
       include: {
-        userRoles: {
-          include: {
-            role: true,
-          },
-        },
+        userRoles: { include: { role: true } },
       },
     });
 
@@ -99,7 +128,6 @@ export class ApprovalRequestsService {
       return user.userRoles.some((ur) => ur.role.name === 'Company Admin');
     });
 
-    // Create notifications
     const notifications = targetCompanyAdmins.map((admin) => ({
       userId: admin.id,
       companyId: data.targetCompanyId,
@@ -126,22 +154,23 @@ export class ApprovalRequestsService {
     });
 
     if (!existingApproval) {
-      throw new Error('Approval request not found');
+      throw new NotFoundException('Approval request not found');
     }
+
+    this.assertCanAccessApproval(existingApproval, currentUser);
 
     const updatedApproval = await this.prisma.crossCompanyApproval.update({
       where: { id },
       data: {
-        ...data,
+        status: data.status,
+        rejectionReason: data.rejectionReason ?? null,
         reviewedBy: currentUser.id,
         reviewedAt: new Date(),
       },
     });
 
-    // Update related workflow/action if approved
     if (data.status === 'approved') {
       if (existingApproval.workflowId) {
-        // Update workflow assignment
         await this.prisma.workflow.update({
           where: { id: existingApproval.workflowId },
           data: {
@@ -151,7 +180,6 @@ export class ApprovalRequestsService {
       }
 
       if (existingApproval.actionId) {
-        // Update action assignment
         await this.prisma.action.update({
           where: { id: existingApproval.actionId },
           data: {
@@ -161,12 +189,14 @@ export class ApprovalRequestsService {
       }
     }
 
-    // Create notification for requester
     try {
       await this.notificationsService.create({
         userId: existingApproval.requestedBy,
         companyId: existingApproval.sourceCompanyId,
-        type: data.status === 'approved' ? 'approval_request_approved' : 'approval_request_rejected',
+        type:
+          data.status === 'approved'
+            ? 'approval_request_approved'
+            : 'approval_request_rejected',
         title: `Approval Request ${data.status === 'approved' ? 'Approved' : 'Rejected'}`,
         message: `Your cross-company approval request has been ${data.status === 'approved' ? 'approved' : 'rejected'}.${data.rejectionReason ? ` Reason: ${data.rejectionReason}` : ''}`,
         resourceType: 'approval_request',
@@ -180,10 +210,17 @@ export class ApprovalRequestsService {
     return updatedApproval;
   }
 
-  async delete(id: string) {
+  async delete(id: string, currentUser: any) {
+    const existing = await this.prisma.crossCompanyApproval.findUnique({
+      where: { id },
+    });
+    if (!existing) {
+      throw new NotFoundException('Approval request not found');
+    }
+    this.assertCanAccessApproval(existing, currentUser);
+
     return this.prisma.crossCompanyApproval.delete({
       where: { id },
     });
   }
 }
-

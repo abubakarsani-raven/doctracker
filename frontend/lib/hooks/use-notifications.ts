@@ -1,28 +1,27 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
-import { toast } from "sonner";
+import { ApiError } from "@/lib/api-client";
+import { useCurrentUser } from "@/lib/hooks/use-users";
 
 export function useNotifications() {
+  const { data: currentUser, isLoading: userLoading } = useCurrentUser();
+
   return useQuery({
-    queryKey: ["notifications"],
+    queryKey: ["notifications", currentUser?.id],
     queryFn: async () => {
-      try {
-        const notifications = await api.getNotifications();
-        console.log('[useNotifications] Fetched notifications:', notifications?.length || 0);
-        return notifications || [];
-      } catch (error: any) {
-        console.error('[useNotifications] Error fetching notifications:', error);
-        console.error('[useNotifications] Error details:', {
-          message: error.message,
-          stack: error.stack,
-        });
-        // Return empty array on error instead of throwing
-        return [];
-      }
+      const notifications = await api.getNotifications();
+      return notifications || [];
     },
-    refetchInterval: 30 * 1000, // Refetch every 30 seconds
-    retry: 1, // Only retry once on failure
-    staleTime: 0, // Always consider data stale to ensure fresh fetches
+    enabled: !userLoading && !!currentUser?.id,
+    refetchInterval: 30 * 1000,
+    retry: (failureCount, error) => {
+      if (error instanceof ApiError && (error.isUnauthorized || error.isForbidden)) {
+        return false;
+      }
+      return failureCount < 1;
+    },
+    staleTime: 10 * 1000,
+    throwOnError: false,
   });
 }
 

@@ -58,8 +58,15 @@ export function FileUploadDialog({
   const [creatingRichText, setCreatingRichText] = useState(false);
 
   const accessibleFolders = useMemo(() => {
-    return allFolders.filter((f: any) => !f.parentFolderId); // Root folders for now
+    // Prefer the full tree so nested contract folders are selectable
+    return allFolders.filter((f: any) => !f.archivedAt && !f.deletedAt);
   }, [allFolders]);
+
+  const resolveCompanyId = (targetFolderId?: string) => {
+    if (!targetFolderId) return undefined;
+    const folder = allFolders.find((f: any) => f.id === targetFolderId);
+    return folder?.companyId as string | undefined;
+  };
 
   const handleFilesSelected = (selectedFiles: FileWithMetadata[]) => {
     setFiles(selectedFiles);
@@ -75,25 +82,24 @@ export function FileUploadDialog({
       return;
     }
 
+    const targetFolderId = selectedFolderId || folderId || undefined;
+    const companyId = resolveCompanyId(targetFolderId);
+
     setUploading(true);
 
     try {
-      // Upload files to backend
-      const uploadPromises = files.map(async (fileWithMeta) => {
-        const fileExtension = fileWithMeta.file.name.split(".").pop() || "";
-        const fileType = fileExtension.toLowerCase();
+      // Multipart upload — sends the actual file bytes (not metadata-only createFile)
+      await Promise.all(
+        files.map((fileWithMeta) =>
+          api.uploadFile(fileWithMeta.file, {
+            scopeLevel: scope,
+            folderId: targetFolderId,
+            companyId,
+            fileName: fileWithMeta.file.name,
+          }),
+        ),
+      );
 
-        return api.createFile({
-          fileName: fileWithMeta.file.name,
-          fileType: fileType,
-          scopeLevel: scope,
-          folderId: selectedFolderId || undefined,
-        });
-      });
-
-      await Promise.all(uploadPromises);
-
-      // Invalidate documents queries to refetch
       queryClient.invalidateQueries({ queryKey: ["documents"] });
       if (folderId) {
         queryClient.invalidateQueries({ queryKey: ["documents", folderId] });
@@ -221,7 +227,9 @@ export function FileUploadDialog({
                   <SelectContent>
                     {accessibleFolders.map((folder: any) => (
                       <SelectItem key={folder.id} value={folder.id}>
-                        {folder.name}
+                        {folder.parentFolderId
+                          ? `${allFolders.find((p: any) => p.id === folder.parentFolderId)?.name || "…"} / ${folder.name}`
+                          : folder.name}
                       </SelectItem>
                     ))}
                   </SelectContent>

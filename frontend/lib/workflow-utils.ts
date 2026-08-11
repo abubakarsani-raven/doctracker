@@ -1,3 +1,4 @@
+import { seesAllCompanies } from "@/lib/permissions";
 /**
  * Workflow Utility Functions
  * Pure calculation functions - no API calls, no localStorage, no events
@@ -68,7 +69,7 @@ export function canViewCrossCompanyWorkflow(
   if (!currentUser) return false;
 
   // Master can see all
-  if (currentUser.role === "Master") return true;
+  if (seesAllCompanies(currentUser)) return true;
 
   // Check if user is Company Admin
   if (!isCompanyAdmin(currentUser)) {

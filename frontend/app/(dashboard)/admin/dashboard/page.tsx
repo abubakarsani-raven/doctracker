@@ -1,43 +1,51 @@
 "use client";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { FileText, Users, HardDrive, TrendingUp } from "lucide-react";
+import { FileText, Users, HardDrive, TrendingUp, Loader2 } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
-
-const stats = [
-  {
-    label: "Total Documents",
-    value: "12,345",
-    icon: FileText,
-    change: "+12%",
-    trend: "up",
-  },
-  {
-    label: "Active Users",
-    value: "156",
-    icon: Users,
-    change: "+5",
-    trend: "up",
-  },
-  {
-    label: "Storage Used",
-    value: "45.2 GB",
-    icon: HardDrive,
-    change: "+2.5 GB",
-    trend: "up",
-    progress: 75,
-  },
-  {
-    label: "Active Workflows",
-    value: "45",
-    icon: TrendingUp,
-    change: "+3",
-    trend: "up",
-  },
-];
+import { useDocuments } from "@/lib/hooks/use-documents";
+import { useUsers } from "@/lib/hooks/use-users";
+import { useWorkflows } from "@/lib/hooks/use-workflows";
+import { useQuery } from "@tanstack/react-query";
+import { api } from "@/lib/api";
 
 export default function AdminDashboardPage() {
+  const { data: documents = [], isLoading: documentsLoading } = useDocuments();
+  const { data: users = [], isLoading: usersLoading } = useUsers();
+  const { data: workflows = [], isLoading: workflowsLoading } = useWorkflows();
+  
+  const { data: storage, isLoading: storageLoading } = useQuery({
+    queryKey: ["admin-storage"],
+    queryFn: () => api.getTotalStorage(),
+  });
+
+  const stats = [
+    {
+      label: "Total Documents",
+      value: documentsLoading ? "..." : documents.length.toLocaleString(),
+      icon: FileText,
+      isLoading: documentsLoading,
+    },
+    {
+      label: "Active Users",
+      value: usersLoading ? "..." : users.filter((u: any) => u.isActive).length.toString(),
+      icon: Users,
+      isLoading: usersLoading,
+    },
+    {
+      label: "Storage Used",
+      value: storageLoading ? "..." : (storage?.formatted || "0 Bytes"),
+      icon: HardDrive,
+      isLoading: storageLoading,
+    },
+    {
+      label: "Active Workflows",
+      value: workflowsLoading ? "..." : workflows.length.toString(),
+      icon: TrendingUp,
+      isLoading: workflowsLoading,
+    },
+  ];
   return (
     <div className="space-y-6">
         {/* Header */}
@@ -61,17 +69,11 @@ export default function AdminDashboardPage() {
                   <Icon className="h-4 w-4 text-muted-foreground" />
                 </CardHeader>
                 <CardContent>
-                  <div className="text-2xl font-bold">{stat.value}</div>
-                  {stat.progress !== undefined && (
-                    <div className="mt-2 space-y-1">
-                      <Progress value={stat.progress} className="h-2" />
-                      <p className="text-xs text-muted-foreground">
-                        {stat.progress}% of 60 GB used
-                      </p>
-                    </div>
-                  )}
+                  <div className="text-2xl font-bold flex items-center gap-2">
+                    {stat.isLoading ? <Loader2 className="h-5 w-5 animate-spin" /> : stat.value}
+                  </div>
                   <p className="text-xs text-muted-foreground mt-1">
-                    {stat.change} from last month
+                    Real-time data
                   </p>
                 </CardContent>
               </Card>

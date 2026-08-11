@@ -55,17 +55,8 @@ export function UploadNewVersionDialog({
 
     setUploading(true);
     try {
-      const fileExtension = file.file.name.split('.').pop() || '';
-      const fileType = fileExtension.toLowerCase();
-      
-      // For now, we'll create a storage path (in production, this would be handled by file upload service)
-      const storagePath = `/storage/${documentId}/v${Date.now()}/${file.file.name}`;
-
-      await api.uploadFileVersion(documentId, {
-        storagePath,
-        fileName: file.file.name,
-        fileType: fileType,
-      });
+      // Multipart upload of the real file bytes (field name `file`).
+      await api.uploadFileVersion(documentId, file.file, file.file.name);
 
       toast.success("New version uploaded successfully");
       setFile(null);
@@ -90,7 +81,9 @@ export function UploadNewVersionDialog({
         <DialogHeader>
           <DialogTitle>Upload New Version</DialogTitle>
           <DialogDescription>
-            Upload a new version of this document. The previous version will be saved in version history (maximum 10 versions).
+            Upload a new version of this document
+            {currentFileName ? ` (${currentFileName})` : ""}. The previous
+            version will be saved in version history (maximum 10 versions).
           </DialogDescription>
         </DialogHeader>
 

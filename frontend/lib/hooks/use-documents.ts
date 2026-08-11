@@ -11,6 +11,15 @@ export function useDocuments(folderId?: string) {
   });
 }
 
+export function useArchivedDocuments() {
+  return useQuery({
+    queryKey: ["documents", "archived"],
+    queryFn: async () => {
+      return await api.getArchivedDocuments();
+    },
+  });
+}
+
 export function useDocument(id: string) {
   return useQuery({
     queryKey: ["documents", id],
@@ -50,6 +59,9 @@ export function useCreateFolder() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["folders"] });
       toast.success("Folder created successfully");
+    },
+    onError: (error: any) => {
+      toast.error(error?.message || "Failed to create folder");
     },
   });
 }

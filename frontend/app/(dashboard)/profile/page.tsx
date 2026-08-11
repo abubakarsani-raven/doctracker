@@ -12,6 +12,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { PermissionsPanel } from "@/components/common/PermissionsPanel";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -36,14 +37,16 @@ import {
 import { EmptyState } from "@/components/common";
 import { DocumentCard } from "@/components/common";
 import { formatDistanceToNow } from "date-fns";
-import { useCurrentUser } from "@/lib/hooks/use-users";
+import { useCurrentUser, useUpdateOwnProfile } from "@/lib/hooks/use-users";
 import { useDocuments } from "@/lib/hooks/use-documents";
+import { useActivity } from "@/lib/hooks/use-activity";
 import { useRouter } from "next/navigation";
 
 export default function ProfilePage() {
   const router = useRouter();
   const { data: currentUser } = useCurrentUser();
   const { data: allDocuments = [] } = useDocuments();
+  const updateOwnProfile = useUpdateOwnProfile();
 
   const [profileData, setProfileData] = useState({
     id: "",
@@ -78,21 +81,19 @@ export default function ProfilePage() {
     (doc: any) => doc.createdBy === currentUser?.id || doc.createdBy === currentUser?.email || doc.createdBy === currentUser?.name
   ).slice(0, 6); // Show first 6
 
-  // Mock activity data - TODO: Create activity tracking API
-  const activities: any[] = []; // Empty for now, can be populated from API later
-
-  // Mock permissions data - TODO: Create permissions API
-  const permissions: any[] = []; // Empty for now
+  const { data: activities = [] } = useActivity({ limit: 20 });
 
   const handleSaveProfile = async () => {
     setSaving(true);
     try {
-      // TODO: Replace with actual API call when endpoint is available
-      await new Promise((resolve) => setTimeout(resolve, 1000));
+      await updateOwnProfile.mutateAsync({
+        name: profileData.name,
+        phone: profileData.phone,
+      });
       setIsEditing(false);
       toast.success("Profile updated successfully");
-    } catch (error) {
-      toast.error("Failed to update profile");
+    } catch (error: any) {
+      toast.error(error?.message || "Failed to update profile");
     } finally {
       setSaving(false);
     }
@@ -277,7 +278,7 @@ export default function ProfilePage() {
                 />
               ) : (
                 <div className="space-y-4">
-                  {activities.map((activity) => (
+                  {activities.map((activity: any) => (
                     <div
                       key={activity.id}
                       className="flex items-start gap-4 pb-4 border-b last:border-0"
@@ -286,15 +287,10 @@ export default function ProfilePage() {
                         <div className="h-2 w-2 rounded-full bg-primary" />
                       </div>
                       <div className="flex-1">
-                        <p className="text-sm">
-                          <span className="font-medium">{activity.action}</span>
-                          {" - "}
-                          <span className="text-muted-foreground">
-                            {activity.resource}
-                          </span>
-                        </p>
+                        <p className="text-sm">{activity.description}</p>
                         <p className="text-xs text-muted-foreground mt-1">
-                          {formatDistanceToNow(activity.timestamp, {
+                          {activity.resourceType ? `${activity.resourceType} · ` : ""}
+                          {formatDistanceToNow(new Date(activity.createdAt), {
                             addSuffix: true,
                           })}
                         </p>
@@ -340,56 +336,7 @@ export default function ProfilePage() {
 
         {/* Permissions Tab */}
         <TabsContent value="permissions">
-          <Card>
-            <CardHeader>
-              <CardTitle>Permissions</CardTitle>
-              <CardDescription>
-                Resources you have access to and your permissions
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              {permissions.length === 0 ? (
-                <EmptyState
-                  icon={Shield}
-                  title="No permissions"
-                  description="You don't have any specific permissions yet"
-                />
-              ) : (
-                <div className="rounded-md border">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Resource</TableHead>
-                        <TableHead>Type</TableHead>
-                        <TableHead>Permissions</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {permissions.map((perm, index) => (
-                        <TableRow key={index}>
-                          <TableCell className="font-medium">
-                            {perm.resource}
-                          </TableCell>
-                          <TableCell>
-                            <Badge variant="outline">{perm.type}</Badge>
-                          </TableCell>
-                          <TableCell>
-                            <div className="flex gap-1 flex-wrap">
-                              {perm.permissions.map((p: string) => (
-                                <Badge key={p} variant="secondary">
-                                  {p}
-                                </Badge>
-                              ))}
-                            </div>
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </div>
-              )}
-            </CardContent>
-          </Card>
+          <PermissionsPanel />
         </TabsContent>
       </Tabs>
     </div>

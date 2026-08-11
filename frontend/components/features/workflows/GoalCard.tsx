@@ -1,5 +1,6 @@
 "use client";
 
+import { can } from "@/lib/permissions";
 import { useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -50,7 +51,8 @@ export function GoalCard({ goal, workflowId, onGoalUpdated }: GoalCardProps) {
         goal.assignedToName === currentUser.department));
 
   const canAchieve = !isAchieved && isAssignedToMe;
-  const canDelete = goal.createdBy === currentUser?.id || currentUser?.role === "Master";
+  const canDelete =
+    goal.createdBy === currentUser?.id || can(currentUser, "workflows.delete");
 
   // Check if due date is overdue
   const dueDate = goal.dueDate ? new Date(goal.dueDate) : null;

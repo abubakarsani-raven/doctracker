@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import {
   Dialog,
   DialogContent,
@@ -30,6 +30,10 @@ import { format } from "date-fns";
 import { CalendarIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast as sonnerToast } from "sonner";
+import { useCreateAction } from "@/lib/hooks/use-actions";
+import { useWorkflows } from "@/lib/hooks/use-workflows";
+import { useUsers } from "@/lib/hooks/use-users";
+import { useCompanies } from "@/lib/hooks/use-companies";
 
 interface CreateActionDialogProps {
   open: boolean;
@@ -40,12 +44,61 @@ export function CreateActionDialog({
   open,
   onOpenChange,
 }: CreateActionDialogProps) {
+  const { data: workflows = [] } = useWorkflows();
+  const { data: users = [] } = useUsers();
+  const { data: companies = [] } = useCompanies();
+  const createAction = useCreateAction();
+
+  const [workflowId, setWorkflowId] = useState("");
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
-  const [assignToType, setAssignToType] = useState<"user" | "department" | "division">("user");
+  const [assignToType, setAssignToType] = useState<"user" | "department">("user");
   const [assignToId, setAssignToId] = useState("");
   const [dueDate, setDueDate] = useState<Date>();
-  const [creating, setCreating] = useState(false);
+
+  const creating = createAction.isPending;
+
+  // An action always belongs to a workflow, and the server takes the action's
+  // company from it — so a workflow has to be chosen before anything else.
+  const openWorkflows = useMemo(
+    () => workflows.filter((w: any) => w.status !== "completed"),
+    [workflows],
+  );
+
+  const activeUsers = useMemo(
+    () => users.filter((u: any) => u.status === "active"),
+    [users],
+  );
+
+  const departments = useMemo(() => {
+    const depts: any[] = [];
+    companies.forEach((company: any) => {
+      (company.departments ?? []).forEach((dept: any) => {
+        depts.push({ ...dept, companyName: company.name });
+      });
+    });
+    return depts;
+  }, [companies]);
+
+  const assigneeOptions =
+    assignToType === "user"
+      ? activeUsers.map((u: any) => ({
+          id: u.id,
+          label: u.name || u.email || u.id,
+        }))
+      : departments.map((d: any) => ({
+          id: d.id,
+          label: d.companyName ? `${d.name} — ${d.companyName}` : d.name,
+        }));
+
+  const resetForm = () => {
+    setWorkflowId("");
+    setTitle("");
+    setDescription("");
+    setAssignToType("user");
+    setAssignToId("");
+    setDueDate(undefined);
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -55,23 +108,37 @@ export function CreateActionDialog({
       return;
     }
 
-    setCreating(true);
+    if (!workflowId) {
+      sonnerToast.error("Please choose the workflow this action belongs to");
+      return;
+    }
+
+    const assignee = assigneeOptions.find((o) => o.id === assignToId);
+    if (!assignee) {
+      sonnerToast.error("Please choose who this action is assigned to");
+      return;
+    }
 
     try {
-      // TODO: Replace with actual API call
-      await new Promise((resolve) => setTimeout(resolve, 1000));
+      await createAction.mutateAsync({
+        workflowId,
+        title: title.trim(),
+        description: description.trim() || undefined,
+        type: "regular",
+        assignedTo: {
+          type: assignToType,
+          id: assignee.id,
+          name: assignee.label,
+        },
+        dueDate: dueDate ? dueDate.toISOString() : undefined,
+      });
 
-      sonnerToast.success("Action created successfully");
-      setTitle("");
-      setDescription("");
-      setAssignToType("user");
-      setAssignToId("");
-      setDueDate(undefined);
+      resetForm();
       onOpenChange(false);
-    } catch (error) {
-      sonnerToast.error("Failed to create action. Please try again.");
-    } finally {
-      setCreating(false);
+    } catch (error: any) {
+      sonnerToast.error(
+        error?.message || "Failed to create action. Please try again.",
+      );
     }
   };
 
@@ -86,6 +153,31 @@ export function CreateActionDialog({
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="workflow">Workflow *</Label>
+            <Select
+              value={workflowId}
+              onValueChange={setWorkflowId}
+              disabled={creating}
+            >
+              <SelectTrigger id="workflow">
+                <SelectValue placeholder="Select the workflow this belongs to" />
+              </SelectTrigger>
+              <SelectContent>
+                {openWorkflows.map((workflow: any) => (
+                  <SelectItem key={workflow.id} value={workflow.id}>
+                    {workflow.title || "Untitled Workflow"}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {openWorkflows.length === 0 && (
+              <p className="text-xs text-muted-foreground">
+                No open workflows. Create a workflow before adding actions.
+              </p>
+            )}
+          </div>
+
           <div className="space-y-2">
             <Label htmlFor="title">Action Title *</Label>
             <Input
@@ -111,13 +203,15 @@ export function CreateActionDialog({
           </div>
 
           <div className="space-y-2">
-            <Label>Assign To</Label>
+            <Label>Assign To *</Label>
             <div className="grid grid-cols-2 gap-2">
               <Select
                 value={assignToType}
-                onValueChange={(value: "user" | "department" | "division") =>
-                  setAssignToType(value)
-                }
+                onValueChange={(value: "user" | "department") => {
+                  setAssignToType(value);
+                  setAssignToId("");
+                }}
+                disabled={creating}
               >
                 <SelectTrigger>
                   <SelectValue />
@@ -125,17 +219,22 @@ export function CreateActionDialog({
                 <SelectContent>
                   <SelectItem value="user">User</SelectItem>
                   <SelectItem value="department">Department</SelectItem>
-                  <SelectItem value="division">Division</SelectItem>
                 </SelectContent>
               </Select>
-              <Select value={assignToId} onValueChange={setAssignToId}>
+              <Select
+                value={assignToId}
+                onValueChange={setAssignToId}
+                disabled={creating}
+              >
                 <SelectTrigger>
                   <SelectValue placeholder="Select..." />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="1">John Doe</SelectItem>
-                  <SelectItem value="2">Jane Smith</SelectItem>
-                  <SelectItem value="3">Legal Department</SelectItem>
+                  {assigneeOptions.map((option) => (
+                    <SelectItem key={option.id} value={option.id}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>

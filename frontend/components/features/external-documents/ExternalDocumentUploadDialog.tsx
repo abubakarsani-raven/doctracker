@@ -23,7 +23,7 @@ import {
 import { FileUpload } from "@/components/common";
 import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
-import { Upload, Mail } from "lucide-react";
+import { Upload } from "lucide-react";
 import type { FileWithMetadata } from "@/components/common";
 
 interface ExternalDocumentUploadDialogProps {
@@ -46,7 +46,6 @@ export function ExternalDocumentUploadDialog({
   const [documentType, setDocumentType] = useState("");
   const [description, setDescription] = useState("");
   const [sendAcknowledgment, setSendAcknowledgment] = useState(true);
-  const [uploading, setUploading] = useState(false);
 
   const handleFilesSelected = (selectedFiles: FileWithMetadata[]) => {
     setFiles(selectedFiles);
@@ -64,30 +63,9 @@ export function ExternalDocumentUploadDialog({
     setStep(step + 1);
   };
 
-  const handleUpload = async () => {
-    setUploading(true);
-
-    try {
-      // TODO: Replace with actual API call
-      await new Promise((resolve) => setTimeout(resolve, 2000));
-
-      toast.success(
-        `Document uploaded and ${sendAcknowledgment ? "acknowledgment sent" : "saved"} successfully`
-      );
-      
-      // Reset form
-      setFiles([]);
-      setContactInfo({ name: "", email: "", phone: "", company: "" });
-      setDocumentType("");
-      setDescription("");
-      setSendAcknowledgment(true);
-      setStep(1);
-      onOpenChange(false);
-    } catch (error) {
-      toast.error("Upload failed. Please try again.");
-    } finally {
-      setUploading(false);
-    }
+  const handleUpload = () => {
+    // External upload endpoint is not wired yet — do not fake success.
+    toast.error("This action is not available yet");
   };
 
   return (
@@ -231,24 +209,19 @@ export function ExternalDocumentUploadDialog({
                 onOpenChange(false);
               }
             }}
-            disabled={uploading}
           >
             {step === 1 ? "Cancel" : "Back"}
           </Button>
           {step < 3 ? (
-            <Button onClick={handleNext} disabled={uploading}>
+            <Button onClick={handleNext}>
               Next
             </Button>
           ) : (
-            <Button onClick={handleUpload} disabled={uploading}>
-              {uploading ? (
-                "Uploading..."
-              ) : (
-                <>
-                  <Upload className="mr-2 h-4 w-4" />
-                  Upload & {sendAcknowledgment ? "Send Acknowledgment" : "Save"}
-                </>
-              )}
+            <Button onClick={handleUpload}>
+              <>
+                <Upload className="mr-2 h-4 w-4" />
+                Upload & {sendAcknowledgment ? "Send Acknowledgment" : "Save"}
+              </>
             </Button>
           )}
         </DialogFooter>

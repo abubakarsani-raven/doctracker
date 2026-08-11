@@ -1,3 +1,4 @@
+import { can, seesAllCompanies } from "@/lib/permissions";
 /**
  * Cross-Company Collaboration Utility Functions
  * Helper functions for cross-company workflow and action management
@@ -155,7 +156,9 @@ export function getPendingApprovalsFromCompany(companyId: string): CrossCompanyA
  * Check if user is Company Admin
  */
 export function isCompanyAdmin(user: any): boolean {
-  return user?.role === "Company Admin" || user?.role === "Master";
+  // "Company admin" here means "may approve on the company's behalf", which is
+  // the capability that actually matters — not a specific role name.
+  return can(user, "approvals.review");
 }
 
 /**

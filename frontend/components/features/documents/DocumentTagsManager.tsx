@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -14,8 +14,10 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
-import { Plus, X, Tag } from "lucide-react";
+import { Plus, X, Tag, Loader2 } from "lucide-react";
+import { api } from "@/lib/api";
 
 interface Tag {
   id: string;
@@ -32,52 +34,78 @@ interface DocumentTagsManagerProps {
 
 export function DocumentTagsManager({
   documentId,
-  folderId,
   initialTags = [],
   onTagsChange,
 }: DocumentTagsManagerProps) {
   const [tags, setTags] = useState<Tag[]>(initialTags);
+  const [availableTags, setAvailableTags] = useState<Tag[]>([]);
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [newTagName, setNewTagName] = useState("");
-  const [creating, setCreating] = useState(false);
+  const [loading, setLoading] = useState(false);
+
+  // Load available tags and document tags
+  useEffect(() => {
+    const loadTags = async () => {
+      try {
+        const [allTags, fileTags] = await Promise.all([
+          api.getTags(),
+          documentId ? api.getFileTags(documentId) : Promise.resolve([])
+        ]);
+        setAvailableTags(allTags);
+        setTags(fileTags);
+        onTagsChange?.(fileTags);
+      } catch (error: any) {
+        toast.error("Failed to load tags");
+      }
+    };
+
+    loadTags();
+  }, [documentId, onTagsChange]);
 
   const handleCreateTag = async () => {
     if (!newTagName.trim()) return;
 
-    setCreating(true);
+    setLoading(true);
     try {
-      // TODO: Replace with actual API call
-      await new Promise((resolve) => setTimeout(resolve, 500));
-
-      const newTag: Tag = {
-        id: Date.now().toString(),
-        name: newTagName.trim(),
-      };
-
-      const updatedTags = [...tags, newTag];
-      setTags(updatedTags);
-      onTagsChange?.(updatedTags);
+      const newTag = await api.createTag(newTagName.trim());
+      setAvailableTags(prev => [...prev, newTag]);
       setNewTagName("");
       setCreateDialogOpen(false);
       toast.success("Tag created successfully");
-    } catch (error) {
-      toast.error("Failed to create tag");
+    } catch (error: any) {
+      toast.error(error.message || "Failed to create tag");
     } finally {
-      setCreating(false);
+      setLoading(false);
+    }
+  };
+
+  const handleAddTag = async (tagId: string) => {
+    if (!documentId) return;
+
+    try {
+      const currentTagIds = tags.map(t => t.id);
+      const newTagIds = [...currentTagIds, tagId];
+      const updatedTags = await api.updateFileTags(documentId, newTagIds);
+      setTags(updatedTags);
+      onTagsChange?.(updatedTags);
+      toast.success("Tag added successfully");
+    } catch (error: any) {
+      toast.error(error.message || "Failed to add tag");
     }
   };
 
   const handleRemoveTag = async (tagId: string) => {
-    try {
-      // TODO: Replace with actual API call
-      await new Promise((resolve) => setTimeout(resolve, 300));
+    if (!documentId) return;
 
-      const updatedTags = tags.filter((tag) => tag.id !== tagId);
+    try {
+      const currentTagIds = tags.map(t => t.id);
+      const newTagIds = currentTagIds.filter(id => id !== tagId);
+      const updatedTags = await api.updateFileTags(documentId, newTagIds);
       setTags(updatedTags);
       onTagsChange?.(updatedTags);
-      toast.success("Tag removed");
-    } catch (error) {
-      toast.error("Failed to remove tag");
+      toast.success("Tag removed successfully");
+    } catch (error: any) {
+      toast.error(error.message || "Failed to remove tag");
     }
   };
 
@@ -128,14 +156,33 @@ export function DocumentTagsManager({
       <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
         <DialogContent className="sm:max-w-[400px]">
           <DialogHeader>
-            <DialogTitle>Create New Tag</DialogTitle>
+            <DialogTitle>Add Tag</DialogTitle>
             <DialogDescription>
-              Add a tag to categorize this document
+              Select an existing tag or create a new one
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
+            {availableTags.length > 0 && (
+              <div className="space-y-2">
+                <Label>Existing Tags</Label>
+                <Select onValueChange={handleAddTag}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select a tag to add" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {availableTags
+                      .filter(tag => !tags.find(t => t.id === tag.id))
+                      .map(tag => (
+                        <SelectItem key={tag.id} value={tag.id}>
+                          {tag.name}
+                        </SelectItem>
+                      ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
             <div className="space-y-2">
-              <Label htmlFor="tag-name">Tag Name</Label>
+              <Label htmlFor="tag-name">Or Create New Tag</Label>
               <Input
                 id="tag-name"
                 placeholder="e.g., Contract, Legal, Important"
@@ -156,12 +203,12 @@ export function DocumentTagsManager({
                 setCreateDialogOpen(false);
                 setNewTagName("");
               }}
-              disabled={creating}
             >
               Cancel
             </Button>
-            <Button onClick={handleCreateTag} disabled={!newTagName.trim() || creating}>
-              {creating ? "Creating..." : "Create Tag"}
+            <Button onClick={handleCreateTag} disabled={!newTagName.trim() || loading}>
+              {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Create Tag
             </Button>
           </DialogFooter>
         </DialogContent>

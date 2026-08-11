@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { CheckCircle2, FileText } from "lucide-react";
+import { api } from "@/lib/api";
 
 export default function ForgotPasswordPage() {
   const [email, setEmail] = useState("");
@@ -21,11 +22,11 @@ export default function ForgotPasswordPage() {
     setLoading(true);
 
     try {
-      // TODO: Replace with actual API call
-      await new Promise((resolve) => setTimeout(resolve, 1000));
+      await api.forgotPassword(email);
       setSuccess(true);
-    } catch (err) {
-      setError("Failed to send reset email. Please try again.");
+    } catch (err: any) {
+      const errorMessage = err.message || "Failed to send reset email. Please try again.";
+      setError(errorMessage);
     } finally {
       setLoading(false);
     }

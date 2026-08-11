@@ -4,9 +4,10 @@ import { DocumentNotesController } from './document-notes.controller';
 import { PrismaModule } from '../prisma/prisma.module';
 import { ActivityModule } from '../activity/activity.module';
 import { WebSocketModule } from '../websocket/websocket.module';
+import { PermissionsModule } from '../permissions/permissions.module';
 
 @Module({
-  imports: [PrismaModule, ActivityModule, WebSocketModule],
+  imports: [PrismaModule, ActivityModule, WebSocketModule, PermissionsModule],
   controllers: [DocumentNotesController],
   providers: [DocumentNotesService],
   exports: [DocumentNotesService],

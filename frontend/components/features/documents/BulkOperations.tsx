@@ -3,24 +3,13 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { Label } from "@/components/ui/label";
-import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { CheckSquare, Square, MoreVertical } from "lucide-react";
 
 interface BulkOperationsProps {
   selectedItems: string[];
@@ -34,7 +23,6 @@ export function BulkOperations({
   items,
 }: BulkOperationsProps) {
   const [bulkAction, setBulkAction] = useState<string | null>(null);
-  const [performingAction, setPerformingAction] = useState(false);
 
   const handleSelectAll = () => {
     if (selectedItems.length === items.length) {
@@ -44,27 +32,9 @@ export function BulkOperations({
     }
   };
 
-  const handleToggleItem = (itemId: string) => {
-    if (selectedItems.includes(itemId)) {
-      onSelectionChange(selectedItems.filter((id) => id !== itemId));
-    } else {
-      onSelectionChange([...selectedItems, itemId]);
-    }
-  };
-
-  const handleBulkAction = async (action: string) => {
-    setPerformingAction(true);
-    try {
-      // TODO: Replace with actual API call
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-      toast.success(`${action} completed for ${selectedItems.length} items`);
-      onSelectionChange([]);
-      setBulkAction(null);
-    } catch (error) {
-      toast.error(`Failed to ${action.toLowerCase()} items`);
-    } finally {
-      setPerformingAction(false);
-    }
+  const handleBulkAction = () => {
+    // Bulk operations endpoints are not wired yet — do not fake success.
+    toast.error("This action is not available yet");
   };
 
   if (selectedItems.length === 0) {
@@ -117,8 +87,8 @@ export function BulkOperations({
           </Select>
           <Button
             size="sm"
-            onClick={() => bulkAction && handleBulkAction(bulkAction)}
-            disabled={!bulkAction || performingAction}
+            onClick={() => bulkAction && handleBulkAction()}
+            disabled={!bulkAction}
           >
             Apply
           </Button>

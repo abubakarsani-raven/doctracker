@@ -5,7 +5,6 @@ import { usePathname } from "next/navigation";
 import {
   LayoutDashboard,
   FolderOpen,
-  FileText,
   Workflow,
   CheckSquare,
   Users,
@@ -21,209 +20,175 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Separator } from "@/components/ui/separator";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { useCurrentUser } from "@/lib/hooks/use-users";
+import { usePermissions } from "@/lib/hooks/use-permissions";
+import type { Capability } from "@/lib/permissions";
 
 interface NavItem {
   title: string;
   href: string;
   icon: React.ComponentType<{ className?: string }>;
+  /** Hide this entry unless the user holds the capability. */
+  requires?: Capability;
 }
 
 const navItems: NavItem[] = [
-  {
-    title: "Dashboard",
-    href: "/dashboard",
-    icon: LayoutDashboard,
-  },
-  {
-    title: "Documents",
-    href: "/documents",
-    icon: FolderOpen,
-  },
+  { title: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
+  { title: "Documents", href: "/documents", icon: FolderOpen },
   {
     title: "Workflows",
     href: "/workflows",
     icon: Workflow,
+    requires: "workflows.view",
   },
-  {
-    title: "Actions",
-    href: "/actions",
-    icon: CheckSquare,
-  },
-  {
-    title: "My Goals",
-    href: "/my-goals",
-    icon: Target,
-  },
+  { title: "Actions", href: "/actions", icon: CheckSquare },
+  { title: "My Goals", href: "/my-goals", icon: Target },
   {
     title: "Templates",
     href: "/templates",
     icon: BookTemplate,
+    requires: "documents.create",
   },
-  {
-    title: "Archived",
-    href: "/archived",
-    icon: Archive,
-  },
+  { title: "Archived", href: "/archived", icon: Archive },
   {
     title: "Users",
     href: "/users",
     icon: Users,
+    requires: "users.view",
   },
-  {
-    title: "Settings",
-    href: "/settings",
-    icon: Settings,
-  },
+  { title: "Settings", href: "/settings", icon: Settings },
 ];
 
 interface SidebarProps {
   className?: string;
 }
 
+function navLinkClass(isActive: boolean) {
+  return cn(
+    "flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-sm font-medium transition-colors",
+    isActive
+      ? "bg-sidebar-accent text-sidebar-accent-foreground"
+      : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
+  );
+}
+
 export function Sidebar({ className }: SidebarProps) {
   const pathname = usePathname();
-  const { data: currentUser } = useCurrentUser();
+  const { can, isMaster, ready } = usePermissions();
 
-  // Check if user has admin privileges
-  const isAdmin =
-    currentUser?.role === "Master" || currentUser?.role === "Company Admin";
-  const isMaster = currentUser?.role === "Master";
+  const adminLinks = [
+    {
+      href: "/admin/dashboard",
+      title: "Admin Dashboard",
+      icon: LayoutDashboard,
+      show: can("reports.view"),
+    },
+    {
+      href: "/admin/companies",
+      title: "Companies",
+      icon: Building2,
+      show: isMaster,
+    },
+    {
+      href: "/approvals",
+      title: "Approvals",
+      icon: ShieldCheck,
+      show: can("approvals.review"),
+    },
+    {
+      href: "/access-requests",
+      title: "Access Requests",
+      icon: FileCheck,
+      show: can("access_requests.review"),
+    },
+    {
+      href: "/admin/reports",
+      title: "Reports",
+      icon: BarChart3,
+      show: can("reports.view"),
+    },
+    {
+      href: "/admin/storage",
+      title: "Storage",
+      icon: HardDrive,
+      show: can("storage.view"),
+    },
+  ].filter((link) => link.show);
 
-  // Filter nav items based on role
-  const visibleNavItems = navItems.filter((item) => {
-    if (
-      ["/dashboard", "/documents", "/workflows", "/actions"].includes(item.href)
-    ) {
-      return true;
-    }
-    return true;
-  });
+  const visibleNavItems = navItems.filter(
+    (item) => !item.requires || (ready && can(item.requires)),
+  );
 
   return (
     <aside
       className={cn(
-        "fixed left-0 top-14 z-40 h-[calc(100vh-3.5rem)] w-64 border-r bg-background",
-        className
+        "fixed left-0 top-14 z-40 flex h-[calc(100vh-3.5rem)] w-64 flex-col border-r bg-sidebar",
+        className,
       )}
     >
-      <div className="flex h-full flex-col">
-        <ScrollArea className="flex-1 px-3 py-4">
-          <nav className="space-y-1">
-            {visibleNavItems.map((item) => {
-              const Icon = item.icon;
-              const isActive =
-                pathname === item.href || pathname?.startsWith(`${item.href}/`);
+      {/*
+        Plain overflow scroll — Radix ScrollArea was collapsing horizontal
+        inset so nav icons sat flush on the left edge.
+      */}
+      <div className="flex-1 overflow-y-auto px-5 py-5">
+        <div className="mb-3 px-3">
+          <span className="register-label">Registry</span>
+        </div>
+        <nav className="flex flex-col gap-1">
+          {visibleNavItems.map((item) => {
+            const Icon = item.icon;
+            const isActive =
+              pathname === item.href || pathname?.startsWith(`${item.href}/`);
 
-              return (
-                <Link
-                  key={item.href}
-                  href={item.href}
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                className={navLinkClass(!!isActive)}
+              >
+                <Icon
                   className={cn(
-                    "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
-                    isActive
-                      ? "bg-primary text-primary-foreground"
-                      : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                    "h-4 w-4 shrink-0",
+                    isActive ? "text-scope-company" : undefined,
                   )}
-                >
-                  <Icon className="h-5 w-5" />
-                  {item.title}
-                </Link>
-              );
-            })}
-          </nav>
+                />
+                <span>{item.title}</span>
+              </Link>
+            );
+          })}
+        </nav>
 
-          {/* Admin Section - Only show for admins */}
-          {isAdmin && (
-            <>
-              <Separator className="my-4" />
-              <div className="px-3 py-2">
-                <div className="mb-2 flex items-center gap-2 px-3 text-xs font-semibold text-muted-foreground">
-                  <Building2 className="h-4 w-4" />
-                  ADMIN
-                </div>
-                <nav className="space-y-1">
+        {adminLinks.length > 0 && (
+          <>
+            <Separator className="my-5" />
+            <div className="mb-3 flex items-center gap-2 px-3">
+              <Building2 className="h-3.5 w-3.5 text-muted-foreground" />
+              <span className="register-label">Administration</span>
+            </div>
+            <nav className="flex flex-col gap-1">
+              {adminLinks.map((link) => {
+                const Icon = link.icon;
+                const isActive =
+                  pathname === link.href ||
+                  pathname?.startsWith(`${link.href}/`);
+                return (
                   <Link
-                    href="/admin/dashboard"
-                    className={cn(
-                      "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
-                      pathname === "/admin/dashboard"
-                        ? "bg-primary text-primary-foreground"
-                        : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
-                    )}
+                    key={link.href}
+                    href={link.href}
+                    className={navLinkClass(!!isActive)}
                   >
-                    <LayoutDashboard className="h-5 w-5" />
-                    Admin Dashboard
-                  </Link>
-                  {/* Companies - Only for Master */}
-                  {isMaster && (
-                    <Link
-                      href="/admin/companies"
+                    <Icon
                       className={cn(
-                        "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
-                        pathname?.startsWith("/admin/companies")
-                          ? "bg-primary text-primary-foreground"
-                          : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                        "h-4 w-4 shrink-0",
+                        isActive ? "text-brass" : undefined,
                       )}
-                    >
-                      <Building2 className="h-5 w-5" />
-                      Companies
-                    </Link>
-                  )}
-                  <Link
-                    href="/approvals"
-                    className={cn(
-                      "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
-                      pathname?.startsWith("/approvals")
-                        ? "bg-primary text-primary-foreground"
-                        : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
-                    )}
-                  >
-                    <ShieldCheck className="h-5 w-5" />
-                    Approvals
+                    />
+                    <span>{link.title}</span>
                   </Link>
-                  <Link
-                    href="/access-requests"
-                    className={cn(
-                      "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
-                      pathname?.startsWith("/access-requests")
-                        ? "bg-primary text-primary-foreground"
-                        : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
-                    )}
-                  >
-                    <ShieldCheck className="h-5 w-5" />
-                    Access Requests
-                  </Link>
-                  <Link
-                    href="/admin/reports"
-                    className={cn(
-                      "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
-                      pathname === "/admin/reports"
-                        ? "bg-primary text-primary-foreground"
-                        : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
-                    )}
-                  >
-                    <BarChart3 className="h-5 w-5" />
-                    Reports
-                  </Link>
-                  <Link
-                    href="/admin/storage"
-                    className={cn(
-                      "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
-                      pathname === "/admin/storage"
-                        ? "bg-primary text-primary-foreground"
-                        : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
-                    )}
-                  >
-                    <HardDrive className="h-5 w-5" />
-                    Storage
-                  </Link>
-                </nav>
-              </div>
-            </>
-          )}
-        </ScrollArea>
+                );
+              })}
+            </nav>
+          </>
+        )}
       </div>
     </aside>
   );

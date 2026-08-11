@@ -14,8 +14,10 @@ import {
 } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
-import { Search, Filter, X } from "lucide-react";
+import { Search, Filter, X, Loader2 } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { api } from "@/lib/api";
+import { toast } from "sonner";
 
 export default function SearchPage() {
   const [query, setQuery] = useState("");
@@ -23,11 +25,22 @@ export default function SearchPage() {
   const [scope, setScope] = useState<string[]>([]);
   const [sortBy, setSortBy] = useState("relevance");
   const [results, setResults] = useState<any[]>([]);
+  const [total, setTotal] = useState(0);
+  const [loading, setLoading] = useState(false);
 
-  const handleSearch = () => {
+  const handleSearch = async () => {
     if (!query.trim()) return;
-    // TODO: Implement actual search
-    console.log("Search:", { query, fileType, scope, sortBy });
+    
+    setLoading(true);
+    try {
+      const response = await api.searchDocuments(query, 0, 50);
+      setResults(response.items || []);
+      setTotal(response.total || 0);
+    } catch (error: any) {
+      toast.error(error.message || "Failed to search documents");
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -143,7 +156,10 @@ export default function SearchPage() {
                   className="pl-10"
                 />
               </div>
-              <Button onClick={handleSearch}>Search</Button>
+              <Button onClick={handleSearch} disabled={loading}>
+                {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                Search
+              </Button>
             </div>
 
             {/* Results */}
@@ -151,7 +167,7 @@ export default function SearchPage() {
               <div className="space-y-6">
                 <div className="flex items-center justify-between">
                   <p className="text-sm text-muted-foreground">
-                    Found {results.length} results for "{query}"
+                    Found {total} results for "{query}"
                   </p>
                 </div>
 
@@ -171,7 +187,22 @@ export default function SearchPage() {
                       />
                     ) : (
                       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                        {/* Results will be rendered here */}
+                        {results.map((document: any) => (
+                          <DocumentCard
+                            key={document.id}
+                            document={{
+                              id: document.id,
+                              name: document.fileName,
+                              type: document.fileType,
+                              size: Number(document.fileSize ?? 0),
+                              folder: document.fileFolderLinks?.[0]?.folder?.name,
+                              scope: document.scopeLevel,
+                              status: "active",
+                              modifiedAt: document.updatedAt || document.createdAt,
+                              createdBy: document.creator?.name || document.createdBy,
+                            }}
+                          />
+                        ))}
                       </div>
                     )}
                   </TabsContent>

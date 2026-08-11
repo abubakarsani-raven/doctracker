@@ -25,6 +25,37 @@ export const api = {
     return await client.login(email, password);
   },
 
+  logout: async () => {
+    const client = getClient();
+    return await client.logout();
+  },
+
+  /** Quietly renew the access cookie; used by SessionKeepAlive. */
+  refreshSession: async () => {
+    const client = getClient();
+    return await client.refreshToken();
+  },
+
+  register: async (data: {
+    name: string;
+    email: string;
+    password: string;
+    confirmPassword: string;
+  }) => {
+    const client = getClient();
+    return await client.register(data);
+  },
+
+  forgotPassword: async (email: string) => {
+    const client = getClient();
+    return await client.forgotPassword(email);
+  },
+
+  resetPassword: async (token: string, password: string) => {
+    const client = getClient();
+    return await client.resetPassword(token, password);
+  },
+
   // Users
   getUsers: async () => {
     const client = getClient();
@@ -41,6 +72,38 @@ export const api = {
     return await client.getCurrentUser();
   },
 
+  inviteUser: async (data: {
+    email: string;
+    role: string;
+    departmentId?: string;
+    divisionId?: string;
+    sendEmail?: boolean;
+  }) => {
+    const client = getClient();
+    return await client.inviteUser(data);
+  },
+
+  updateOwnProfile: async (data: { name?: string; phone?: string }) => {
+    const client = getClient();
+    return await client.updateOwnProfile(data);
+  },
+
+  updateUser: async (id: string, data: {
+    name?: string;
+    email?: string;
+    role?: string;
+    departmentId?: string;
+    divisionId?: string;
+  }) => {
+    const client = getClient();
+    return await client.updateUser(id, data);
+  },
+
+  deactivateUser: async (id: string) => {
+    const client = getClient();
+    return await client.deactivateUser(id);
+  },
+
   // Companies
   getCompanies: async () => {
     const client = getClient();
@@ -50,6 +113,24 @@ export const api = {
   getCompany: async (id: string) => {
     const client = getClient();
     return await client.getCompany(id);
+  },
+
+  createCompany: async (data: {
+    name: string;
+    description?: string;
+    address?: string;
+  }) => {
+    const client = getClient();
+    return await client.createCompany(data);
+  },
+
+  updateCompany: async (id: string, data: {
+    name?: string;
+    description?: string;
+    address?: string;
+  }) => {
+    const client = getClient();
+    return await client.updateCompany(id, data);
   },
 
   // Documents & Folders
@@ -68,10 +149,18 @@ export const api = {
       departmentId: folder.departmentId,
       divisionId: folder.divisionId,
       parentFolderId: folder.parentFolderId,
-      documentCount: folder._count?.fileFolderLinks || 0,
+      documentCount:
+        folder.documentCount ??
+        folder._count?.fileFolderLinks ??
+        0,
       modifiedAt: folder.updatedAt || folder.createdAt,
       createdBy: folder.createdBy,
       createdByName: folder.creator?.name || folder.createdBy,
+      // Carried so the UI can make the same access decision the API will.
+      permissionsJson: folder.permissionsJson ?? null,
+      // The server's own decision, when it sends one. Preferred over the
+      // client-side mirror so the two can never disagree.
+      access: folder.access ?? null,
     }));
   },
 
@@ -94,6 +183,7 @@ export const api = {
     parentFolderId?: string;
     departmentId?: string;
     divisionId?: string;
+    companyId?: string;
   }) => {
     const client = getClient();
     return await client.createFolder(data);
@@ -118,6 +208,7 @@ export const api = {
     folderId: string;
     departmentId?: string;
     divisionId?: string;
+    companyId?: string;
   }) => {
     const client = getClient();
     return await client.createRichTextDocument(data);
@@ -139,14 +230,11 @@ export const api = {
 
   uploadFileVersion: async (
     fileId: string,
-    data: {
-      storagePath: string;
-      fileName: string;
-      fileType: string;
-    }
+    file: File | Blob,
+    fileName?: string,
   ) => {
     const client = getClient();
-    return await client.uploadFileVersion(fileId, data);
+    return await client.uploadFileVersion(fileId, file, fileName);
   },
 
   restoreFileVersion: async (fileId: string, versionId: string) => {
@@ -156,53 +244,129 @@ export const api = {
 
   getDocuments: async (folderId?: string) => {
     const client = getClient();
-    const files = await client.getFiles();
+    // Exclude archived (and deleted) so the main library only lists live files.
+    const files = await client.getFiles(undefined, false, false);
 
     let documents = files.map((file: any) => {
       const folderLink = file.fileFolderLinks?.[0];
+      const folderIds = (file.fileFolderLinks ?? []).map((l: any) => l.folderId);
       return {
         id: file.id,
         name: file.fileName,
         type: file.fileType,
-        size: 0,
+        // fileSize was previously hardcoded to 0, so every document reported
+        // "0 Bytes". It arrives as a number now that the API serialises BigInt.
+        size: Number(file.fileSize ?? 0),
         folderId: folderLink?.folderId || null,
         folder: folderLink?.folder?.name,
+        folderIds,
+        folderNames: (file.fileFolderLinks ?? []).map((l: any) => l.folder?.name),
+        folderCount: (file.fileFolderLinks ?? []).length,
         scope: file.scopeLevel,
         scopeLevel: file.scopeLevel,
-        status: "active",
+        status: file.deletedAt
+          ? "deleted"
+          : file.archivedAt
+            ? "archived"
+            : "active",
         modifiedAt: file.updatedAt || file.createdAt,
         createdBy: file.createdBy,
         createdByName: file.creator?.name || file.createdBy,
         companyId: file.companyId,
+        // Carried so the UI can make the same access decision the API will.
+        departmentId: file.departmentId,
+        divisionId: file.divisionId,
+        permissionsJson:
+          folderLink?.permissionsJson ??
+          folderLink?.folder?.permissionsJson ??
+          file.permissionsJson ??
+          null,
+        access: file.access ?? null,
       };
     });
 
     if (folderId) {
-      documents = documents.filter((d: any) => d.folderId === folderId);
+      // A file may live in multiple folders — match any link, not only primary.
+      documents = documents.filter(
+        (d: any) =>
+          d.folderId === folderId ||
+          (Array.isArray(d.folderIds) && d.folderIds.includes(folderId)),
+      );
     }
 
     return documents;
   },
 
+  getArchivedDocuments: async () => {
+    const client = getClient();
+    const files = await client.getFiles(undefined, true, false); // includeArchived=true, includeDeleted=false
+
+    // Filter to only archived documents and transform
+    const archivedDocuments = files
+      .filter((file: any) => file.archivedAt)
+      .map((file: any) => {
+        const folderLink = file.fileFolderLinks?.[0];
+        return {
+          id: file.id,
+          name: file.fileName,
+          type: file.fileType,
+          size: Number(file.fileSize ?? 0),
+          folderId: folderLink?.folderId || null,
+          folder: folderLink?.folder?.name,
+          folderIds: (file.fileFolderLinks ?? []).map((l: any) => l.folderId),
+          folderNames: (file.fileFolderLinks ?? []).map((l: any) => l.folder?.name),
+          folderCount: (file.fileFolderLinks ?? []).length,
+          scope: file.scopeLevel,
+          scopeLevel: file.scopeLevel,
+          status: "archived",
+          modifiedAt: file.updatedAt || file.createdAt,
+          archivedAt: file.archivedAt,
+          createdBy: file.createdBy,
+          createdByName: file.creator?.name || file.createdBy,
+          isRichTextDocument: file.fileType === 'html' || file.versions?.[0]?.isRichTextDocument,
+          richTextContent: file.versions?.[0]?.richTextContent
+        };
+      });
+
+    return archivedDocuments;
+  },
+
   getDocument: async (id: string) => {
     const client = getClient();
     const file = await client.getFile(id);
+    if (!file) {
+      throw new Error('Document not found');
+    }
     const folderLink = file.fileFolderLinks?.[0];
     return {
       id: file.id,
       name: file.fileName,
       type: file.fileType,
       fileType: file.fileType,
-      size: 0,
+      size: Number(file.fileSize ?? 0),
       folderId: folderLink?.folderId || null,
       folder: folderLink?.folder?.name,
+      folderIds: (file.fileFolderLinks ?? []).map((l: any) => l.folderId),
       scope: file.scopeLevel,
       scopeLevel: file.scopeLevel,
-      status: "active",
+      status: file.deletedAt ? 'deleted' : file.archivedAt ? 'archived' : 'active',
       modifiedAt: file.updatedAt || file.createdAt,
+      createdAt: file.createdAt,
+      // Keep the user id separate from the display name for ACL / ownership checks.
       createdBy: file.createdBy,
       createdByName: file.creator?.name || file.createdBy,
       richTextContent: file.richTextDoc?.htmlContent || null,
+      storagePath: file.storagePath,
+      pageCount: file.pageCount ?? null,
+      departmentId: file.departmentId,
+      divisionId: file.divisionId,
+      companyId: file.companyId,
+      permissionsJson:
+        file.permissionsJson ??
+        folderLink?.permissionsJson ??
+        folderLink?.folder?.permissionsJson ??
+        null,
+      access: file.access ?? null,
     };
   },
 
@@ -256,6 +420,19 @@ export const api = {
   achieveWorkflowGoal: async (goalId: string, notes?: string) => {
     const client = getClient();
     return await client.achieveWorkflowGoal(goalId, notes);
+  },
+
+  getWorkflowFiles: async (workflowId: string) => {
+    const client = getClient();
+    return await client.getWorkflowFiles(workflowId);
+  },
+
+  attachFileToWorkflow: async (
+    workflowId: string,
+    data: { fileId: string; actionId?: string; note?: string },
+  ) => {
+    const client = getClient();
+    return await client.attachFileToWorkflow(workflowId, data);
   },
 
   deleteWorkflowGoal: async (goalId: string) => {
@@ -368,9 +545,28 @@ export const api = {
     return await client.getFilePermissions(fileId, folderId);
   },
 
-  updateFilePermissions: async (fileId: string, folderId: string, permissions: any) => {
+  updateFilePermissions: async (
+    fileId: string,
+    folderId: string,
+    permissions: any,
+    onRevoke?: "leave" | "flag",
+  ) => {
     const client = getClient();
-    return await client.updateFilePermissions(fileId, folderId, permissions);
+    return await client.updateFilePermissions(fileId, folderId, permissions, onRevoke);
+  },
+
+  updateFolderPermissions: async (
+    folderId: string,
+    permissions: any,
+    onRevoke?: "leave" | "flag",
+  ) => {
+    const client = getClient();
+    return await client.updateFolderPermissions(folderId, permissions, onRevoke);
+  },
+
+  getMyPermissions: async () => {
+    const client = getClient();
+    return await client.getMyPermissions();
   },
 
   checkPermission: async (
@@ -418,6 +614,8 @@ export const api = {
       folderId?: string;
       departmentId?: string;
       divisionId?: string;
+      companyId?: string;
+      fileName?: string;
     },
   ) => {
     const client = getClient();
@@ -445,6 +643,68 @@ export const api = {
     return await client.deleteDocumentNote(noteId);
   },
 
+  // File Operations
+  getDocumentBlob: async (fileId: string) => {
+    const client = getClient();
+    return await client.getDocumentBlob(fileId);
+  },
+
+  downloadDocument: async (fileId: string) => {
+    const client = getClient();
+    return await client.downloadDocument(fileId);
+  },
+
+  downloadFileVersion: async (fileId: string, versionId: string) => {
+    const client = getClient();
+    return await client.downloadFileVersion(fileId, versionId);
+  },
+
+  renameDocument: async (fileId: string, fileName: string) => {
+    const client = getClient();
+    return await client.renameDocument(fileId, fileName);
+  },
+
+  archiveDocument: async (fileId: string) => {
+    const client = getClient();
+    return await client.archiveDocument(fileId);
+  },
+
+  unarchiveDocument: async (fileId: string) => {
+    const client = getClient();
+    return await client.unarchiveDocument(fileId);
+  },
+
+  deleteDocument: async (fileId: string) => {
+    const client = getClient();
+    return await client.deleteDocument(fileId);
+  },
+
+  restoreDocument: async (fileId: string) => {
+    const client = getClient();
+    return await client.restoreDocument(fileId);
+  },
+
+  moveDocument: async (fileId: string, folderId: string) => {
+    const client = getClient();
+    return await client.moveDocument(fileId, folderId);
+  },
+
+  // Folder Operations
+  updateFolder: async (folderId: string, data: { name?: string; description?: string }) => {
+    const client = getClient();
+    return await client.updateFolder(folderId, data);
+  },
+
+  archiveFolder: async (folderId: string) => {
+    const client = getClient();
+    return await client.archiveFolder(folderId);
+  },
+
+  deleteFolder: async (folderId: string) => {
+    const client = getClient();
+    return await client.deleteFolder(folderId);
+  },
+
   // Dashboard Stats
   getDashboardStats: async () => {
     const client = getClient();
@@ -465,5 +725,67 @@ export const api = {
         actions?.filter((a: any) => a.status === "pending").length || 0,
       storageUsed: storageData?.bytes || 0,
     };
+  },
+
+  searchDocuments: async (query: string, skip?: number, take?: number) => {
+    const client = getClient();
+    return await client.searchFiles(query, skip, take);
+  },
+
+  // Tags
+  getTags: async (companyId?: string) => {
+    const client = getClient();
+    return await client.getTags(companyId);
+  },
+
+  createTag: async (name: string) => {
+    const client = getClient();
+    return await client.createTag(name);
+  },
+
+  getFileTags: async (fileId: string) => {
+    const client = getClient();
+    return await client.getFileTags(fileId);
+  },
+
+  updateFileTags: async (fileId: string, tagIds: string[]) => {
+    const client = getClient();
+    return await client.updateFileTags(fileId, tagIds);
+  },
+
+  // Signatures
+  createSignatureRequest: async (fileId: string, participants: Array<{email: string, name: string, signingOrder: number}>) => {
+    const client = getClient();
+    return await client.createSignatureRequest(fileId, participants);
+  },
+
+  getSignatureRequest: async (requestId: string) => {
+    const client = getClient();
+    return await client.getSignatureRequest(requestId);
+  },
+
+  signDocument: async (
+    requestId: string,
+    participantId: string,
+    signatureImageData: string,
+    placement: {
+      page: number;
+      xPercent: number;
+      yPercent: number;
+      widthPercent?: number;
+    },
+  ) => {
+    const client = getClient();
+    return await client.signDocument(
+      requestId,
+      participantId,
+      signatureImageData,
+      placement,
+    );
+  },
+
+  getFileSignatureRequests: async (fileId: string) => {
+    const client = getClient();
+    return await client.getFileSignatureRequests(fileId);
   },
 };

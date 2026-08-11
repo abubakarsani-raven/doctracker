@@ -6,9 +6,12 @@ import { useRouter } from "next/navigation";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { PasswordInput } from "@/components/ui/password-input";
 import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { FileText } from "lucide-react";
+import { api } from "@/lib/api";
+import { toast } from "sonner";
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -45,12 +48,13 @@ export default function RegisterPage() {
     setLoading(true);
 
     try {
-      // TODO: Replace with actual API call
-      await new Promise((resolve) => setTimeout(resolve, 1000));
+      await api.register(formData);
       
-      router.push("/dashboard");
-    } catch (err) {
-      setError("Registration failed. Please try again.");
+      toast.success("Account created successfully! Please log in.");
+      router.push("/login");
+    } catch (err: any) {
+      const errorMessage = err.message || "Registration failed. Please try again.";
+      setError(errorMessage);
     } finally {
       setLoading(false);
     }
@@ -109,10 +113,9 @@ export default function RegisterPage() {
 
               <div className="space-y-2">
                 <Label htmlFor="password">Password</Label>
-                <Input
+                <PasswordInput
                   id="password"
                   name="password"
-                  type="password"
                   placeholder="••••••••"
                   value={formData.password}
                   onChange={handleChange}
@@ -126,10 +129,9 @@ export default function RegisterPage() {
 
               <div className="space-y-2">
                 <Label htmlFor="confirmPassword">Confirm Password</Label>
-                <Input
+                <PasswordInput
                   id="confirmPassword"
                   name="confirmPassword"
-                  type="password"
                   placeholder="••••••••"
                   value={formData.confirmPassword}
                   onChange={handleChange}

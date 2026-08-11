@@ -235,7 +235,6 @@ export default function DashboardPage() {
                 key={doc.id}
                 document={doc}
                 onView={(id) => router.push(`/documents/${id}`)}
-                onDownload={(id) => console.log("Download", id)}
               />
             ))}
           </div>

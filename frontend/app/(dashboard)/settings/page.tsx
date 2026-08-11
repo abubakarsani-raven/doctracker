@@ -16,13 +16,14 @@ import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
 import { toast } from "sonner";
 import { User, Bell, Shield, Palette, Building2 } from "lucide-react";
-import { useCurrentUser } from "@/lib/hooks/use-users";
+import { useCurrentUser, useUpdateOwnProfile } from "@/lib/hooks/use-users";
 import { useCompanies } from "@/lib/hooks/use-companies";
 import { useMemo } from "react";
 
 export default function SettingsPage() {
   const { data: currentUser } = useCurrentUser();
   const { data: companies = [] } = useCompanies();
+  const updateOwnProfile = useUpdateOwnProfile();
   const [profileData, setProfileData] = useState({
     name: "",
     email: "",
@@ -58,28 +59,22 @@ export default function SettingsPage() {
   const handleSaveProfile = async () => {
     setSaving(true);
     try {
-      // TODO: Replace with actual API call when endpoint is available
-      await new Promise((resolve) => setTimeout(resolve, 1000));
+      await updateOwnProfile.mutateAsync({
+        name: profileData.name,
+        phone: profileData.phone,
+      });
       toast.success("Profile updated successfully");
-    } catch (error) {
-      toast.error("Failed to update profile");
+    } catch (error: any) {
+      toast.error(error?.message || "Failed to update profile");
     } finally {
       setSaving(false);
     }
   };
 
-  const handleSaveNotifications = async () => {
-    setSaving(true);
-    try {
-      // TODO: Replace with actual API call when endpoint is available
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-      toast.success("Notification preferences updated");
-    } catch (error) {
-      toast.error("Failed to update preferences");
-    } finally {
-      setSaving(false);
-    }
-  };
+  // Notification preferences have no store behind them yet — there is no
+  // preference model on the API. Rather than report a save that did not
+  // happen, the controls stay read-only until that lands.
+  const notificationPreferencesSupported = false;
 
   return (
     <div className="space-y-6">
@@ -175,7 +170,9 @@ export default function SettingsPage() {
             <CardHeader>
               <CardTitle>Notification Preferences</CardTitle>
               <CardDescription>
-                Choose how you want to be notified about activities
+                Choose how you want to be notified about activities. Saving
+                preferences is not available yet — notifications currently use
+                the system defaults shown below.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
@@ -194,6 +191,7 @@ export default function SettingsPage() {
                         Email
                       </Label>
                       <Switch
+                        disabled={!notificationPreferencesSupported}
                         id="assign-email"
                         checked={notificationPreferences.assignments.email}
                         onCheckedChange={(checked) =>
@@ -212,6 +210,7 @@ export default function SettingsPage() {
                         In-App
                       </Label>
                       <Switch
+                        disabled={!notificationPreferencesSupported}
                         id="assign-inapp"
                         checked={notificationPreferences.assignments.inApp}
                         onCheckedChange={(checked) =>
@@ -244,6 +243,7 @@ export default function SettingsPage() {
                         Email
                       </Label>
                       <Switch
+                        disabled={!notificationPreferencesSupported}
                         id="access-email"
                         checked={notificationPreferences.accessRequests.email}
                         onCheckedChange={(checked) =>
@@ -262,6 +262,7 @@ export default function SettingsPage() {
                         In-App
                       </Label>
                       <Switch
+                        disabled={!notificationPreferencesSupported}
                         id="access-inapp"
                         checked={notificationPreferences.accessRequests.inApp}
                         onCheckedChange={(checked) =>
@@ -294,6 +295,7 @@ export default function SettingsPage() {
                         Email
                       </Label>
                       <Switch
+                        disabled={!notificationPreferencesSupported}
                         id="action-email"
                         checked={notificationPreferences.actions.email}
                         onCheckedChange={(checked) =>
@@ -312,6 +314,7 @@ export default function SettingsPage() {
                         In-App
                       </Label>
                       <Switch
+                        disabled={!notificationPreferencesSupported}
                         id="action-inapp"
                         checked={notificationPreferences.actions.inApp}
                         onCheckedChange={(checked) =>
@@ -328,9 +331,7 @@ export default function SettingsPage() {
                   </div>
                 </div>
 
-                <Button onClick={handleSaveNotifications} disabled={saving}>
-                  {saving ? "Saving..." : "Save Preferences"}
-                </Button>
+                <Button disabled>Save Preferences</Button>
               </div>
             </CardContent>
           </Card>

@@ -1,5 +1,6 @@
 "use client";
 
+import { seesAllCompanies } from "@/lib/permissions";
 import { useState, useMemo } from "react";
 import {
   Breadcrumb,
@@ -57,27 +58,20 @@ export default function WorkflowDetailPage() {
   const { data: users = [] } = useUsers();
   const { data: currentUser } = useCurrentUser();
 
-  // Helper to get creator name with fallback
+  // Helper to get creator name with fallback — never show a raw user id.
   const creatorName = useMemo(() => {
     if (!workflow) return null;
-    
-    // First try creator relation (includes name/email)
+
+    if (workflow.assignedByName) return workflow.assignedByName;
+    if (workflow.creatorName) return workflow.creatorName;
     if (workflow.creator?.name) return workflow.creator.name;
     if (workflow.creator?.email) return workflow.creator.email;
-    
-    // If assignedBy is an ID, try to find user
+
     if (workflow.assignedBy) {
-      // Check if it looks like a UUID (contains dashes)
-      if (typeof workflow.assignedBy === "string" && workflow.assignedBy.includes("-")) {
-        const user = users.find((u: any) => u.id === workflow.assignedBy);
-        if (user) {
-          return user.name || user.email || workflow.assignedBy;
-        }
-      }
-      // Otherwise might already be a name
-      return workflow.assignedBy;
+      const user = users.find((u: any) => u.id === workflow.assignedBy);
+      if (user) return user.name || user.email || null;
     }
-    
+
     return null;
   }, [workflow, users]);
 
@@ -117,7 +111,7 @@ export default function WorkflowDetailPage() {
     if (!canComplete) return false;
 
     // Master role can always complete
-    if (currentUser.role === "Master") return true;
+    if (seesAllCompanies(currentUser)) return true;
 
     // Creator can complete
     const isCreator = 
@@ -325,7 +319,8 @@ export default function WorkflowDetailPage() {
                   Assigned To
                 </p>
                 <div className="flex items-center gap-2">
-                  {typeof workflowWithProgress.assignedTo === "object" ? (
+                  {workflowWithProgress.assignedTo &&
+                  typeof workflowWithProgress.assignedTo === "object" ? (
                     <>
                       {workflowWithProgress.assignedTo.type === "user" ? (
                         <User className="h-4 w-4 text-muted-foreground" />

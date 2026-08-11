@@ -16,6 +16,7 @@ import { formatDistanceToNow } from "date-fns";
 import { cn } from "@/lib/utils";
 import { useWorkflow } from "@/lib/hooks/use-workflows";
 import { useUsers } from "@/lib/hooks/use-users";
+import { displayName } from "@/lib/display-name";
 import { CompanyBadge } from "./CompanyBadge";
 
 interface TimelineEvent {
@@ -45,34 +46,17 @@ export function WorkflowTimeline({ workflowId }: WorkflowTimelineProps) {
 
     // Helper function to get user name from ID or object
     const getUserName = (userIdOrObject: any): string => {
-      if (!userIdOrObject) return "System";
-      
-      // If it's already an object with name/email, use that
-      if (typeof userIdOrObject === "object") {
-        return userIdOrObject.name || userIdOrObject.email || "Unknown";
-      }
-      
-      // If it's an ID, try to find user in the users list
-      if (typeof userIdOrObject === "string") {
-        // Check if it's a UUID (likely an ID)
-        if (userIdOrObject.includes("-")) {
-          const user = users.find((u: any) => u.id === userIdOrObject);
-          if (user) {
-            return user.name || user.email || userIdOrObject;
-          }
-        }
-        // Otherwise it might be a name already
-        return userIdOrObject;
-      }
-      
-      return "System";
+      return displayName(userIdOrObject, users, "Unknown");
     };
 
     // Get creator name - use creator relation if available, otherwise fallback to ID lookup
-    const creatorName = workflow.creator?.name || 
-                        workflow.creator?.email || 
-                        getUserName(workflow.assignedBy) || 
-                        "System";
+    const creatorName =
+      workflow.assignedByName ||
+      workflow.creatorName ||
+      workflow.creator?.name ||
+      workflow.creator?.email ||
+      getUserName(workflow.assignedBy) ||
+      "System";
 
     // Add workflow creation event
     if (workflow.createdAt || workflow.assignedAt) {
@@ -96,7 +80,7 @@ export function WorkflowTimeline({ workflowId }: WorkflowTimelineProps) {
         changedBy: creatorName,
         changedAt: new Date(workflow.assignedAt || workflow.createdAt || new Date()),
         notes: `Assigned to ${
-          typeof workflow.assignedTo === "object"
+          workflow.assignedTo && typeof workflow.assignedTo === "object"
             ? workflow.assignedTo.name?.trim() || "Unassigned"
             : workflow.assignedTo || "Unassigned"
         }`,

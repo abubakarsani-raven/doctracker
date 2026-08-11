@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { PasswordInput } from "@/components/ui/password-input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -30,29 +31,52 @@ export default function LoginPage() {
       const result = await api.login(email, password);
       
       // Token is already stored by api-client
-      // Redirect to dashboard on success
-      router.push("/dashboard");
+      const params = new URLSearchParams(window.location.search);
+      const next = params.get("next");
+      const safeNext =
+        next && next.startsWith("/") && !next.startsWith("//") ? next : "/dashboard";
+      router.push(safeNext);
     } catch (err) {
       console.error("Login error:", err);
-      setError("Invalid email or password. Please try again.");
+      // The API distinguishes a deactivated account from bad credentials;
+      // repeating "wrong password" at someone whose account was switched off
+      // sends them looking for the wrong problem.
+      const message =
+        err instanceof Error && /deactivated/i.test(err.message)
+          ? err.message
+          : "That email and password do not match an account.";
+      setError(message);
       setLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-muted/50 p-4">
+    <div className="flex min-h-screen items-center justify-center bg-background p-4">
       <div className="w-full max-w-md">
         {/* Logo */}
-        <div className="flex items-center justify-center gap-2 mb-8">
-          <FileText className="h-8 w-8 text-primary" />
-          <h1 className="text-2xl font-bold">DocTracker</h1>
+        <div className="mb-8 flex flex-col items-center gap-3">
+          <div className="flex items-center gap-2">
+            <FileText className="h-7 w-7 text-primary" />
+            <h1 className="font-display text-2xl font-bold tracking-tight">
+              DocTracker
+            </h1>
+          </div>
+          {/* The three scope colours, widest reach to narrowest. The same band
+              runs down the edge of every record in the app, so the system's
+              organising idea is present from the first screen. */}
+          <div className="flex h-0.5 w-24 overflow-hidden rounded-full" aria-hidden>
+            <span className="flex-1 bg-scope-company" />
+            <span className="flex-1 bg-scope-department" />
+            <span className="flex-1 bg-scope-division" />
+          </div>
+          <p className="register-label">Document Registry</p>
         </div>
 
         <Card>
           <CardHeader className="space-y-1">
-            <CardTitle className="text-2xl text-center">Welcome back</CardTitle>
+            <CardTitle className="text-center text-2xl">Sign in</CardTitle>
             <CardDescription className="text-center">
-              Enter your credentials to access your account
+              You will see the documents your role and department reach.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -86,9 +110,8 @@ export default function LoginPage() {
                     Forgot password?
                   </Link>
                 </div>
-                <Input
+                <PasswordInput
                   id="password"
-                  type="password"
                   placeholder="••••••••"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
@@ -113,7 +136,7 @@ export default function LoginPage() {
               </div>
 
               <Button type="submit" className="w-full" disabled={loading}>
-                {loading ? "Signing in..." : "Sign in"}
+                {loading ? "Signing in…" : "Sign in"}
               </Button>
 
               <div className="text-center text-sm text-muted-foreground">

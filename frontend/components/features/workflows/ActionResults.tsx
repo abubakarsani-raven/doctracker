@@ -138,20 +138,30 @@ export function ActionResults({ workflowId }: ActionResultsProps) {
                     <div className="space-y-2">
                       <p className="text-sm font-medium">Uploaded Document:</p>
                       <div className="p-3 bg-muted rounded-md">
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-2">
-                            <FileText className="h-4 w-4 text-blue-500" />
-                            <span className="text-sm">
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <FileText className="h-4 w-4 text-blue-500 shrink-0" />
+                            <Link
+                              href={`/documents/${action.uploadedDocumentId}`}
+                              className="text-sm text-primary hover:underline truncate"
+                            >
                               {action.uploadedDocumentName || "Document"}
-                            </span>
+                            </Link>
                           </div>
-                          {action.targetFolderId && (
-                            <Link href={`/documents/folder/${action.targetFolderId}`}>
+                          <div className="flex items-center gap-1 shrink-0">
+                            <Link href={`/documents/${action.uploadedDocumentId}`}>
                               <Button variant="ghost" size="sm">
-                                View Folder
+                                Open
                               </Button>
                             </Link>
-                          )}
+                            {action.targetFolderId && (
+                              <Link href={`/documents/folder/${action.targetFolderId}`}>
+                                <Button variant="ghost" size="sm">
+                                  View Folder
+                                </Button>
+                              </Link>
+                            )}
+                          </div>
                         </div>
                         {action.uploadedAt && (
                           <p className="text-xs text-muted-foreground mt-2">
@@ -203,15 +213,55 @@ export function ActionResults({ workflowId }: ActionResultsProps) {
                   </div>
                 )}
 
-                {/* Regular Action Results */}
-                {action.type === "regular" && action.resolutionNotes && (
+                {/* Completion / result notes — any action type may carry these */}
+                {action.resolutionNotes ? (
                   <div className="space-y-2">
-                    <p className="text-sm font-medium">Completion Notes:</p>
+                    <p className="text-sm font-medium">Result</p>
                     <div className="p-3 bg-muted rounded-md">
-                      <p className="text-sm">{action.resolutionNotes}</p>
+                      <p className="text-sm whitespace-pre-wrap">
+                        {action.resolutionNotes}
+                      </p>
                     </div>
                   </div>
+                ) : (
+                  !action.uploadedDocumentId &&
+                  !action.response && (
+                    <div className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">
+                      No result was recorded when this action was completed.
+                    </div>
+                  )
                 )}
+
+                {(action.uploadedDocumentId || action.uploadedDocumentName) &&
+                  action.type !== "document_upload" && (
+                    <div className="space-y-2">
+                      <p className="text-sm font-medium">Referenced file</p>
+                      <div className="p-3 bg-muted rounded-md flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <FileText className="h-4 w-4 text-blue-500 shrink-0" />
+                          {action.uploadedDocumentId ? (
+                            <Link
+                              href={`/documents/${action.uploadedDocumentId}`}
+                              className="text-sm text-primary hover:underline truncate"
+                            >
+                              {action.uploadedDocumentName || "Document"}
+                            </Link>
+                          ) : (
+                            <span className="text-sm truncate">
+                              {action.uploadedDocumentName || "Document"}
+                            </span>
+                          )}
+                        </div>
+                        {action.uploadedDocumentId && (
+                          <Link href={`/documents/${action.uploadedDocumentId}`}>
+                            <Button variant="ghost" size="sm">
+                              Open
+                            </Button>
+                          </Link>
+                        )}
+                      </div>
+                    </div>
+                  )}
 
                 {/* Action Metadata */}
                 <div className="flex items-center gap-4 text-xs text-muted-foreground pt-2 border-t">
