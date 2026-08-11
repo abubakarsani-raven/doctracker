@@ -110,7 +110,8 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           context: ./backend
-          file: ./backend/Dockerfile
+          file: ./backend/Dockerfile.compose
+          target: prod
           push: false
           tags: doctracker-backend:test
 
