@@ -17,6 +17,7 @@ import { CommandDialogComponent as CommandDialog } from "@/components/common/Com
 import { useState, useMemo, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { NotificationDropdown } from "@/components/common/NotificationDropdown";
+import { ThemeToggle } from "@/components/layout/ThemeToggle";
 import { useCurrentUser } from "@/lib/hooks/use-users";
 import { useCompanies } from "@/lib/hooks/use-companies";
 import { usePermissions } from "@/lib/hooks/use-permissions";
@@ -55,6 +56,11 @@ export function Header() {
     localStorage.removeItem("mockAuth");
     localStorage.removeItem("access_token");
     localStorage.removeItem("authToken");
+    try {
+      sessionStorage.removeItem("dt_csrf_token");
+    } catch {
+      // ignore
+    }
 
     // Redirect to login and force reload to clear React Query cache
     window.location.href = "/login";
@@ -120,6 +126,8 @@ export function Header() {
 
         {/* Actions */}
         <div className="flex items-center gap-2">
+          <ThemeToggle />
+
           {/* Notifications */}
           <NotificationDropdown />
 
