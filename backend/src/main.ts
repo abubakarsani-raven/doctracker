@@ -103,9 +103,13 @@ async function bootstrap() {
     }),
   );
   
-  const port = process.env.PORT || 4003;
-  await app.listen(port);
-  console.log(`Backend server running on http://localhost:${port}`);
+  // Railway routes to the port it injects as PORT and probes /health there.
+  // Bind 0.0.0.0 explicitly: the default host is not reachable from outside the
+  // container on every platform, and a healthcheck that cannot connect reads as
+  // "service unavailable" with nothing in the logs to explain it.
+  const port = Number(process.env.PORT) || 4003;
+  await app.listen(port, '0.0.0.0');
+  console.log(`Backend listening on 0.0.0.0:${port} (PORT=${process.env.PORT ?? 'unset'})`);
   console.log(`CORS enabled for origins: ${trustedOrigins.join(', ')}`);
 
   // Seed after listen so Railway healthchecks are not blocked if seed is slow.
