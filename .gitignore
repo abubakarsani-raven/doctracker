@@ -32,7 +32,9 @@ out/
 Thumbs.db
 
 # Prisma
-backend/prisma/migrations/
+# Migrations are deliberately NOT ignored. They are the source of truth for how
+# the schema evolves, and `prisma migrate deploy` needs them present in the
+# deployed image — without them it exits non-zero and the container never boots.
 
 # Misc
 *.tsbuildinfo
