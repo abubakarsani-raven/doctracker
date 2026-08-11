@@ -8,6 +8,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Download, Clock, User, RotateCcw, Loader2 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { Separator } from "@/components/ui/separator";
+import { ConfirmDialog } from "@/components/common/ConfirmDialog";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
 
@@ -23,6 +24,7 @@ interface DocumentVersion {
   isRichTextVersion?: boolean;
   richTextContent?: string;
   storagePath?: string;
+  description?: string | null;
 }
 
 interface DocumentVersionsProps {
@@ -49,6 +51,9 @@ export function DocumentVersions({
   const [loading, setLoading] = useState(true);
   const [restoring, setRestoring] = useState<string | null>(null);
   const [downloading, setDownloading] = useState<string | null>(null);
+  const [restoreTarget, setRestoreTarget] = useState<DocumentVersion | null>(
+    null,
+  );
 
   useEffect(() => {
     loadVersions();
@@ -74,6 +79,7 @@ export function DocumentVersions({
         isRichTextVersion: v.isRichTextVersion || false,
         richTextContent: v.richTextContent || undefined,
         storagePath: v.storagePath,
+        description: v.description || null,
       }));
 
       setVersions(transformedVersions);
@@ -92,6 +98,7 @@ export function DocumentVersions({
     try {
       await api.restoreFileVersion(documentId, versionId);
       toast.success("Rolled back to that version");
+      setRestoreTarget(null);
       await loadVersions();
       onVersionRestored?.();
     } catch (error: any) {
@@ -151,6 +158,11 @@ export function DocumentVersions({
                             <Badge variant="secondary">Rich Text</Badge>
                           )}
                         </div>
+                        {version.description && (
+                          <p className="mb-1 text-sm text-foreground/80">
+                            {version.description}
+                          </p>
+                        )}
                         <div className="flex flex-wrap items-center gap-4 text-sm text-muted-foreground">
                           <div className="flex items-center gap-1">
                             <User className="h-3 w-3" />
@@ -195,7 +207,7 @@ export function DocumentVersions({
                       <Button
                         variant="outline"
                         size="sm"
-                        onClick={() => handleRestore(version.id)}
+                        onClick={() => setRestoreTarget(version)}
                         disabled={restoring === version.id}
                       >
                         {restoring === version.id ? (
@@ -219,6 +231,26 @@ export function DocumentVersions({
           </ScrollArea>
         )}
       </CardContent>
+
+      <ConfirmDialog
+        open={Boolean(restoreTarget)}
+        onOpenChange={(open) => {
+          if (!open && !restoring) setRestoreTarget(null);
+        }}
+        title="Restore this version?"
+        description={
+          restoreTarget
+            ? `The live file will roll back to version ${
+                restoreTarget.versionNumber || restoreTarget.version
+              }. The current copy stays in history so you can recover it later.`
+            : "The live file will roll back to the selected snapshot."
+        }
+        confirmLabel="Restore version"
+        loading={Boolean(restoring)}
+        onConfirm={() => {
+          if (restoreTarget) return handleRestore(restoreTarget.id);
+        }}
+      />
     </Card>
   );
 }

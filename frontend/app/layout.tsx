@@ -47,6 +47,13 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" suppressHydrationWarning>
+      <head>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `(function(){try{var s=localStorage.getItem("dt_font_scale");var m={sm:"87.5%",md:"100%",lg:"112.5%",xl:"125%"};if(s&&m[s]){document.documentElement.style.fontSize=m[s];document.documentElement.dataset.fontScale=s;}}catch(e){}})();`,
+          }}
+        />
+      </head>
       <body
         className={`${publicSans.variable} ${archivo.variable} ${plexMono.variable} font-sans antialiased`}
         suppressHydrationWarning

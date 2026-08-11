@@ -88,7 +88,7 @@ export function FolderTreeView({
       <div key={node.id}>
         <div
           className={cn(
-            "flex items-center gap-2 px-2 py-1.5 rounded-md cursor-pointer hover:bg-accent transition-colors",
+            "flex items-start gap-2 px-2 py-1.5 rounded-md cursor-pointer hover:bg-accent transition-colors",
             isSelected && "bg-accent font-medium",
             level > 0 && "ml-4"
           )}
@@ -101,7 +101,7 @@ export function FolderTreeView({
                 e.stopPropagation();
                 toggleFolder(node.id);
               }}
-              className="p-0.5 hover:bg-accent rounded"
+              className="mt-0.5 p-0.5 hover:bg-accent rounded"
             >
               {isExpanded ? (
                 <ChevronDown className="h-4 w-4" />
@@ -110,10 +110,12 @@ export function FolderTreeView({
               )}
             </button>
           ) : (
-            <div className="w-5" /> // Spacer
+            <div className="w-5 shrink-0" /> // Spacer
           )}
-          <Folder className="h-4 w-4 text-yellow-500" />
-          <span className="text-sm flex-1 truncate">{node.name}</span>
+          <Folder className="mt-0.5 h-4 w-4 shrink-0 text-yellow-500" />
+          <span className="text-sm flex-1 min-w-0 break-words leading-snug">
+            {node.name}
+          </span>
         </div>
         {hasChildren && isExpanded && (
           <div>

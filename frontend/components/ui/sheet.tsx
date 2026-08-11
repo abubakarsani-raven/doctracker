@@ -44,14 +44,46 @@ function SheetOverlay({
   )
 }
 
+/**
+ * Does this subtree already label the sheet?
+ *
+ * Radix requires every sheet to contain a `SheetTitle` so assistive technology
+ * can announce what opened, and warns at runtime when one is missing. Checking
+ * here means a sheet whose content is visually self-explanatory — a nav drawer,
+ * say — still gets an accessible name without every caller remembering to add
+ * one.
+ */
+function hasSheetTitle(node: React.ReactNode): boolean {
+  let found = false
+
+  React.Children.forEach(node, (child) => {
+    if (found || !React.isValidElement(child)) return
+
+    if ((child.type as { __isSheetTitle?: boolean })?.__isSheetTitle) {
+      found = true
+      return
+    }
+
+    const { children } = child.props as { children?: React.ReactNode }
+    if (children && hasSheetTitle(children)) found = true
+  })
+
+  return found
+}
+
 function SheetContent({
   className,
   children,
   side = "right",
+  title,
   ...props
-}: React.ComponentProps<typeof SheetPrimitive.Content> & {
+}: Omit<React.ComponentProps<typeof SheetPrimitive.Content>, "title"> & {
   side?: "top" | "right" | "bottom" | "left"
+  /** Accessible name used only when the content has no `SheetTitle` of its own. */
+  title?: string
 }) {
+  const titled = hasSheetTitle(children)
+
   return (
     <SheetPortal>
       <SheetOverlay />
@@ -71,6 +103,11 @@ function SheetContent({
         )}
         {...props}
       >
+        {!titled && (
+          <SheetPrimitive.Title className="sr-only">
+            {title ?? "Panel"}
+          </SheetPrimitive.Title>
+        )}
         {children}
         <SheetPrimitive.Close className="ring-offset-background focus:ring-ring data-[state=open]:bg-secondary absolute top-4 right-4 rounded-xs opacity-70 transition-opacity hover:opacity-100 focus:ring-2 focus:ring-offset-2 focus:outline-hidden disabled:pointer-events-none">
           <XIcon className="size-4" />
@@ -113,6 +150,9 @@ function SheetTitle({
     />
   )
 }
+
+// Lets `hasSheetTitle` recognise the element without a circular import.
+SheetTitle.__isSheetTitle = true
 
 function SheetDescription({
   className,

@@ -18,6 +18,12 @@ import { EmailService } from '../notifications/email.service';
 const FORGOT_PASSWORD_MESSAGE =
   'If an account with that email exists, a password reset link has been sent.';
 
+/** Refresh lifetime when "Remember me" is off (browser session safety net). */
+export const SESSION_REFRESH_MS = 12 * 60 * 60 * 1000; // 12 hours
+/** Refresh lifetime when "Remember me" is on. */
+export const REMEMBER_REFRESH_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
+export const ACCESS_TOKEN_MS = 15 * 60 * 1000; // 15 minutes
+
 @Injectable()
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
@@ -55,7 +61,7 @@ export class AuthService {
     return result;
   }
 
-  async login(email: string, password: string) {
+  async login(email: string, password: string, rememberMe = false) {
     const user = await this.validateUser(email, password);
 
     if (!user) {
@@ -74,23 +80,25 @@ export class AuthService {
       { expiresIn: '15m' }
     );
 
-    // Create longer-lived refresh token (7 days)
+    const refreshTtlMs = rememberMe ? REMEMBER_REFRESH_MS : SESSION_REFRESH_MS;
     const refreshToken = this.generateRefreshToken();
     const refreshTokenHash = this.hashRefreshToken(refreshToken);
-    
-    // Store hashed refresh token in database
+
     await this.prisma.refreshToken.create({
       data: {
         userId: user.id,
         tokenHash: refreshTokenHash,
-        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days
+        expiresAt: new Date(Date.now() + refreshTtlMs),
+        rememberMe,
       },
     });
 
     // Generate CSRF token
     const csrfToken = this.generateCSRFToken();
 
-    this.logger.log(`Login successful for: ${email} (role: ${permissions.role})`);
+    this.logger.log(
+      `Login successful for: ${email} (role: ${permissions.role}, rememberMe: ${rememberMe})`,
+    );
 
     // Record login activity
     try {
@@ -109,6 +117,7 @@ export class AuthService {
       access_token: accessToken, // Keep for backward compatibility temporarily
       refresh_token: refreshToken,
       csrfToken,
+      rememberMe,
       user: this.toSessionUser(user, permissions),
     };
   }
@@ -208,7 +217,9 @@ export class AuthService {
       { expiresIn: '15m' }
     );
 
-    // Rotate refresh token - revoke old and create new
+    // Rotate refresh token - revoke old and create new (keep remember-me preference)
+    const rememberMe = Boolean(storedToken.rememberMe);
+    const refreshTtlMs = rememberMe ? REMEMBER_REFRESH_MS : SESSION_REFRESH_MS;
     const newRefreshToken = this.generateRefreshToken();
     const newTokenHash = this.hashRefreshToken(newRefreshToken);
 
@@ -221,7 +232,8 @@ export class AuthService {
       data: {
         userId: user.id,
         tokenHash: newTokenHash,
-        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days
+        expiresAt: new Date(Date.now() + refreshTtlMs),
+        rememberMe,
       },
     });
 
@@ -234,6 +246,7 @@ export class AuthService {
       access_token: accessToken,
       refresh_token: newRefreshToken,
       csrfToken,
+      rememberMe,
       user: this.toSessionUser(user, permissions),
     };
   }

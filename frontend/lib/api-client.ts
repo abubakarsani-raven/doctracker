@@ -368,10 +368,10 @@ class ApiClient {
   }
 
   // Auth
-  async login(email: string, password: string) {
+  async login(email: string, password: string, rememberMe = false) {
     const result = await this.request<{ access_token: string; user: any; csrfToken: string }>('/auth/login', {
       method: 'POST',
-      body: JSON.stringify({ email, password }),
+      body: JSON.stringify({ email, password, rememberMe }),
     });
 
     // Cookies (via same-origin /api-backend proxy) are primary for REST.
@@ -594,6 +594,13 @@ class ApiClient {
     });
   }
 
+  async setWorkflowEndPoint(id: string, dueDate: string | null) {
+    return this.request<any>(`/workflows/${id}/end-point`, {
+      method: 'PUT',
+      body: JSON.stringify({ dueDate }),
+    });
+  }
+
   // Goals
   async getWorkflowGoals(workflowId: string) {
     return this.request<any[]>(`/workflows/${workflowId}/goals`);
@@ -738,15 +745,60 @@ class ApiClient {
       yPercent: number;
       widthPercent?: number;
     },
+    savedSignatureId?: string,
   ) {
     return this.request<any>(`/signatures/requests/${requestId}/participants/${participantId}/sign`, {
       method: 'POST',
-      body: JSON.stringify({ signatureImageData, placement }),
+      body: JSON.stringify({
+        signatureImageData,
+        savedSignatureId,
+        placement,
+      }),
     });
   }
 
   async getFileSignatureRequests(fileId: string) {
     return this.request<any[]>(`/signatures/requests/file/${fileId}`);
+  }
+
+  async listSavedSignatures() {
+    return this.request<
+      Array<{
+        id: string;
+        label: string;
+        imageData: string;
+        isDefault: boolean;
+        createdAt: string;
+        updatedAt: string;
+      }>
+    >('/signatures/saved');
+  }
+
+  async createSavedSignature(data: {
+    label: string;
+    imageData: string;
+    isDefault?: boolean;
+  }) {
+    return this.request<any>('/signatures/saved', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async updateSavedSignature(
+    id: string,
+    data: { label?: string; imageData?: string; isDefault?: boolean },
+  ) {
+    return this.request<any>(`/signatures/saved/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async deleteSavedSignature(id: string) {
+    return this.request<{ ok: boolean }>(`/signatures/saved/${id}`, {
+      method: 'DELETE',
+    });
   }
 
   async getFolders(companyId?: string, parentId?: string) {
@@ -820,12 +872,20 @@ class ApiClient {
     return this.request<any[]>(`/files/${fileId}/versions`);
   }
 
-  async uploadFileVersion(fileId: string, file: File | Blob, fileName?: string) {
+  async uploadFileVersion(
+    fileId: string,
+    file: File | Blob,
+    fileName?: string,
+    changeNote?: string,
+  ) {
     const formData = new FormData();
     const name =
       fileName ||
       (file instanceof File && file.name ? file.name : 'upload');
     formData.append('file', file, name);
+    if (changeNote?.trim()) {
+      formData.append('changeNote', changeNote.trim());
+    }
 
     return this.request<any>(`/files/${fileId}/versions`, {
       method: 'POST',

@@ -58,6 +58,13 @@ export function signatureAclSource(requestId: string): string {
   return `${SIGNATURE_ACL_SOURCE_PREFIX}${requestId}`;
 }
 
+/** Temporary signature invites are allowed to name users in another company. */
+export function isSignatureAclSource(source: string | undefined | null): boolean {
+  return (
+    typeof source === 'string' && source.startsWith(SIGNATURE_ACL_SOURCE_PREFIX)
+  );
+}
+
 /** The membership facts needed to decide whether an entry applies to someone. */
 export interface SubjectContext {
   userId: string;

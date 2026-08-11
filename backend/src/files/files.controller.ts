@@ -446,6 +446,7 @@ export class FilesController {
     @Request() req: any,
     @Param('id') id: string,
     @UploadedFile() file: Express.Multer.File,
+    @Body() body: { changeNote?: string },
   ) {
     const user = req.user;
     if (!user) {
@@ -474,6 +475,7 @@ export class FilesController {
       user.id,
       file.size,
       file.originalname,
+      body?.changeNote,
     );
   }
 

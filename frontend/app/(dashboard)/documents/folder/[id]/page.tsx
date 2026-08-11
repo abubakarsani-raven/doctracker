@@ -23,7 +23,7 @@ import {
 import { FileUploadDialog } from "@/components/features/documents/FileUploadDialog";
 import { CreateFolderDialog } from "@/components/features/documents/CreateFolderDialog";
 import { CreateWorkflowDialog } from "@/components/features/workflows/CreateWorkflowDialog";
-import { Upload, FolderPlus, Grid3x3, List, Search, ArrowLeft, Workflow } from "lucide-react";
+import { Upload, FolderPlus, Grid3x3, List, Search, ArrowLeft, Workflow, RefreshCw } from "lucide-react";
 import { usePermissions } from "@/lib/hooks/use-permissions";
 import { PermissionButton } from "@/components/common/PermissionButton";
 import { useFolder, useFolders } from "@/lib/hooks/use-documents";
@@ -31,17 +31,55 @@ import { useDocuments } from "@/lib/hooks/use-documents";
 import { useWorkflowsByFolder } from "@/lib/hooks/use-workflows";
 import { WorkflowList } from "@/components/features/workflows/WorkflowList";
 import { countDocumentsInFolderTree } from "@/lib/folder-utils";
+import { toast } from "sonner";
+import { useQueryClient } from "@tanstack/react-query";
 
 export default function FolderDetailPage() {
   const params = useParams();
   const router = useRouter();
+  const queryClient = useQueryClient();
   const folderId = params.id as string;
   
   const { can, canOn, whyNot, permissions } = usePermissions();
-  const { data: folder, isLoading: folderLoading } = useFolder(folderId);
-  const { data: allFolders = [] } = useFolders();
-  const { data: allDocuments = [] } = useDocuments();
+  const {
+    data: folder,
+    isLoading: folderLoading,
+    refetch: refetchFolder,
+  } = useFolder(folderId);
+  const {
+    data: allFolders = [],
+    isFetching: foldersFetching,
+    refetch: refetchFolders,
+  } = useFolders();
+  const {
+    data: allDocuments = [],
+    isFetching: documentsFetching,
+    refetch: refetchDocuments,
+  } = useDocuments();
   const { data: workflows = [], isLoading: workflowsLoading } = useWorkflowsByFolder(folderId);
+
+  const refreshingFolders = foldersFetching && !folderLoading;
+  const refreshingDocuments = documentsFetching && !folderLoading;
+
+  const refreshFolders = async () => {
+    await Promise.all([
+      refetchFolder(),
+      refetchFolders(),
+      queryClient.invalidateQueries({ queryKey: ["folders"] }),
+    ]);
+  };
+
+  const refreshDocuments = async () => {
+    await Promise.all([
+      refetchDocuments(),
+      queryClient.invalidateQueries({ queryKey: ["documents"] }),
+    ]);
+  };
+
+  const refreshAll = async () => {
+    await Promise.all([refreshFolders(), refreshDocuments()]);
+    toast.success("Folders and documents refreshed");
+  };
 
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
   const [searchQuery, setSearchQuery] = useState("");
@@ -208,19 +246,21 @@ export default function FolderDetailPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <Button variant="ghost" size="icon" onClick={handleBack}>
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex min-w-0 items-start gap-3 sm:gap-4">
+          <Button variant="ghost" size="icon" className="mt-1 shrink-0" onClick={handleBack}>
             <ArrowLeft className="h-4 w-4" />
           </Button>
-          <div>
-            <h1 className="text-3xl font-bold tracking-tight">{folder.name}</h1>
+          <div className="min-w-0">
+            <h1 className="break-words text-2xl font-bold tracking-tight sm:text-3xl">
+              {folder.name}
+            </h1>
             {folder.description && (
-              <p className="text-muted-foreground">{folder.description}</p>
+              <p className="break-words text-muted-foreground">{folder.description}</p>
             )}
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2 pl-12 sm:pl-0">
           <PermissionButton
             variant="outline"
             allowed={can("folders.create") && canOn(folder, "write", "folder")}
@@ -229,6 +269,7 @@ export default function FolderDetailPage() {
               `The ${permissions.role} role cannot create folders.`
             }
             onClick={() => setCreateFolderDialogOpen(true)}
+            className="flex-1 sm:flex-none"
           >
             <FolderPlus className="mr-2 h-4 w-4" />
             New Folder
@@ -238,6 +279,7 @@ export default function FolderDetailPage() {
             allowed={can("workflows.create")}
             reason={`The ${permissions.role} role cannot create workflows.`}
             onClick={() => setCreateWorkflowDialogOpen(true)}
+            className="flex-1 sm:flex-none"
           >
             <Workflow className="mr-2 h-4 w-4" />
             Create Workflow
@@ -249,6 +291,7 @@ export default function FolderDetailPage() {
               `The ${permissions.role} role cannot upload documents.`
             }
             onClick={() => setUploadDialogOpen(true)}
+            className="flex-1 sm:flex-none"
           >
             <Upload className="mr-2 h-4 w-4" />
             Upload
@@ -258,7 +301,7 @@ export default function FolderDetailPage() {
 
       {/* Breadcrumb */}
       <Breadcrumb>
-        <BreadcrumbList>
+        <BreadcrumbList className="flex-wrap">
           <BreadcrumbItem>
             <BreadcrumbLink href="/dashboard">Home</BreadcrumbLink>
           </BreadcrumbItem>
@@ -269,11 +312,16 @@ export default function FolderDetailPage() {
           {folderPath.map((folderInPath, index) => (
             <React.Fragment key={folderInPath.id}>
               <BreadcrumbSeparator />
-              <BreadcrumbItem>
+              <BreadcrumbItem className="min-w-0">
                 {index === folderPath.length - 1 ? (
-                  <BreadcrumbPage>{folderInPath.name}</BreadcrumbPage>
+                  <BreadcrumbPage className="break-words">
+                    {folderInPath.name}
+                  </BreadcrumbPage>
                 ) : (
-                  <BreadcrumbLink href={`/documents/folder/${folderInPath.id}`}>
+                  <BreadcrumbLink
+                    href={`/documents/folder/${folderInPath.id}`}
+                    className="break-words"
+                  >
                     {folderInPath.name}
                   </BreadcrumbLink>
                 )}
@@ -284,8 +332,8 @@ export default function FolderDetailPage() {
       </Breadcrumb>
 
       {/* Toolbar */}
-      <div className="flex items-center gap-4 flex-wrap">
-        <div className="relative flex-1 min-w-[200px]">
+      <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:gap-4">
+        <div className="relative w-full min-w-0 flex-1 sm:min-w-[200px]">
           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
             placeholder="Search documents and folders..."
@@ -294,32 +342,47 @@ export default function FolderDetailPage() {
             className="pl-10"
           />
         </div>
-        <Select value={sortBy} onValueChange={setSortBy}>
-          <SelectTrigger className="w-[180px]">
-            <SelectValue placeholder="Sort by" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="modified">Last Modified</SelectItem>
-            <SelectItem value="name">Name</SelectItem>
-            <SelectItem value="size">Size</SelectItem>
-            <SelectItem value="created">Date Created</SelectItem>
-          </SelectContent>
-        </Select>
-        <div className="flex gap-1 border rounded-md">
+        <div className="flex flex-wrap items-center gap-2">
           <Button
-            variant={viewMode === "grid" ? "default" : "ghost"}
+            variant="outline"
             size="sm"
-            onClick={() => setViewMode("grid")}
+            onClick={refreshAll}
+            disabled={refreshingFolders || refreshingDocuments}
           >
-            <Grid3x3 className="h-4 w-4" />
+            <RefreshCw
+              className={`mr-2 h-4 w-4 ${
+                refreshingFolders || refreshingDocuments ? "animate-spin" : ""
+              }`}
+            />
+            Refresh
           </Button>
-          <Button
-            variant={viewMode === "list" ? "default" : "ghost"}
-            size="sm"
-            onClick={() => setViewMode("list")}
-          >
-            <List className="h-4 w-4" />
-          </Button>
+          <Select value={sortBy} onValueChange={setSortBy}>
+            <SelectTrigger className="w-full sm:w-[180px]">
+              <SelectValue placeholder="Sort by" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="modified">Last Modified</SelectItem>
+              <SelectItem value="name">Name</SelectItem>
+              <SelectItem value="size">Size</SelectItem>
+              <SelectItem value="created">Date Created</SelectItem>
+            </SelectContent>
+          </Select>
+          <div className="flex gap-1 border rounded-md">
+            <Button
+              variant={viewMode === "grid" ? "default" : "ghost"}
+              size="sm"
+              onClick={() => setViewMode("grid")}
+            >
+              <Grid3x3 className="h-4 w-4" />
+            </Button>
+            <Button
+              variant={viewMode === "list" ? "default" : "ghost"}
+              size="sm"
+              onClick={() => setViewMode("list")}
+            >
+              <List className="h-4 w-4" />
+            </Button>
+          </div>
         </div>
       </div>
 
@@ -335,11 +398,27 @@ export default function FolderDetailPage() {
         {/* Subfolders Section */}
         {sortedSubfolders.length > 0 && (
           <div>
-            <h2 className="text-xl font-semibold mb-4">Folders</h2>
+            <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <h2 className="text-xl font-semibold">Folders</h2>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={async () => {
+                  await refreshFolders();
+                  toast.success("Folders refreshed");
+                }}
+                disabled={refreshingFolders}
+              >
+                <RefreshCw
+                  className={`mr-2 h-4 w-4 ${refreshingFolders ? "animate-spin" : ""}`}
+                />
+                Refresh
+              </Button>
+            </div>
             <div
               className={
                 viewMode === "grid"
-                  ? "grid gap-4 md:grid-cols-2 lg:grid-cols-3"
+                  ? "grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3"
                   : "space-y-4"
               }
             >
@@ -363,11 +442,27 @@ export default function FolderDetailPage() {
         {/* Documents Section */}
         {sortedDocuments.length > 0 && (
           <div>
-            <h2 className="text-xl font-semibold mb-4">Documents</h2>
+            <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <h2 className="text-xl font-semibold">Documents</h2>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={async () => {
+                  await refreshDocuments();
+                  toast.success("Documents refreshed");
+                }}
+                disabled={refreshingDocuments}
+              >
+                <RefreshCw
+                  className={`mr-2 h-4 w-4 ${refreshingDocuments ? "animate-spin" : ""}`}
+                />
+                Refresh
+              </Button>
+            </div>
             <div
               className={
                 viewMode === "grid"
-                  ? "grid gap-4 md:grid-cols-2 lg:grid-cols-3"
+                  ? "grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3"
                   : "space-y-4"
               }
             >

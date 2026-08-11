@@ -1,0 +1,2 @@
+-- AlterTable
+ALTER TABLE "refresh_tokens" ADD COLUMN IF NOT EXISTS "remember_me" BOOLEAN NOT NULL DEFAULT false;

@@ -138,7 +138,9 @@ export function WorkflowCard({
             <div className="flex items-center gap-1 text-xs">
               <Clock className="h-3 w-3 text-muted-foreground" />
               <span className={cn(isOverdue && "text-destructive")}>
-                {isOverdue ? "Overdue" : formatDistanceToNow(workflow.dueDate, { addSuffix: true })}
+                {isOverdue
+                  ? "Past end point"
+                  : `Ends ${formatDistanceToNow(workflow.dueDate, { addSuffix: true })}`}
               </span>
             </div>
           )}

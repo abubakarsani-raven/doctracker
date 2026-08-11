@@ -66,19 +66,19 @@ export function FolderCard({
   };
 
   const title = (
-    <div className="flex items-center gap-2">
+    <div className="flex items-start gap-2">
       <h3
         className={cn(
-          "truncate font-semibold text-sm",
+          "min-w-0 flex-1 break-words font-semibold text-sm leading-snug",
           hasAccess && "group-hover:text-primary",
         )}
       >
         {folder.name}
       </h3>
       {hasAccess ? (
-        <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
+        <ChevronRight className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
       ) : (
-        <Lock className="h-3.5 w-3.5 shrink-0 text-scope-restricted" aria-hidden />
+        <Lock className="mt-0.5 h-3.5 w-3.5 shrink-0 text-scope-restricted" aria-hidden />
       )}
     </div>
   );
@@ -93,7 +93,7 @@ export function FolderCard({
       <div className="min-w-0 flex-1">
         {title}
         {folder.description && (
-          <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
+          <p className="mt-1 break-words text-xs text-muted-foreground line-clamp-3">
             {folder.description}
           </p>
         )}

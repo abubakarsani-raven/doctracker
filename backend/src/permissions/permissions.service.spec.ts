@@ -22,6 +22,7 @@ interface Fixture {
   folders: any[];
   files: any[];
   fileFolderLinks: any[];
+  signatureParticipants?: any[];
 }
 
 const COMPANY_A = 'company-a';
@@ -116,6 +117,35 @@ function buildService(fixture: Fixture) {
       findMany: async ({ where }: any) =>
         fixture.fileFolderLinks.filter((l) => l.fileId === where.fileId),
     },
+    signatureParticipant: {
+      findFirst: async ({ where }: any) => {
+        const rows = fixture.signatureParticipants ?? [];
+        return (
+          rows.find((row) => {
+            if (where.userId && row.userId !== where.userId) return false;
+            if (
+              where.status?.in &&
+              !where.status.in.includes(row.status)
+            ) {
+              return false;
+            }
+            if (
+              where.request?.fileId &&
+              row.request?.fileId !== where.request.fileId
+            ) {
+              return false;
+            }
+            if (
+              where.request?.status &&
+              row.request?.status !== where.request.status
+            ) {
+              return false;
+            }
+            return true;
+          }) ?? null
+        );
+      },
+    },
   };
 
   const notifications: any = { create: jest.fn() };
@@ -145,6 +175,93 @@ describe('PermissionsService.decide', () => {
       });
 
       const decision = await service.decide('u1', 'folder', 'f1', 'read');
+
+      expect(decision).toEqual({ allowed: false, reason: 'other_company' });
+    });
+
+    it('lets a signature invitee from another company read the file', async () => {
+      const service = buildService({
+        users: [
+          makeUser('signer-b', 'Company Secretary', { companyId: COMPANY_B }),
+        ],
+        folders: [makeFolder('folder-a', { companyId: COMPANY_A })],
+        files: [makeFile('file-a', { companyId: COMPANY_A })],
+        fileFolderLinks: [
+          {
+            fileId: 'file-a',
+            folderId: 'folder-a',
+            permissionsJson: [
+              {
+                subjectType: 'user',
+                subjectId: 'signer-b',
+                userId: 'signer-b',
+                permissions: ['read'],
+                effect: 'allow',
+                source: 'signature:req-1',
+              },
+            ],
+          },
+        ],
+        signatureParticipants: [],
+      });
+
+      const decision = await service.decide('signer-b', 'file', 'file-a', 'read');
+
+      expect(decision).toEqual({ allowed: true, reason: 'explicit_grant' });
+    });
+
+    it('lets an active signature invitee read across companies without an ACL row', async () => {
+      const service = buildService({
+        users: [
+          makeUser('signer-b', 'Division Head', { companyId: COMPANY_B }),
+        ],
+        folders: [makeFolder('folder-a', { companyId: COMPANY_A })],
+        files: [makeFile('file-a', { companyId: COMPANY_A })],
+        fileFolderLinks: [
+          { fileId: 'file-a', folderId: 'folder-a', permissionsJson: [] },
+        ],
+        signatureParticipants: [
+          {
+            id: 'sp-1',
+            userId: 'signer-b',
+            status: 'pending',
+            request: { fileId: 'file-a', status: 'pending' },
+          },
+        ],
+      });
+
+      const decision = await service.decide('signer-b', 'file', 'file-a', 'read');
+
+      expect(decision).toEqual({ allowed: true, reason: 'signature_invite' });
+    });
+
+    it('still refuses cross-company write even with a signature read grant', async () => {
+      const service = buildService({
+        users: [
+          makeUser('signer-b', 'Company Secretary', { companyId: COMPANY_B }),
+        ],
+        folders: [makeFolder('folder-a', { companyId: COMPANY_A })],
+        files: [makeFile('file-a', { companyId: COMPANY_A })],
+        fileFolderLinks: [
+          {
+            fileId: 'file-a',
+            folderId: 'folder-a',
+            permissionsJson: [
+              {
+                subjectType: 'user',
+                subjectId: 'signer-b',
+                userId: 'signer-b',
+                permissions: ['read'],
+                effect: 'allow',
+                source: 'signature:req-1',
+              },
+            ],
+          },
+        ],
+        signatureParticipants: [],
+      });
+
+      const decision = await service.decide('signer-b', 'file', 'file-a', 'write');
 
       expect(decision).toEqual({ allowed: false, reason: 'other_company' });
     });

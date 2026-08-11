@@ -128,18 +128,18 @@ export function DocumentCard({
                   page is a dead end dressed up as an affordance. */}
               {hasAccess ? (
                 <Link href={`/documents/${document.id}`} className="block">
-                  <h3 className="truncate text-sm font-semibold hover:text-primary">
+                  <h3 className="break-words text-sm font-semibold leading-snug hover:text-primary">
                     {document.name}
                   </h3>
                 </Link>
               ) : (
                 <h3
-                  className="flex items-center gap-1.5 truncate text-sm font-semibold"
+                  className="flex items-start gap-1.5 break-words text-sm font-semibold leading-snug"
                   title={accessReason ?? undefined}
                 >
-                  {document.name}
+                  <span className="min-w-0 flex-1">{document.name}</span>
                   <Lock
-                    className="h-3.5 w-3.5 shrink-0 text-scope-restricted"
+                    className="mt-0.5 h-3.5 w-3.5 shrink-0 text-scope-restricted"
                     aria-hidden
                   />
                 </h3>

@@ -2,12 +2,15 @@ import {
   Controller,
   Get,
   Post,
+  Patch,
+  Delete,
   Param,
   Body,
   UseGuards,
   Request,
   Ip,
   Headers,
+  BadRequestException,
 } from '@nestjs/common';
 import {
   SignaturesService,
@@ -20,6 +23,49 @@ import { CapabilityGuard, RequireCapability } from '../permissions/require-capab
 @Controller('signatures')
 export class SignaturesController {
   constructor(private readonly signaturesService: SignaturesService) {}
+
+  // ── Saved signatures (must be declared before parameterized request routes) ──
+
+  @Get('saved')
+  @UseGuards(JwtAuthGuard)
+  async listSaved(@Request() req: any) {
+    return this.signaturesService.listSavedSignatures(req.user.id);
+  }
+
+  @Post('saved')
+  @UseGuards(JwtAuthGuard)
+  async createSaved(
+    @Request() req: any,
+    @Body()
+    body: {
+      label: string;
+      imageData: string;
+      isDefault?: boolean;
+    },
+  ) {
+    return this.signaturesService.createSavedSignature(req.user.id, body);
+  }
+
+  @Patch('saved/:id')
+  @UseGuards(JwtAuthGuard)
+  async updateSaved(
+    @Request() req: any,
+    @Param('id') id: string,
+    @Body()
+    body: {
+      label?: string;
+      imageData?: string;
+      isDefault?: boolean;
+    },
+  ) {
+    return this.signaturesService.updateSavedSignature(req.user.id, id, body);
+  }
+
+  @Delete('saved/:id')
+  @UseGuards(JwtAuthGuard)
+  async deleteSaved(@Request() req: any, @Param('id') id: string) {
+    return this.signaturesService.deleteSavedSignature(req.user.id, id);
+  }
 
   @Post('requests')
   @RequireCapability('documents.request_signature')
@@ -54,17 +100,34 @@ export class SignaturesController {
     @Param('participantId') participantId: string,
     @Body()
     body: {
-      signatureImageData: string;
+      signatureImageData?: string;
+      savedSignatureId?: string;
       placement: SignaturePlacement;
     },
     @Request() req: any,
     @Ip() ip: string,
     @Headers('user-agent') userAgent: string,
   ) {
+    let imageData = body.signatureImageData;
+    if (
+      (!imageData || !imageData.startsWith('data:image/')) &&
+      body.savedSignatureId
+    ) {
+      imageData = await this.signaturesService.getSavedSignatureImage(
+        req.user.id,
+        body.savedSignatureId,
+      );
+    }
+    if (!imageData) {
+      throw new BadRequestException(
+        'Provide signatureImageData or savedSignatureId',
+      );
+    }
+
     return this.signaturesService.sign(
       requestId,
       participantId,
-      body.signatureImageData,
+      imageData,
       req.user,
       body.placement,
       ip,

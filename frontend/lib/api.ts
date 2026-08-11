@@ -20,9 +20,9 @@ const getClient = () => {
 
 export const api = {
   // Auth
-  login: async (email: string, password: string) => {
+  login: async (email: string, password: string, rememberMe = false) => {
     const client = getClient();
-    return await client.login(email, password);
+    return await client.login(email, password, rememberMe);
   },
 
   logout: async () => {
@@ -232,9 +232,10 @@ export const api = {
     fileId: string,
     file: File | Blob,
     fileName?: string,
+    changeNote?: string,
   ) => {
     const client = getClient();
-    return await client.uploadFileVersion(fileId, file, fileName);
+    return await client.uploadFileVersion(fileId, file, fileName, changeNote);
   },
 
   restoreFileVersion: async (fileId: string, versionId: string) => {
@@ -399,6 +400,11 @@ export const api = {
   updateWorkflow: async (id: string, data: any) => {
     const client = getClient();
     return await client.updateWorkflow(id, data);
+  },
+
+  setWorkflowEndPoint: async (id: string, dueDate: string | null) => {
+    const client = getClient();
+    return await client.setWorkflowEndPoint(id, dueDate);
   },
 
   // Goals
@@ -774,6 +780,7 @@ export const api = {
       yPercent: number;
       widthPercent?: number;
     },
+    savedSignatureId?: string,
   ) => {
     const client = getClient();
     return await client.signDocument(
@@ -781,11 +788,39 @@ export const api = {
       participantId,
       signatureImageData,
       placement,
+      savedSignatureId,
     );
   },
 
   getFileSignatureRequests: async (fileId: string) => {
     const client = getClient();
     return await client.getFileSignatureRequests(fileId);
+  },
+
+  listSavedSignatures: async () => {
+    const client = getClient();
+    return await client.listSavedSignatures();
+  },
+
+  createSavedSignature: async (data: {
+    label: string;
+    imageData: string;
+    isDefault?: boolean;
+  }) => {
+    const client = getClient();
+    return await client.createSavedSignature(data);
+  },
+
+  updateSavedSignature: async (
+    id: string,
+    data: { label?: string; imageData?: string; isDefault?: boolean },
+  ) => {
+    const client = getClient();
+    return await client.updateSavedSignature(id, data);
+  },
+
+  deleteSavedSignature: async (id: string) => {
+    const client = getClient();
+    return await client.deleteSavedSignature(id);
   },
 };

@@ -21,12 +21,9 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import { Calendar } from "@/components/ui/calendar";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { DateTimePicker } from "@/components/ui/date-time-picker";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { CalendarIcon, Folder, FileText, FolderOpen } from "lucide-react";
-import { format } from "date-fns";
-import { cn } from "@/lib/utils";
+import { Folder, FileText, FolderOpen } from "lucide-react";
 import { toast } from "sonner";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
@@ -730,32 +727,21 @@ export function CreateWorkflowDialog({
             )}
           </div>
 
-          {/* Due Date */}
+          {/* End point with date + time */}
           <div className="space-y-2">
-            <Label>Due Date (Optional)</Label>
-            <Popover>
-              <PopoverTrigger asChild>
-                <Button
-                  variant="outline"
-                  className={cn(
-                    "w-full justify-start text-left font-normal",
-                    !dueDate && "text-muted-foreground"
-                  )}
-                  disabled={isCreating}
-                >
-                  <CalendarIcon className="mr-2 h-4 w-4" />
-                  {dueDate ? format(dueDate, "PPP") : "Pick a date"}
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent className="w-auto p-0" align="start">
-                <Calendar
-                  mode="single"
-                  selected={dueDate}
-                  onSelect={setDueDate}
-                  initialFocus
-                />
-              </PopoverContent>
-            </Popover>
+            <Label>End point (Optional)</Label>
+            <DateTimePicker
+              value={dueDate}
+              onChange={setDueDate}
+              disabled={isCreating}
+              dateLabel="Date"
+              timeLabel="Time"
+              placeholder="Pick when this workflow should end"
+            />
+            <p className="text-xs text-muted-foreground">
+              Can later be changed by the creator, company secretary, department
+              head, group secretary, or master.
+            </p>
           </div>
         </div>
 
