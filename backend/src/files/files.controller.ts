@@ -548,7 +548,11 @@ export class FilesController {
       return new StreamableFile(fileStream);
     } catch (error) {
       console.error('Error downloading file:', error);
-      throw new BadRequestException('File could not be downloaded');
+      throw new BadRequestException(
+        error instanceof Error
+          ? `File could not be downloaded: ${error.message}`
+          : 'File could not be downloaded',
+      );
     }
   }
 

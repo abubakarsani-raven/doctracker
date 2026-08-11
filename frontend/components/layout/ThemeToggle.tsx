@@ -6,8 +6,8 @@ import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 
 /**
- * Cycles light → dark → system. Compact header control; icons reflect the
- * resolved appearance once mounted to avoid hydration mismatch.
+ * Cycles light → dark → system. Compact header control; icons and labels
+ * stay stable until mounted to avoid hydration mismatch with next-themes.
  */
 export function ThemeToggle() {
   const { theme, setTheme, resolvedTheme } = useTheme();
@@ -27,8 +27,10 @@ export function ThemeToggle() {
     }
   };
 
-  const label =
-    theme === "system"
+  // Keep SSR + first client paint identical; next-themes theme is only known after mount.
+  const label = !mounted
+    ? "Toggle theme"
+    : theme === "system"
       ? "Theme: system (click for light)"
       : theme === "dark"
         ? "Theme: dark (click for system)"

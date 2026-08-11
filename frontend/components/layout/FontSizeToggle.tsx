@@ -39,12 +39,28 @@ export function FontSizeToggle() {
 
   if (!mounted) {
     return (
-      <div className="flex items-center gap-0.5" aria-hidden>
-        <Button type="button" variant="ghost" size="icon" className="h-8 w-8" disabled>
-          <span className="text-xs font-semibold">A−</span>
+      <div className="flex items-center" role="group" aria-label="Text size">
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8"
+          disabled
+          aria-label="Decrease text size"
+          title="Decrease text size"
+        >
+          <span className="text-xs font-semibold leading-none">A−</span>
         </Button>
-        <Button type="button" variant="ghost" size="icon" className="h-8 w-8" disabled>
-          <span className="text-sm font-semibold">A+</span>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8"
+          disabled
+          aria-label="Increase text size"
+          title="Increase text size"
+        >
+          <span className="text-sm font-semibold leading-none">A+</span>
         </Button>
       </div>
     );
