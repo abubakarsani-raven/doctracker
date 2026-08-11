@@ -49,11 +49,8 @@ ENV NODE_ENV=production
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/prisma ./prisma
-# The seed is deliberately NOT runnable from this image: it imports from `src/`,
-# and shipping application source into the runtime image to support a one-time
-# task is the wrong trade. Seed a fresh database from a checkout instead:
-#   railway run npm run prisma:seed
-# which executes locally with the service's environment injected.
+# Seed is compiled into dist/seed/run-seed.js (from src/seed/run-seed.ts).
+# Railway startCommand runs: migrate deploy → seed → main.
 COPY package.json prisma.config.ts ./
 EXPOSE 4003
 CMD ["node", "dist/main.js"]
