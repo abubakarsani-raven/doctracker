@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
+import { usePermissions } from "@/lib/hooks/use-permissions";
 import {
   Dialog,
   DialogContent,
@@ -20,12 +21,10 @@ import {
 } from "@/components/ui/select";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { toast } from "sonner";
-import { Folder, FolderOpen } from "lucide-react";
-import { api } from "@/lib/api";
+import { Folder } from "lucide-react";
 import { useFolders } from "@/lib/hooks/use-documents";
 import { useCurrentUser } from "@/lib/hooks/use-users";
-import { useCompanies } from "@/lib/hooks/use-companies";
-import { useQueryClient } from "@tanstack/react-query";
+import { api } from "@/lib/api";
 
 interface MoveDocumentDialogProps {
   open: boolean;
@@ -50,12 +49,10 @@ export function MoveDocumentDialog({
   onMoveComplete,
 }: MoveDocumentDialogProps) {
   const { data: currentUser } = useCurrentUser();
-  const { data: companies = [] } = useCompanies();
+  const { canOn } = usePermissions();
   const { data: allFolders = [] } = useFolders();
-  const queryClient = useQueryClient();
 
   const [selectedFolderId, setSelectedFolderId] = useState<string | undefined>(undefined);
-  const [moving, setMoving] = useState(false);
 
   useEffect(() => {
     if (open) {
@@ -64,113 +61,19 @@ export function MoveDocumentDialog({
   }, [open]);
 
   // Get user context for permissions
-  const userContext = useMemo(() => {
-    if (!currentUser || !companies.length) {
-      return { userDeptId: null, userDivId: null, userCompanyId: null };
-    }
-
-    let userCompanyId: string | null = currentUser.companyId || null;
-    const userDeptName = currentUser.department;
-    const userDivName = currentUser.division;
-    let userDeptId: string | null = null;
-    let userDivId: string | null = null;
-
-    if (!userCompanyId) {
-      companies.forEach((company: any) => {
-        if (company.departments) {
-          company.departments.forEach((dept: any) => {
-            if (dept.name === userDeptName) {
-              userDeptId = dept.id;
-              if (!userCompanyId) {
-                userCompanyId = company.id;
-              }
-              if (dept.divisions && userDivName) {
-                dept.divisions.forEach((div: any) => {
-                  if (div.name === userDivName) {
-                    userDivId = div.id;
-                  }
-                });
-              }
-            }
-          });
-        }
-      });
-    } else {
-      const userCompany = companies.find((c: any) => c.id === userCompanyId);
-      if (userCompany?.departments) {
-        userCompany.departments.forEach((dept: any) => {
-          if (dept.name === userDeptName) {
-            userDeptId = dept.id;
-            if (dept.divisions && userDivName) {
-              dept.divisions.forEach((div: any) => {
-                if (div.name === userDivName) {
-                  userDivId = div.id;
-                }
-              });
-            }
-          }
-        });
-      }
-    }
-
-    return { userDeptId, userDivId, userCompanyId };
-  }, [currentUser, companies]);
 
   // Get accessible folders based on permissions
+  // Only folders the user may actually write into are offered as targets.
+  // This used to be a copy of the role ladder from the documents page; it is
+  // now the same decision the API will make when the move is submitted.
   const accessibleFolders = useMemo(() => {
-    if (!currentUser || !companies.length) return [];
-
-    const { userDeptId, userDivId, userCompanyId } = userContext;
+    if (!currentUser || !allFolders.length) return [];
 
     return allFolders.filter((folder: any) => {
-      // Filter out current folder
-      if (folder.id === currentFolderId) {
-        return false;
-      }
-
-      if (currentUser.role === "Master") {
-        return true;
-      }
-
-      if (currentUser.role === "Company Admin") {
-        return folder.companyId === userCompanyId;
-      }
-
-      const folderScope = folder.scopeLevel || folder.scope;
-
-      if (currentUser.role === "Department Head") {
-        if (folderScope === "company") {
-          return folder.companyId === userCompanyId;
-        }
-        return folder.departmentId === userDeptId;
-      }
-
-      if (currentUser.role === "Division Head") {
-        if (folderScope === "company") {
-          return folder.companyId === userCompanyId;
-        }
-        if (folderScope === "department") {
-          return folder.departmentId === userDeptId;
-        }
-        return folderScope === "division" && folder.departmentId === userDeptId;
-      }
-
-      // Regular users: scope-based access
-      if (folderScope === "company") {
-        return folder.companyId === userCompanyId;
-      }
-
-      if (folderScope === "department") {
-        return folder.departmentId === userDeptId;
-      }
-
-      if (folderScope === "division") {
-        return folder.departmentId === userDeptId && userDivId !== null;
-      }
-
-      return false;
+      if (folder.id === currentFolderId) return false;
+      return canOn(folder, "write", "folder");
     });
-  }, [allFolders, currentUser, userContext, companies, currentFolderId]);
+  }, [allFolders, currentUser, currentFolderId, canOn]);
 
   // Build folder options with paths
   const folderOptions = useMemo(() => {
@@ -201,28 +104,14 @@ export function MoveDocumentDialog({
       return;
     }
 
-    setMoving(true);
     try {
-      // TODO: Replace with actual API call when endpoint is available
-      // await api.moveDocument(documentId, selectedFolderId);
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-
-      // Invalidate queries to refetch
-      queryClient.invalidateQueries({ queryKey: ["documents"] });
-      queryClient.invalidateQueries({ queryKey: ["documents", documentId] });
-      if (currentFolderId) {
-        queryClient.invalidateQueries({ queryKey: ["documents", currentFolderId] });
-      }
-
+      await api.moveDocument(documentId, selectedFolderId);
       toast.success("Document moved successfully");
       onMoveComplete?.();
       onOpenChange(false);
-      setSelectedFolderId(undefined);
-    } catch (error: any) {
-      console.error("Failed to move document:", error);
-      toast.error(error.message || "Failed to move document");
-    } finally {
-      setMoving(false);
+    } catch (error) {
+      console.error("Error moving document:", error);
+      toast.error("Failed to move document");
     }
   };
 
@@ -248,7 +137,6 @@ export function MoveDocumentDialog({
               <Select
                 value={selectedFolderId}
                 onValueChange={setSelectedFolderId}
-                disabled={moving}
               >
                 <SelectTrigger>
                   <SelectValue placeholder="Select a folder" />
@@ -274,12 +162,11 @@ export function MoveDocumentDialog({
           <Button
             variant="outline"
             onClick={() => onOpenChange(false)}
-            disabled={moving}
           >
             Cancel
           </Button>
-          <Button onClick={handleMove} disabled={moving || !selectedFolderId}>
-            {moving ? "Moving..." : "Move Document"}
+          <Button onClick={handleMove} disabled={!selectedFolderId}>
+            Move Document
           </Button>
         </DialogFooter>
       </DialogContent>

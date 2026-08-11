@@ -1,13 +1,25 @@
 import { Controller, Get, Post, Put, Param, Body, UseGuards, Request, HttpException, HttpStatus } from '@nestjs/common';
 import { WorkflowsService } from './workflows.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { CapabilityGuard, RequireCapability } from '../permissions/require-capability.decorator';
+import {
+  CreateWorkflowDto,
+  UpdateWorkflowDto,
+  AttachWorkflowFileDto,
+} from './dto/workflow.dto';
+import {
+  CreateWorkflowGoalDto,
+  UpdateWorkflowGoalDto,
+  AchieveWorkflowGoalDto,
+} from './dto/workflow-goal.dto';
 
 @Controller('workflows')
-@UseGuards(JwtAuthGuard)
 export class WorkflowsController {
   constructor(private workflowsService: WorkflowsService) {}
 
   @Get()
+  @RequireCapability('workflows.view')
+  @UseGuards(JwtAuthGuard, CapabilityGuard)
   async findAll(@Request() req: any) {
     try {
       return await this.workflowsService.findAll(req.user?.id, req.user?.companyId);
@@ -18,33 +30,23 @@ export class WorkflowsController {
   }
 
   @Get('folder/:folderId')
-  async findByFolder(@Param('folderId') folderId: string) {
-    try {
-      return await this.workflowsService.findByFolderId(folderId);
-    } catch (error: any) {
-      console.error('[WorkflowsController] Error getting workflows by folder:', error);
-      throw new HttpException(
-        { message: error.message || 'Failed to get workflows' },
-        HttpStatus.INTERNAL_SERVER_ERROR,
-      );
-    }
+  @RequireCapability('workflows.view')
+  @UseGuards(JwtAuthGuard, CapabilityGuard)
+  async findByFolder(@Param('folderId') folderId: string, @Request() req: any) {
+    return this.workflowsService.findByFolderId(folderId, req.user);
   }
 
   @Get('document/:documentId')
-  async findByDocument(@Param('documentId') documentId: string) {
-    try {
-      return await this.workflowsService.findByDocumentId(documentId);
-    } catch (error: any) {
-      console.error('[WorkflowsController] Error getting workflows by document:', error);
-      throw new HttpException(
-        { message: error.message || 'Failed to get workflows' },
-        HttpStatus.INTERNAL_SERVER_ERROR,
-      );
-    }
+  @RequireCapability('workflows.view')
+  @UseGuards(JwtAuthGuard, CapabilityGuard)
+  async findByDocument(@Param('documentId') documentId: string, @Request() req: any) {
+    return this.workflowsService.findByDocumentId(documentId, req.user);
   }
 
   // Goals endpoints - specific routes must come before parameterized routes
   @Get('goals/my-goals')
+  @RequireCapability('workflows.view')
+  @UseGuards(JwtAuthGuard, CapabilityGuard)
   async getMyGoals(@Request() req: any) {
     try {
       return await this.workflowsService.getUserGoals(req.user.id);
@@ -58,6 +60,8 @@ export class WorkflowsController {
   }
 
   @Get(':id/goals')
+  @RequireCapability('workflows.view')
+  @UseGuards(JwtAuthGuard, CapabilityGuard)
   async getGoals(@Param('id') id: string, @Request() req: any) {
     try {
       return await this.workflowsService.getGoals(id, req.user);
@@ -71,9 +75,11 @@ export class WorkflowsController {
   }
 
   @Post(':id/goals')
+  @RequireCapability('workflows.create')
+  @UseGuards(JwtAuthGuard, CapabilityGuard)
   async createGoal(
     @Param('id') id: string,
-    @Body() createGoalDto: any,
+    @Body() createGoalDto: CreateWorkflowGoalDto,
     @Request() req: any,
   ) {
     try {
@@ -87,9 +93,11 @@ export class WorkflowsController {
   }
 
   @Put('goals/:goalId')
+  @RequireCapability('workflows.edit')
+  @UseGuards(JwtAuthGuard, CapabilityGuard)
   async updateGoal(
     @Param('goalId') goalId: string,
-    @Body() updateGoalDto: any,
+    @Body() updateGoalDto: UpdateWorkflowGoalDto,
     @Request() req: any,
   ) {
     try {
@@ -104,9 +112,11 @@ export class WorkflowsController {
   }
 
   @Put('goals/:goalId/achieve')
+  @RequireCapability('workflows.edit')
+  @UseGuards(JwtAuthGuard, CapabilityGuard)
   async achieveGoal(
     @Param('goalId') goalId: string,
-    @Body() body: { notes?: string },
+    @Body() body: AchieveWorkflowGoalDto,
     @Request() req: any,
   ) {
     try {
@@ -121,6 +131,8 @@ export class WorkflowsController {
   }
 
   @Post('goals/:goalId/delete')
+  @RequireCapability('workflows.delete')
+  @UseGuards(JwtAuthGuard, CapabilityGuard)
   async deleteGoal(@Param('goalId') goalId: string, @Request() req: any) {
     try {
       return await this.workflowsService.deleteGoal(goalId, req.user);
@@ -133,18 +145,42 @@ export class WorkflowsController {
     }
   }
 
+  @Get(':id/files')
+  @RequireCapability('workflows.view')
+  @UseGuards(JwtAuthGuard, CapabilityGuard)
+  async listFiles(@Param('id') id: string, @Request() req: any) {
+    return this.workflowsService.listFiles(id, req.user);
+  }
+
+  @Post(':id/files')
+  @RequireCapability('actions.complete')
+  @UseGuards(JwtAuthGuard, CapabilityGuard)
+  async attachFile(
+    @Param('id') id: string,
+    @Body() body: AttachWorkflowFileDto,
+    @Request() req: any,
+  ) {
+    return this.workflowsService.attachFile(id, body, req.user);
+  }
+
   @Get(':id')
+  @RequireCapability('workflows.view')
+  @UseGuards(JwtAuthGuard, CapabilityGuard)
   async findOne(@Param('id') id: string, @Request() req: any) {
     return this.workflowsService.findOne(id, req.user);
   }
 
   @Post()
-  async create(@Body() createWorkflowDto: any, @Request() req: any) {
+  @RequireCapability('workflows.create')
+  @UseGuards(JwtAuthGuard, CapabilityGuard)
+  async create(@Body() createWorkflowDto: CreateWorkflowDto, @Request() req: any) {
     return this.workflowsService.create(createWorkflowDto, req.user);
   }
 
   @Put(':id')
-  async update(@Param('id') id: string, @Body() updateWorkflowDto: any, @Request() req: any) {
+  @RequireCapability('workflows.edit')
+  @UseGuards(JwtAuthGuard, CapabilityGuard)
+  async update(@Param('id') id: string, @Body() updateWorkflowDto: UpdateWorkflowDto, @Request() req: any) {
     return this.workflowsService.update(id, updateWorkflowDto, req.user);
   }
 }

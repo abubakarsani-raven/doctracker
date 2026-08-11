@@ -19,41 +19,27 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Badge } from "@/components/ui/badge";
 import { CreateCompanyDialog } from "@/components/features/admin/CreateCompanyDialog";
-import { Plus, Search, MoreVertical, Building2, Users, FileText, Settings } from "lucide-react";
+import { Plus, Search, MoreVertical, Building2, Users, FileText, Settings, Loader2 } from "lucide-react";
 import { EmptyState } from "@/components/common";
 import Link from "next/link";
 import { useRouteProtection } from "@/lib/hooks/useRouteProtection";
-
-// Mock data
-const companies = [
-  {
-    id: "1",
-    name: "Acme Corporation",
-    domain: "acme.com",
-    users: 45,
-    documents: 1234,
-    status: "active",
-    createdAt: new Date(Date.now() - 365 * 24 * 60 * 60 * 1000),
-  },
-  {
-    id: "2",
-    name: "Tech Solutions Ltd",
-    domain: "techsolutions.com",
-    users: 32,
-    documents: 856,
-    status: "active",
-    createdAt: new Date(Date.now() - 180 * 24 * 60 * 60 * 1000),
-  },
-];
+import { useCompanies } from "@/lib/hooks/use-companies";
+import { toast } from "sonner";
+import { formatDistanceToNow } from "date-fns";
 
 export default function CompaniesPage() {
   useRouteProtection({ requireMaster: true });
   const [searchQuery, setSearchQuery] = useState("");
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
+  
+  const { data: companies = [], isLoading, error } = useCompanies();
 
-  const filteredCompanies = companies.filter((company) =>
-    company.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    company.domain.toLowerCase().includes(searchQuery.toLowerCase())
+  if (error) {
+    toast.error("Failed to load companies");
+  }
+
+  const filteredCompanies = companies.filter((company: any) =>
+    company.name?.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
   return (
@@ -85,8 +71,15 @@ export default function CompaniesPage() {
           </div>
         </div>
 
+        {/* Loading State */}
+        {isLoading && (
+          <div className="flex items-center justify-center py-12">
+            <Loader2 className="h-8 w-8 animate-spin" />
+          </div>
+        )}
+
         {/* Companies Table */}
-        {filteredCompanies.length === 0 ? (
+        {!isLoading && filteredCompanies.length === 0 ? (
           <EmptyState
             icon={Building2}
             title="No companies found"
@@ -104,13 +97,13 @@ export default function CompaniesPage() {
                 : undefined
             }
           />
-        ) : (
+        ) : !isLoading ? (
           <div className="rounded-md border">
             <Table>
               <TableHeader>
                 <TableRow>
                   <TableHead>Company</TableHead>
-                  <TableHead>Domain</TableHead>
+                  <TableHead>Address</TableHead>
                   <TableHead>Users</TableHead>
                   <TableHead>Documents</TableHead>
                   <TableHead>Status</TableHead>
@@ -133,29 +126,29 @@ export default function CompaniesPage() {
                             {company.name}
                           </Link>
                           <p className="text-sm text-muted-foreground">
-                            Created {new Date(company.createdAt).toLocaleDateString()}
+                            {company.description || "No description"}
                           </p>
                         </div>
                       </div>
                     </TableCell>
                     <TableCell>
-                      <span className="text-sm">{company.domain}</span>
+                      <span className="text-sm">{company.address || "N/A"}</span>
                     </TableCell>
                     <TableCell>
                       <div className="flex items-center gap-1 text-sm">
                         <Users className="h-3 w-3 text-muted-foreground" />
-                        {company.users}
+                        {company._count?.users || 0}
                       </div>
                     </TableCell>
                     <TableCell>
                       <div className="flex items-center gap-1 text-sm">
                         <FileText className="h-3 w-3 text-muted-foreground" />
-                        {company.documents.toLocaleString()}
+                        {company._count?.files || 0}
                       </div>
                     </TableCell>
                     <TableCell>
-                      <Badge variant={company.status === "active" ? "default" : "secondary"}>
-                        {company.status}
+                      <Badge variant="default">
+                        Active
                       </Badge>
                     </TableCell>
                     <TableCell className="text-right">
@@ -182,7 +175,7 @@ export default function CompaniesPage() {
               </TableBody>
             </Table>
           </div>
-        )}
+        ) : null}
 
         <CreateCompanyDialog
           open={createDialogOpen}

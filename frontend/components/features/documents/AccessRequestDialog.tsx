@@ -20,7 +20,10 @@ import {
   getApproversForScope,
   hasPendingRequest,
 } from "@/lib/access-request-utils";
-import { useCreateAccessRequest } from "@/lib/hooks/use-access-requests";
+import {
+  useAccessRequests,
+  useCreateAccessRequest,
+} from "@/lib/hooks/use-access-requests";
 
 interface AccessRequestDialogProps {
   open: boolean;
@@ -41,6 +44,7 @@ export function AccessRequestDialog({
 }: AccessRequestDialogProps) {
   const [reason, setReason] = useState("");
   const { data: currentUser } = useCurrentUser();
+  const { data: existingRequests = [] } = useAccessRequests();
   const createRequest = useCreateAccessRequest();
 
   const scopeLabels: Record<string, string> = {
@@ -63,12 +67,20 @@ export function AccessRequestDialog({
       return;
     }
 
-    // Check if user already has a pending request
-    // TODO: Implement hasPendingRequest check via API when endpoint is available
-    // if (hasPendingRequest(resourceId, resourceType, currentUser)) {
-    //   toast.error("You already have a pending request for this resource");
-    //   return;
-    // }
+    // Don't let the same person queue a second request for the same resource
+    // while one is still awaiting a decision.
+    const alreadyPending = existingRequests.some(
+      (request: any) =>
+        request.resourceId === resourceId &&
+        request.resourceType === resourceType &&
+        request.status === "pending" &&
+        request.requestedBy === currentUser.id,
+    );
+
+    if (alreadyPending) {
+      toast.error("You already have a pending request for this resource");
+      return;
+    }
 
     try {
       await createRequest.mutateAsync({

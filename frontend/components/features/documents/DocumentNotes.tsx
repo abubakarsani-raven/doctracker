@@ -168,7 +168,12 @@ export function DocumentNotes({ documentId }: DocumentNotesProps) {
                       </Avatar>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 mb-1">
-                          <p className="text-sm font-medium">{note.createdBy}</p>
+                          <p className="text-sm font-medium">
+                            {note.createdBy &&
+                            !/^[0-9a-f-]{36}$/i.test(note.createdBy)
+                              ? note.createdBy
+                              : "Someone"}
+                          </p>
                           {!note.isPublic && (
                             <span className="text-xs text-muted-foreground">(Private)</span>
                           )}

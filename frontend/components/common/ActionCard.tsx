@@ -51,13 +51,20 @@ export function ActionCard({
   const isCompleted = action.status === "completed";
   const isOverdue = action.dueDate && !isCompleted && new Date(action.dueDate) < new Date();
   
-  // Get assigned to name
-  const assignedToName = typeof action.assignedTo === "object" 
-    ? action.assignedTo.name 
-    : action.assignedTo;
-  
+  // Get assigned to name — never show a raw id
+  const assignedToName = (() => {
+    if (!action.assignedTo) return null;
+    if (typeof action.assignedTo === "object") {
+      return action.assignedTo.name || null;
+    }
+    // String may be a name or a legacy id — hide uuid-looking values
+    const s = String(action.assignedTo);
+    if (/^[0-9a-f-]{36}$/i.test(s)) return null;
+    return s;
+  })();
+
   // Get assigned to type
-  const assignedToType = typeof action.assignedTo === "object"
+  const assignedToType = action.assignedTo && typeof action.assignedTo === "object"
     ? action.assignedTo.type
     : action.assignedToType;
 

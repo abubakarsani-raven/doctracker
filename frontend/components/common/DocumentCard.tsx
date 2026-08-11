@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { FileText, MoreVertical, Download, Eye, Folder, FolderOpen, FolderPlus, Lock } from "lucide-react";
 import { Card, CardContent, CardFooter, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -21,6 +22,11 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { AccessRequestDialog } from "@/components/features/documents/AccessRequestDialog";
+import {
+  ScopeMark,
+  RestrictedMark,
+  scopeIconClass,
+} from "@/components/common/ScopeMark";
 
 export interface Document {
   id: string;
@@ -33,6 +39,7 @@ export interface Document {
   folderIds?: string[];
   folderNames?: string[];
   scope?: "company" | "department" | "division";
+  scopeLevel?: string;
   status?: string;
   modifiedAt: Date;
   createdBy?: string;
@@ -44,7 +51,10 @@ interface DocumentCardProps {
   onDownload?: (id: string) => void;
   onAddToFolder?: (id: string) => void;
   className?: string;
-  hasAccess?: boolean; // Whether the current user has access to this document
+  /** Whether the current user may open this document. */
+  hasAccess?: boolean;
+  /** Optional sentence explaining why access is refused. */
+  accessReason?: string | null;
 }
 
 const formatFileSize = (bytes: number): string => {
@@ -55,28 +65,30 @@ const formatFileSize = (bytes: number): string => {
   return Math.round(bytes / Math.pow(k, i) * 100) / 100 + " " + sizes[i];
 };
 
-const scopeLabels: Record<string, string> = {
-  company: "Company-wide",
-  department: "Dept-wide",
-  division: "Division-wide",
-};
-
 export function DocumentCard({
   document,
   onView,
   onDownload,
   onAddToFolder,
   className,
-  hasAccess = true, // Default to true for backward compatibility
+  hasAccess = true,
+  accessReason,
 }: DocumentCardProps) {
+  const router = useRouter();
   const [requestAccessOpen, setRequestAccessOpen] = useState(false);
+  const scope = document.scopeLevel ?? document.scope;
 
   const handleView = () => {
     if (!hasAccess) {
       setRequestAccessOpen(true);
       return;
     }
-    onView?.(document.id);
+    if (onView) {
+      onView(document.id);
+      return;
+    }
+    // Fallback when parent didn't pass onView — navigate to the detail page.
+    router.push(`/documents/${document.id}`);
   };
 
   const handleDownload = () => {
@@ -96,24 +108,44 @@ export function DocumentCard({
   };
 
   return (
-    <Card className={cn("hover:shadow-md transition-shadow flex flex-col h-full", className)}>
+    <Card
+      className={cn(
+        "flex h-full flex-col transition-shadow",
+        hasAccess ? "hover:shadow-md" : "bg-muted/20",
+        className,
+      )}
+    >
       <CardHeader className="pb-3">
         <div className="flex items-start justify-between">
           <div className="flex items-center gap-3 flex-1 min-w-0">
             <div className="flex-shrink-0">
-              <FileText className="h-8 w-8 text-muted-foreground" />
+              <FileText
+                className={cn("h-8 w-8", scopeIconClass(scope, !hasAccess))}
+              />
             </div>
             <div className="flex-1 min-w-0">
-              <Link
-                href={`/documents/${document.id}`}
-                className="block"
-              >
-                <h3 className="font-semibold text-sm truncate hover:text-primary">
+              {/* Not a link when the viewer cannot open it — a link to a locked
+                  page is a dead end dressed up as an affordance. */}
+              {hasAccess ? (
+                <Link href={`/documents/${document.id}`} className="block">
+                  <h3 className="truncate text-sm font-semibold hover:text-primary">
+                    {document.name}
+                  </h3>
+                </Link>
+              ) : (
+                <h3
+                  className="flex items-center gap-1.5 truncate text-sm font-semibold"
+                  title={accessReason ?? undefined}
+                >
                   {document.name}
+                  <Lock
+                    className="h-3.5 w-3.5 shrink-0 text-scope-restricted"
+                    aria-hidden
+                  />
                 </h3>
-              </Link>
-              <p className="text-xs text-muted-foreground mt-1">
-                {formatFileSize(document.size)} • {document.type.toUpperCase()}
+              )}
+              <p className="stamp mt-1.5 text-muted-foreground">
+                {formatFileSize(document.size)} · {document.type.toUpperCase()}
               </p>
             </div>
           </div>
@@ -133,21 +165,19 @@ export function DocumentCard({
                 <FolderPlus className="mr-2 h-4 w-4" />
                 Add to Folder
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={handleDownload}>
-                <Download className="mr-2 h-4 w-4" />
-                Download
-              </DropdownMenuItem>
+              {onDownload && (
+                <DropdownMenuItem onClick={handleDownload}>
+                  <Download className="mr-2 h-4 w-4" />
+                  Download
+                </DropdownMenuItem>
+              )}
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
       </CardHeader>
       <CardContent className="pt-0 flex-1">
         <div className="flex flex-wrap items-center gap-2">
-          {document.scope && (
-            <Badge variant="outline" className="text-xs">
-              {scopeLabels[document.scope]}
-            </Badge>
-          )}
+          {hasAccess ? <ScopeMark scope={scope} /> : <RestrictedMark />}
           {document.status && (
             <StatusBadge status={document.status as any} className="text-xs" />
           )}
@@ -183,10 +213,10 @@ export function DocumentCard({
           )}
         </div>
       </CardContent>
-      <CardFooter className="pt-3 border-t">
-        <div className="flex items-center justify-between w-full">
-          <span className="text-xs text-muted-foreground">
-            Modified {formatDistanceToNow(document.modifiedAt, { addSuffix: true })}
+      <CardFooter className="border-t pt-3">
+        <div className="flex w-full items-center justify-between gap-2">
+          <span className="stamp text-muted-foreground">
+            {formatDistanceToNow(document.modifiedAt, { addSuffix: true })}
           </span>
           {!hasAccess && (
             <Button
@@ -194,9 +224,10 @@ export function DocumentCard({
               size="sm"
               onClick={() => setRequestAccessOpen(true)}
               className="text-xs"
+              title={accessReason ?? undefined}
             >
-              <Lock className="h-3 w-3 mr-1" />
-              Request Access
+              <Lock className="mr-1 h-3 w-3" />
+              Request access
             </Button>
           )}
         </div>

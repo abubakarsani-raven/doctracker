@@ -1,7 +1,8 @@
-import { Injectable } from '@nestjs/common';
+import { HttpException, BadRequestException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { WebSocketGateway } from '../websocket/websocket.gateway';
 import { ActivityService } from '../activity/activity.service';
+import { FilesService } from '../files/files.service';
 
 @Injectable()
 export class ActionsService {
@@ -9,6 +10,7 @@ export class ActionsService {
     private prisma: PrismaService,
     private wsGateway: WebSocketGateway,
     private activityService: ActivityService,
+    private filesService: FilesService,
   ) {}
 
   async findAll(userId?: string, companyId?: string) {
@@ -90,6 +92,7 @@ export class ActionsService {
       // Transform actions to include assignedTo object for frontend compatibility
       return actions.map(action => ({
         ...action,
+        createdByName: action.creator?.name || action.creator?.email || null,
         assignedTo: action.assignedToType && action.assignedToName ? {
           type: action.assignedToType,
           id: action.assignedToId || '',
@@ -125,7 +128,7 @@ export class ActionsService {
     
     // Check access control - user must be from same company (unless Master)
     if (currentUser) {
-      if (currentUser.role !== 'Master' && action.workflow?.companyId !== currentUser.companyId) {
+      if (currentUser?.permissions?.dataScope !== 'all' && action.workflow?.companyId !== currentUser.companyId) {
         throw new Error('Access denied: Action belongs to a different company');
       }
     }
@@ -133,6 +136,7 @@ export class ActionsService {
     // Transform action to include assignedTo object for frontend compatibility
     return {
       ...action,
+      createdByName: action.creator?.name || action.creator?.email || null,
       assignedTo: action.assignedToType && action.assignedToName ? {
         type: action.assignedToType,
         id: action.assignedToId || '',
@@ -273,6 +277,8 @@ export class ActionsService {
         workflow: {
           select: {
             companyId: true,
+            type: true,
+            documentId: true,
             assignedBy: true,
             assignedToType: true,
             assignedToId: true,
@@ -295,7 +301,7 @@ export class ActionsService {
     
     // Check access control
     if (currentUser) {
-      if (currentUser.role !== 'Master' && existingAction.workflow?.companyId !== currentUser.companyId) {
+      if (currentUser?.permissions?.dataScope !== 'all' && existingAction.workflow?.companyId !== currentUser.companyId) {
         throw new Error('Access denied: Cannot update action from different company');
       }
 
@@ -306,6 +312,63 @@ export class ActionsService {
           throw new Error('Access denied: Only workflow members or the assigned user can complete this action');
         }
       }
+    }
+
+    // Completing an action always requires a recorded result — otherwise
+    // "Action Results" on the workflow page has nothing to show.
+    if (data.status === 'completed') {
+      const actionType = data.type || existingAction.type || 'regular';
+      const notes = (data.resolutionNotes ?? existingAction.resolutionNotes ?? '')
+        .toString()
+        .trim();
+      const hasUpload =
+        !!(data.uploadedDocumentId || existingAction.uploadedDocumentId);
+      const hasResponse = !!(
+        (data.response ?? existingAction.response)?.toString().trim()
+      );
+
+      if (actionType === 'document_upload' && !hasUpload && !notes) {
+        throw new BadRequestException(
+          'Upload a document or add completion notes before marking this action complete.',
+        );
+      }
+      if (actionType === 'request_response' && !hasResponse && !notes) {
+        throw new BadRequestException(
+          'Add a response or completion notes before marking this action complete.',
+        );
+      }
+      if (actionType === 'regular' && !notes) {
+        throw new BadRequestException(
+          'Add a result (completion notes) before marking this action complete.',
+        );
+      }
+
+      if (!data.completedAt && !existingAction.completedAt) {
+        data.completedAt = new Date().toISOString();
+      }
+      if (!data.completedBy && currentUser?.id) {
+        data.completedBy = currentUser.id;
+      }
+    }
+
+    // Optional file reference → appears under workflow "Files Added".
+    const referencedFileId =
+      data.referencedFileId || data.uploadedDocumentId || null;
+
+    // Document-based workflows may only reference the primary document.
+    const workflowMeta = existingAction.workflow as {
+      type?: string | null;
+      documentId?: string | null;
+    } | null;
+    if (
+      referencedFileId &&
+      workflowMeta?.type === 'document' &&
+      workflowMeta.documentId &&
+      referencedFileId !== workflowMeta.documentId
+    ) {
+      throw new BadRequestException(
+        'Document workflows can only reference their primary document.',
+      );
     }
 
     // Transform update data to match Prisma schema
@@ -320,8 +383,15 @@ export class ActionsService {
     }
     if (data.completedBy !== undefined) updateData.completedBy = data.completedBy;
     if (data.resolutionNotes !== undefined) updateData.resolutionNotes = data.resolutionNotes;
-    if (data.uploadedDocumentId !== undefined) updateData.uploadedDocumentId = data.uploadedDocumentId;
+    if (data.uploadedDocumentId !== undefined || referencedFileId) {
+      updateData.uploadedDocumentId =
+        data.uploadedDocumentId || referencedFileId || null;
+    }
     if (data.uploadedDocumentName !== undefined) updateData.uploadedDocumentName = data.uploadedDocumentName;
+    if (referencedFileId && data.status === 'completed') {
+      updateData.uploadedAt = new Date();
+      updateData.uploadedBy = currentUser?.id || data.uploadedBy || null;
+    }
     if (data.uploadedAt !== undefined) {
       updateData.uploadedAt = data.uploadedAt ? new Date(data.uploadedAt) : null;
     }
@@ -354,6 +424,68 @@ export class ActionsService {
         workflow: true,
       },
     });
+
+    // Link referenced file onto the workflow's Files Added list.
+    if (referencedFileId && currentUser?.id) {
+      try {
+        const file = await this.prisma.file.findUnique({
+          where: { id: referencedFileId },
+          select: { id: true, fileName: true, companyId: true, deletedAt: true },
+        });
+        if (file && !file.deletedAt) {
+          await this.prisma.workflowFile.upsert({
+            where: {
+              workflowId_fileId: {
+                workflowId: existingAction.workflowId,
+                fileId: referencedFileId,
+              },
+            },
+            create: {
+              workflowId: existingAction.workflowId,
+              fileId: referencedFileId,
+              addedBy: currentUser.id,
+              actionId: id,
+              note:
+                (data.resolutionNotes || '').toString().trim() ||
+                `Attached from action "${updatedAction.title}"`,
+            },
+            update: {
+              actionId: id,
+              ...(data.resolutionNotes
+                ? { note: String(data.resolutionNotes).trim() }
+                : {}),
+            },
+          });
+
+          if (!updatedAction.uploadedDocumentName) {
+            await this.prisma.action.update({
+              where: { id },
+              data: { uploadedDocumentName: file.fileName },
+            });
+            updatedAction.uploadedDocumentName = file.fileName;
+            updatedAction.uploadedDocumentId = referencedFileId;
+          }
+
+          // Optional: save referenced document into a folder (from @ mention).
+          const saveToFolderId =
+            typeof data.saveToFolderId === 'string'
+              ? data.saveToFolderId.trim()
+              : '';
+          if (saveToFolderId) {
+            await this.filesService.moveFile(
+              referencedFileId,
+              saveToFolderId,
+              currentUser.id,
+            );
+          }
+        }
+      } catch (error) {
+        console.error('Failed to attach/save file for action:', error);
+        if (error instanceof HttpException) {
+          throw error;
+        }
+      }
+    }
 
     // Automatically update workflow progress/status when action status changes
     if (data.status !== undefined) {

@@ -259,14 +259,14 @@ export function CreateActionFromWorkflowDialog({
             id: selectedUserId,
             name: accessibleUsers.find((u: any) => u.id === selectedUserId)?.name || 
                   users.find((u: any) => u.id === selectedUserId)?.name || 
-                  `User (${selectedUserId})`,
+                  `Someone`,
           }
         : {
             type: "department" as const,
             id: selectedDepartmentId,
             name: (selectedCompanyId && selectedCompanyId !== "same-company" ? accessibleDepartments : allDepartments).find((d: any) => d.id === selectedDepartmentId)?.name || 
                   allDepartments.find((d: any) => d.id === selectedDepartmentId)?.name || 
-                  `Department (${selectedDepartmentId})`,
+                  `A department`,
           };
 
       const actionData: any = {

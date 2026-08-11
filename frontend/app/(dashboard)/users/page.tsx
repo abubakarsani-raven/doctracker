@@ -27,38 +27,28 @@ import {
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { InviteUserDialog } from "@/components/features/users/InviteUserDialog";
-import { Plus, Search, MoreVertical, Mail, Building2 } from "lucide-react";
-import { EmptyState } from "@/components/common";
-
-// Mock data
-const users = [
-  {
-    id: "1",
-    name: "John Doe",
-    email: "john@example.com",
-    role: "Staff",
-    department: "Legal",
-    status: "active",
-  },
-  {
-    id: "2",
-    name: "Jane Smith",
-    email: "jane@example.com",
-    role: "Manager",
-    department: "HR",
-    status: "active",
-  },
-];
+import { Plus, Search, MoreVertical, Mail, Building2, Loader2 } from "lucide-react";
+import { EmptyState, PermissionButton } from "@/components/common";
+import { useUsers } from "@/lib/hooks/use-users";
+import { usePermissions } from "@/lib/hooks/use-permissions";
+import { toast } from "sonner";
 
 export default function UsersPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [roleFilter, setRoleFilter] = useState("all");
   const [inviteDialogOpen, setInviteDialogOpen] = useState(false);
+  const { can, permissions } = usePermissions();
 
-  const filteredUsers = users.filter((user) => {
+  const { data: users = [], isLoading, error } = useUsers();
+
+  if (error) {
+    toast.error("Failed to load users");
+  }
+
+  const filteredUsers = users.filter((user: any) => {
     const matchesSearch =
-      user.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      user.email.toLowerCase().includes(searchQuery.toLowerCase());
+      user.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      user.email?.toLowerCase().includes(searchQuery.toLowerCase());
     const matchesRole = roleFilter === "all" || user.role === roleFilter;
     return matchesSearch && matchesRole;
   });
@@ -73,10 +63,18 @@ export default function UsersPage() {
               Manage users and their permissions
             </p>
           </div>
-          <Button onClick={() => setInviteDialogOpen(true)}>
+          <PermissionButton
+            allowed={can("users.manage")}
+            reason={
+              can("users.manage")
+                ? null
+                : `The ${permissions.role} role cannot invite users.`
+            }
+            onClick={() => setInviteDialogOpen(true)}
+          >
             <Plus className="mr-2 h-4 w-4" />
             Invite User
-          </Button>
+          </PermissionButton>
         </div>
 
         {/* Filters */}
@@ -104,8 +102,15 @@ export default function UsersPage() {
           </Select>
         </div>
 
+        {/* Loading State */}
+        {isLoading && (
+          <div className="flex items-center justify-center py-12">
+            <Loader2 className="h-8 w-8 animate-spin" />
+          </div>
+        )}
+
         {/* Users Table */}
-        {filteredUsers.length === 0 ? (
+        {!isLoading && filteredUsers.length === 0 ? (
           <EmptyState
             icon={Building2}
             title="No users found"
@@ -123,7 +128,7 @@ export default function UsersPage() {
                 : undefined
             }
           />
-        ) : (
+        ) : !isLoading ? (
           <div className="rounded-md border">
             <Table>
               <TableHeader>
@@ -143,29 +148,33 @@ export default function UsersPage() {
                         <Avatar>
                           <AvatarFallback>
                             {user.name
-                              .split(" ")
-                              .map((n) => n[0])
-                              .join("")}
+                              ? user.name
+                                  .split(" ")
+                                  .map((n: string) => n[0])
+                                  .join("")
+                              : user.email[0].toUpperCase()}
                           </AvatarFallback>
                         </Avatar>
                         <div>
-                          <p className="font-medium">{user.name}</p>
+                          <p className="font-medium">{user.name || user.email}</p>
                           <p className="text-sm text-muted-foreground">{user.email}</p>
                         </div>
                       </div>
                     </TableCell>
                     <TableCell>
-                      <Badge variant="secondary">{user.role}</Badge>
+                      <Badge variant="secondary">
+                        {user.role || "No Role"}
+                      </Badge>
                     </TableCell>
                     <TableCell>
                       <div className="flex items-center gap-1 text-sm">
                         <Building2 className="h-3 w-3" />
-                        {user.department}
+                        {user.department?.name || "No Department"}
                       </div>
                     </TableCell>
                     <TableCell>
-                      <Badge variant={user.status === "active" ? "default" : "secondary"}>
-                        {user.status}
+                      <Badge variant={user.isActive ? "default" : "secondary"}>
+                        {user.isActive ? "Active" : "Inactive"}
                       </Badge>
                     </TableCell>
                     <TableCell className="text-right">
@@ -187,7 +196,7 @@ export default function UsersPage() {
               </TableBody>
             </Table>
           </div>
-        )}
+        ) : null}
 
         <InviteUserDialog
           open={inviteDialogOpen}

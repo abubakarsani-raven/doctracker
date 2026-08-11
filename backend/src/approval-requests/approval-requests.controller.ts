@@ -11,39 +11,56 @@ import {
 } from '@nestjs/common';
 import { ApprovalRequestsService } from './approval-requests.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { CapabilityGuard, RequireCapability } from '../permissions/require-capability.decorator';
+import {
+  CreateApprovalRequestDto,
+  UpdateApprovalRequestDto,
+} from './dto/approval-request.dto';
 
 @Controller('approval-requests')
-@UseGuards(JwtAuthGuard)
 export class ApprovalRequestsController {
   constructor(private approvalRequestsService: ApprovalRequestsService) {}
 
   @Get()
+  @RequireCapability('approvals.review')
+  @UseGuards(JwtAuthGuard, CapabilityGuard)
   async findAll(@Request() req) {
-    return this.approvalRequestsService.findAll(req.user.id);
+    return this.approvalRequestsService.findAll(req.user.id, req.user);
   }
 
   @Get(':id')
-  async findOne(@Param('id') id: string) {
-    return this.approvalRequestsService.findOne(id);
+  @RequireCapability('approvals.review')
+  @UseGuards(JwtAuthGuard, CapabilityGuard)
+  async findOne(@Param('id') id: string, @Request() req: any) {
+    return this.approvalRequestsService.findOne(id, req.user);
   }
 
   @Post()
-  async create(@Body() createApprovalRequestDto: any, @Request() req: any) {
+  @RequireCapability('approvals.review')
+  @UseGuards(JwtAuthGuard, CapabilityGuard)
+  async create(
+    @Body() createApprovalRequestDto: CreateApprovalRequestDto,
+    @Request() req: any,
+  ) {
     return this.approvalRequestsService.create(createApprovalRequestDto, req.user);
   }
 
   @Put(':id')
+  @RequireCapability('approvals.review')
+  @UseGuards(JwtAuthGuard, CapabilityGuard)
   async update(
     @Param('id') id: string,
-    @Body() updateApprovalRequestDto: any,
+    @Body() updateApprovalRequestDto: UpdateApprovalRequestDto,
     @Request() req: any,
   ) {
     return this.approvalRequestsService.update(id, updateApprovalRequestDto, req.user);
   }
 
   @Delete(':id')
-  async delete(@Param('id') id: string) {
-    return this.approvalRequestsService.delete(id);
+  @RequireCapability('approvals.review')
+  @UseGuards(JwtAuthGuard, CapabilityGuard)
+  async delete(@Param('id') id: string, @Request() req: any) {
+    return this.approvalRequestsService.delete(id, req.user);
   }
 }
 

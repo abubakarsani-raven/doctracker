@@ -23,23 +23,21 @@ import {
 import { FileUploadDialog } from "@/components/features/documents/FileUploadDialog";
 import { CreateFolderDialog } from "@/components/features/documents/CreateFolderDialog";
 import { CreateWorkflowDialog } from "@/components/features/workflows/CreateWorkflowDialog";
-import { Upload, FolderPlus, Grid3x3, List, Search, ArrowLeft, Workflow, Lock } from "lucide-react";
-import { hasAccessToResource } from "@/lib/access-request-utils";
-import { AccessRequestDialog } from "@/components/features/documents/AccessRequestDialog";
-import { useCurrentUser } from "@/lib/hooks/use-users";
-import { useCompanies } from "@/lib/hooks/use-companies";
+import { Upload, FolderPlus, Grid3x3, List, Search, ArrowLeft, Workflow } from "lucide-react";
+import { usePermissions } from "@/lib/hooks/use-permissions";
+import { PermissionButton } from "@/components/common/PermissionButton";
 import { useFolder, useFolders } from "@/lib/hooks/use-documents";
 import { useDocuments } from "@/lib/hooks/use-documents";
 import { useWorkflowsByFolder } from "@/lib/hooks/use-workflows";
 import { WorkflowList } from "@/components/features/workflows/WorkflowList";
+import { countDocumentsInFolderTree } from "@/lib/folder-utils";
 
 export default function FolderDetailPage() {
   const params = useParams();
   const router = useRouter();
   const folderId = params.id as string;
   
-  const { data: currentUser } = useCurrentUser();
-  const { data: companies = [] } = useCompanies();
+  const { can, canOn, whyNot, permissions } = usePermissions();
   const { data: folder, isLoading: folderLoading } = useFolder(folderId);
   const { data: allFolders = [] } = useFolders();
   const { data: allDocuments = [] } = useDocuments();
@@ -51,7 +49,6 @@ export default function FolderDetailPage() {
   const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
   const [createFolderDialogOpen, setCreateFolderDialogOpen] = useState(false);
   const [createWorkflowDialogOpen, setCreateWorkflowDialogOpen] = useState(false);
-  const [requestAccessOpen, setRequestAccessOpen] = useState(false);
 
   const loading = folderLoading;
 
@@ -76,138 +73,16 @@ export default function FolderDetailPage() {
     return buildPath(folderId, allFolders);
   }, [folder, allFolders, folderId]);
 
-  // Get user context for permissions
-  const userContext = useMemo(() => {
-    if (!currentUser || !companies.length) {
-      return { userDeptId: null, userDivId: null, userCompanyId: null };
-    }
+  // Folder and document access is decided by lib/permissions from the
+  // capabilities the API resolved for this session, rather than re-derived here
+  // from the role name.
+  const hasFolderPermission = (target: any): boolean =>
+    canOn(target, "read", "folder");
 
-    let userCompanyId: string | null = currentUser.companyId || null;
-    const userDeptName = currentUser.department;
-    const userDivName = currentUser.division;
-    let userDeptId: string | null = null;
-    let userDivId: string | null = null;
-
-    if (!userCompanyId) {
-      companies.forEach((company: any) => {
-        if (company.departments) {
-          company.departments.forEach((dept: any) => {
-            if (dept.name === userDeptName) {
-              userDeptId = dept.id;
-              if (!userCompanyId) {
-                userCompanyId = company.id;
-              }
-              if (dept.divisions && userDivName) {
-                dept.divisions.forEach((div: any) => {
-                  if (div.name === userDivName) {
-                    userDivId = div.id;
-                  }
-                });
-              }
-            }
-          });
-        }
-      });
-    } else {
-      const userCompany = companies.find((c: any) => c.id === userCompanyId);
-      if (userCompany?.departments) {
-        userCompany.departments.forEach((dept: any) => {
-          if (dept.name === userDeptName) {
-            userDeptId = dept.id;
-            if (dept.divisions && userDivName) {
-              dept.divisions.forEach((div: any) => {
-                if (div.name === userDivName) {
-                  userDivId = div.id;
-                }
-              });
-            }
-          }
-        });
-      }
-    }
-
-    return { userDeptId, userDivId, userCompanyId };
-  }, [currentUser, companies]);
-
-  // Helper function to check if access is explicitly revoked/denied
-  const isAccessRevoked = (folder: any): boolean => {
-    if (folder.permissionsJson) {
-      try {
-        const perms =
-          typeof folder.permissionsJson === "string"
-            ? JSON.parse(folder.permissionsJson)
-            : folder.permissionsJson;
-        if (perms.denied && Array.isArray(perms.denied)) {
-          return perms.denied.includes(currentUser?.id);
-        }
-      } catch (e) {
-        // Invalid JSON, ignore
-      }
-    }
-    return false;
-  };
-
-  // Helper function to check if user has permission to a folder
-  const hasFolderPermission = (folder: any): boolean => {
-    if (!currentUser || !companies.length) return false;
-    const { userDeptId, userDivId, userCompanyId } = userContext;
-
-    if (isAccessRevoked(folder)) {
-      return false;
-    }
-
-    if (currentUser.role === "Master") return true;
-
-    if (currentUser.role === "Company Admin") {
-      return folder.companyId === userCompanyId;
-    }
-
-    const folderScope = folder.scopeLevel || folder.scope;
-
-    if (currentUser.role === "Department Head") {
-      if (folderScope === "company") {
-        return folder.companyId === userCompanyId;
-      }
-      return folder.departmentId === userDeptId;
-    }
-
-    if (currentUser.role === "Division Head") {
-      if (folderScope === "company") {
-        return folder.companyId === userCompanyId;
-      }
-      if (folderScope === "department") {
-        return folder.departmentId === userDeptId;
-      }
-      return folderScope === "division" && folder.departmentId === userDeptId;
-    }
-
-    let hasScopeAccess = false;
-    if (folderScope === "company") {
-      hasScopeAccess = folder.companyId === userCompanyId;
-    } else if (folderScope === "department") {
-      hasScopeAccess = folder.departmentId === userDeptId;
-    } else if (folderScope === "division") {
-      hasScopeAccess = folder.departmentId === userDeptId && userDivId !== null;
-    }
-
-    if (hasScopeAccess) {
-      return true;
-    }
-
-    if (folder.createdBy === currentUser.id) {
-      return true;
-    }
-
-    return false;
-  };
-
-  // Check access for current folder
-  const hasAccess = useMemo(() => {
-    if (!folder || !currentUser || !companies.length) return null;
-
-    const hasPermission = hasFolderPermission(folder);
-    return hasAccessToResource(folderId, "folder", currentUser, hasPermission);
-  }, [folder, currentUser, companies, folderId, userContext]);
+  // Folder loaded from the API → allow viewing the shell (open-via-child).
+  // Per-card canOn still gates individual items; do not hard-deny the page
+  // solely because canOn(folder, "read") is false.
+  const canOpenFolder = !!folder;
 
   // Filter subfolders and documents for this folder
   const subfolders = useMemo(() => {
@@ -217,7 +92,11 @@ export default function FolderDetailPage() {
 
   const documents = useMemo(() => {
     if (!folderId) return [];
-    return allDocuments.filter((d: any) => d.folderId === folderId);
+    return allDocuments.filter(
+      (d: any) =>
+        d.folderId === folderId ||
+        (Array.isArray(d.folderIds) && d.folderIds.includes(folderId)),
+    );
   }, [allDocuments, folderId]);
 
   // Get parent folder for back button
@@ -242,29 +121,32 @@ export default function FolderDetailPage() {
         name: folder.name,
         description: folder.description,
         scope: folder.scope,
-        documentCount:
-          folder.documentCount ||
-          documents.filter((d: any) => d.folderId === folder.id).length,
+        scopeLevel: folder.scopeLevel ?? folder.scope,
+        documentCount: countDocumentsInFolderTree(
+          folder.id,
+          allFolders,
+          allDocuments,
+        ),
         modifiedAt: new Date(folder.modifiedAt),
         createdBy: folder.createdBy,
+        companyId: folder.companyId,
+        departmentId: folder.departmentId,
+        divisionId: folder.divisionId,
+        permissionsJson: folder.permissionsJson,
+        access: folder.access,
       }))
       .filter((folder: any) =>
         folder.name.toLowerCase().includes(searchQuery.toLowerCase())
       );
-  }, [subfolders, documents, searchQuery]);
+  }, [subfolders, allFolders, allDocuments, searchQuery]);
 
   const filteredDocuments = useMemo(() => {
     return documents
       .map((doc: any) => ({
-        id: doc.id,
-        name: doc.name,
-        type: doc.type,
-        size: doc.size,
-        folder: folder?.name || "",
-        scope: doc.scope,
-        status: doc.status,
+        // Preserve ACL / scope fields so canOn on cards matches the API.
+        ...doc,
+        folder: folder?.name || doc.folder || "",
         modifiedAt: new Date(doc.modifiedAt),
-        createdBy: doc.createdBy,
       }))
       .filter((doc: any) =>
         doc.name.toLowerCase().includes(searchQuery.toLowerCase())
@@ -306,7 +188,8 @@ export default function FolderDetailPage() {
     return <LoadingState type="card" />;
   }
 
-  if (!folder) {
+  // Folder payload from the API is enough to render the shell; cards use canOn.
+  if (!folder || !canOpenFolder) {
     return (
       <div className="space-y-6">
         <EmptyState
@@ -317,46 +200,6 @@ export default function FolderDetailPage() {
             label: "Go Back",
             onClick: () => router.push("/documents"),
           }}
-        />
-      </div>
-    );
-  }
-
-  // Check access - if no access, show access denied message
-  if (hasAccess === false) {
-    return (
-      <div className="space-y-6">
-        <div className="flex items-center gap-4">
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => router.push("/documents")}
-          >
-            <ArrowLeft className="h-4 w-4" />
-          </Button>
-          <div>
-            <h1 className="text-3xl font-bold tracking-tight">{folder.name}</h1>
-            {folder.description && (
-              <p className="text-muted-foreground">{folder.description}</p>
-            )}
-          </div>
-        </div>
-        <EmptyState
-          icon={Lock}
-          title="Access Denied"
-          description="You don't have permission to access this folder. Request access to view its contents."
-          action={{
-            label: "Request Access",
-            onClick: () => setRequestAccessOpen(true),
-          }}
-        />
-        <AccessRequestDialog
-          open={requestAccessOpen}
-          onOpenChange={setRequestAccessOpen}
-          resourceId={folder.id}
-          resourceType="folder"
-          resourceName={folder.name}
-          scope={folder.scope || folder.scopeLevel}
         />
       </div>
     );
@@ -378,24 +221,38 @@ export default function FolderDetailPage() {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <Button
+          <PermissionButton
             variant="outline"
+            allowed={can("folders.create") && canOn(folder, "write", "folder")}
+            reason={
+              whyNot(folder, "write", "folder") ??
+              `The ${permissions.role} role cannot create folders.`
+            }
             onClick={() => setCreateFolderDialogOpen(true)}
           >
             <FolderPlus className="mr-2 h-4 w-4" />
             New Folder
-          </Button>
-          <Button
+          </PermissionButton>
+          <PermissionButton
             variant="outline"
+            allowed={can("workflows.create")}
+            reason={`The ${permissions.role} role cannot create workflows.`}
             onClick={() => setCreateWorkflowDialogOpen(true)}
           >
             <Workflow className="mr-2 h-4 w-4" />
             Create Workflow
-          </Button>
-          <Button onClick={() => setUploadDialogOpen(true)}>
+          </PermissionButton>
+          <PermissionButton
+            allowed={can("documents.create") && canOn(folder, "write", "folder")}
+            reason={
+              whyNot(folder, "write", "folder") ??
+              `The ${permissions.role} role cannot upload documents.`
+            }
+            onClick={() => setUploadDialogOpen(true)}
+          >
             <Upload className="mr-2 h-4 w-4" />
             Upload
-          </Button>
+          </PermissionButton>
         </div>
       </div>
 
@@ -487,18 +344,14 @@ export default function FolderDetailPage() {
               }
             >
               {sortedSubfolders.map((subfolder) => {
-                const subfolderPermission = hasFolderPermission(subfolder);
-                const subfolderAccess = hasAccessToResource(
-                  subfolder.id,
-                  "folder",
-                  currentUser,
-                  subfolderPermission
-                );
+                const subfolderPermission =
+                  (subfolder as any).access?.canRead === true ||
+                  hasFolderPermission(subfolder);
                 return (
                   <FolderCard
                     key={subfolder.id}
                     folder={subfolder}
-                    hasAccess={subfolderAccess}
+                    hasAccess={subfolderPermission}
                     onView={(id) => router.push(`/documents/folder/${id}`)}
                   />
                 );
@@ -519,40 +372,36 @@ export default function FolderDetailPage() {
               }
             >
               {sortedDocuments.map((doc) => {
-                // For documents, check permission via folder
+                // A document inherits the containing folder's scope when its
+                // own scope fields are not populated.
                 const docFolder = allFolders.find((f: any) => f.id === (doc as any).folderId);
-                let hasDocPermission = false;
-
-                if (currentUser && companies.length && docFolder) {
-                  const { userDeptId, userDivId, userCompanyId } = userContext;
-
-                  if (currentUser.role === "Master") {
-                    hasDocPermission = true;
-                  } else {
-                    const docScope = doc.scope || docFolder.scope;
-                    if (docScope === "company") {
-                      hasDocPermission = docFolder.companyId === userCompanyId;
-                    } else if (docScope === "department") {
-                      hasDocPermission = docFolder.departmentId === userDeptId;
-                    } else if (docScope === "division") {
-                      hasDocPermission =
-                        docFolder.departmentId === userDeptId && userDivId !== null;
-                    }
-                  }
-                }
-
-                const docAccess = hasAccessToResource(
-                  doc.id,
-                  "document",
-                  currentUser,
-                  hasDocPermission
-                );
+                const hasDocPermission =
+                  (doc as any).access?.canRead === true ||
+                  canOn(
+                    {
+                      ...doc,
+                      companyId: (doc as any).companyId ?? docFolder?.companyId,
+                      departmentId:
+                        (doc as any).departmentId ?? docFolder?.departmentId,
+                      divisionId:
+                        (doc as any).divisionId ?? docFolder?.divisionId,
+                      scopeLevel:
+                        (doc as any).scopeLevel ??
+                        doc.scope ??
+                        docFolder?.scopeLevel,
+                      permissionsJson:
+                        (doc as any).permissionsJson ??
+                        docFolder?.permissionsJson,
+                    },
+                    "read",
+                    "document",
+                  );
 
                 return (
                   <DocumentCard
                     key={doc.id}
                     document={doc}
-                    hasAccess={docAccess}
+                    hasAccess={hasDocPermission}
                     onView={(id) => router.push(`/documents/${id}`)}
                   />
                 );

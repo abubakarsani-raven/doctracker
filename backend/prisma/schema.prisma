@@ -16,17 +16,19 @@ model Company {
   updatedAt DateTime @updatedAt @map("updated_at")
 
   // Relations
-  users          User[]
-  departments    Department[]
-  folders        Folder[]
-  files          File[]
-  workflows      Workflow[]
-  userRoles      UserRole[]
-  actions        Action[]        @relation("ActionCompany")
-  notifications  Notification[]
-  accessRequests AccessRequest[]
-  goals          WorkflowGoal[]
-  activities     Activity[]
+  users             User[]
+  departments       Department[]
+  folders           Folder[]
+  files             File[]
+  workflows         Workflow[]
+  userRoles         UserRole[]
+  actions           Action[]              @relation("ActionCompany")
+  notifications     Notification[]
+  accessRequests    AccessRequest[]
+  goals             WorkflowGoal[]
+  activities        Activity[]
+  tags              Tag[]
+  signatureRequests SignatureRequest[]
 
   @@map("companies")
 }
@@ -44,17 +46,21 @@ model User {
   updatedAt     DateTime @updatedAt @map("updated_at")
 
   // Relations
-  company        Company?            @relation(fields: [companyId], references: [id])
-  userRoles      UserRole[]
-  userDepartments UserDepartment[]
-  userDivisions  UserDivision[]
-  createdFiles   File[]              @relation("FileCreator")
-  createdFolders Folder[]            @relation("FolderCreator")
-  workflows      Workflow[]          @relation("WorkflowCreator")
-  actions        Action[]            @relation("ActionCreator")
-  createdGoals   WorkflowGoal[]      @relation("GoalCreator")
-  activities     Activity[]
-  documentNotes  DocumentNote[]
+  company             Company?             @relation(fields: [companyId], references: [id])
+  userRoles           UserRole[]
+  userDepartments     UserDepartment[]
+  userDivisions       UserDivision[]
+  createdFiles        File[]               @relation("FileCreator")
+  createdFolders      Folder[]             @relation("FolderCreator")
+  workflows           Workflow[]           @relation("WorkflowCreator")
+  actions             Action[]             @relation("ActionCreator")
+  createdGoals        WorkflowGoal[]       @relation("GoalCreator")
+  activities          Activity[]
+  documentNotes       DocumentNote[]
+  refreshTokens       RefreshToken[]
+  passwordResetTokens PasswordResetToken[]
+  signatureParticipants SignatureParticipant[]
+  workflowFiles       WorkflowFile[]       @relation("WorkflowFileAdder")
 
   @@map("users")
 }
@@ -154,6 +160,8 @@ model Folder {
   divisionId    String?  @map("division_id")
   createdBy     String   @map("created_by")
   permissionsJson Json?  @map("permissions_json")
+  archivedAt    DateTime? @map("archived_at")
+  deletedAt     DateTime? @map("deleted_at")
   createdAt     DateTime @default(now()) @map("created_at")
   updatedAt     DateTime @updatedAt @map("updated_at")
 
@@ -164,6 +172,8 @@ model Folder {
   creator       User      @relation("FolderCreator", fields: [createdBy], references: [id])
   fileFolderLinks FileFolderLink[]
 
+  @@index([deletedAt])
+  @@index([archivedAt])
   @@map("folders")
 }
 
@@ -178,19 +188,26 @@ model File {
   departmentId String? @map("department_id")
   divisionId  String?  @map("division_id")
   createdBy   String   @map("created_by")
+  archivedAt  DateTime? @map("archived_at")
+  deletedAt   DateTime? @map("deleted_at")
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 
   // Relations
-  company         Company?            @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  creator         User                @relation("FileCreator", fields: [createdBy], references: [id])
-  fileFolderLinks FileFolderLink[]
-  fileVersions    FileVersion[]
-  richTextDoc     RichTextDocument?
-  workflows       Workflow[]
-  actions         Action[]
-  notes           DocumentNote[]
+  company           Company?              @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  creator           User                  @relation("FileCreator", fields: [createdBy], references: [id])
+  fileFolderLinks   FileFolderLink[]
+  fileVersions      FileVersion[]
+  richTextDoc       RichTextDocument?
+  workflows         Workflow[]
+  actions           Action[]
+  notes             DocumentNote[]
+  fileTags          FileTag[]
+  signatureRequests SignatureRequest[]
+  workflowFiles     WorkflowFile[]
 
+  @@index([deletedAt])
+  @@index([archivedAt])
   @@map("files")
 }
 
@@ -279,6 +296,7 @@ model Workflow {
   actions       Action[]
   routingHistory WorkflowRouting[]
   goals         WorkflowGoal[]
+  files         WorkflowFile[]
   
   @@map("workflows")
 }
@@ -360,8 +378,31 @@ model Action {
   document      File?    @relation(fields: [documentId], references: [id])
   creator       User     @relation("ActionCreator", fields: [createdBy], references: [id])
   company       Company? @relation("ActionCompany", fields: [companyId], references: [id])
+  workflowFiles WorkflowFile[]
 
   @@map("actions")
+}
+
+/// Documents attached to a workflow (Files Added). Can be linked from an
+/// action result so reviewers see the evidence alongside completion notes.
+model WorkflowFile {
+  id         String   @id @default(uuid())
+  workflowId String   @map("workflow_id")
+  fileId     String   @map("file_id")
+  addedBy    String   @map("added_by")
+  actionId   String?  @map("action_id")
+  note       String?
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  workflow Workflow @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  file     File     @relation(fields: [fileId], references: [id], onDelete: Cascade)
+  adder    User     @relation("WorkflowFileAdder", fields: [addedBy], references: [id])
+  action   Action?  @relation(fields: [actionId], references: [id], onDelete: SetNull)
+
+  @@unique([workflowId, fileId])
+  @@index([workflowId])
+  @@index([fileId])
+  @@map("workflow_files")
 }
 
 // ============ WORKFLOW GOALS ============
@@ -526,4 +567,118 @@ model DocumentNote {
   @@index([documentId])
   @@index([createdBy])
   @@map("document_notes")
+}
+
+// ============ TAGGING SYSTEM ============
+
+model Tag {
+  id        String   @id @default(uuid())
+  companyId String   @map("company_id")
+  name      String
+  createdAt DateTime @default(now()) @map("created_at")
+
+  // Relations
+  company  Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  fileTags FileTag[]
+
+  @@unique([companyId, name])
+  @@map("tags")
+}
+
+model FileTag {
+  fileId String @map("file_id")
+  tagId  String @map("tag_id")
+
+  // Relations
+  file File @relation(fields: [fileId], references: [id], onDelete: Cascade)
+  tag  Tag  @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([fileId, tagId])
+  @@map("file_tags")
+}
+
+// ============ AUTHENTICATION TOKENS ============
+
+model RefreshToken {
+  id        String    @id @default(uuid())
+  userId    String    @map("user_id")
+  tokenHash String    @unique @map("token_hash")
+  expiresAt DateTime  @map("expires_at")
+  revokedAt DateTime? @map("revoked_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("refresh_tokens")
+}
+
+model PasswordResetToken {
+  id        String    @id @default(uuid())
+  userId    String    @map("user_id")
+  tokenHash String    @unique @map("token_hash")
+  expiresAt DateTime  @map("expires_at")
+  usedAt    DateTime? @map("used_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("password_reset_tokens")
+}
+
+// ============ SIGNATURE SYSTEM ============
+
+model SignatureRequest {
+  id         String   @id @default(uuid())
+  fileId     String   @map("file_id")
+  companyId  String   @map("company_id")
+  status     String   @default("pending") // pending, completed, cancelled
+  createdBy  String   @map("created_by")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  file         File                   @relation(fields: [fileId], references: [id], onDelete: Cascade)
+  company      Company                @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  participants SignatureParticipant[]
+  events       SignatureEvent[]
+
+  @@map("signature_requests")
+}
+
+model SignatureParticipant {
+  id                   String    @id @default(uuid())
+  requestId            String    @map("request_id")
+  userId               String?   @map("user_id")
+  email                String
+  name                 String?
+  status               String    @default("pending") // pending, signed, declined
+  signingOrder         Int       @map("signing_order")
+  signedAt             DateTime? @map("signed_at")
+  signatureImageData   String?   @map("signature_image_data") // data URL or storage key
+
+  // Relations
+  request SignatureRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  user    User?            @relation(fields: [userId], references: [id])
+
+  @@map("signature_participants")
+}
+
+model SignatureEvent {
+  id            String   @id @default(uuid())
+  requestId     String   @map("request_id")
+  participantId String?  @map("participant_id")
+  eventType     String   @map("event_type")
+  contentHash   String   @map("content_hash")
+  previousHash  String?  @map("previous_hash")
+  ipAddress     String?  @map("ip_address")
+  userAgent     String?  @map("user_agent")
+  metadata      Json?
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  // Relations
+  request SignatureRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+
+  @@map("signature_events")
 }

@@ -102,8 +102,19 @@ export function WorkflowRoutingSheet({
     return allDepartments;
   }, [companies]);
 
-  // Get original sender
-  const originalSender = workflow?.assignedBy || "";
+  // Resolve original sender to a display name (never show the raw user id).
+  const originalSenderId = workflow?.assignedBy || "";
+  const originalSenderName = useMemo(() => {
+    if (!workflow) return "";
+    const fromApi =
+      workflow.assignedByName ||
+      workflow.creatorName ||
+      workflow.creator?.name ||
+      workflow.creator?.email;
+    if (fromApi) return fromApi;
+    const user = users.find((u: any) => u.id === workflow.assignedBy);
+    return user?.name || user?.email || "";
+  }, [workflow, users]);
 
   // Get department heads
   const departmentHeads = useMemo(() => {
@@ -251,23 +262,34 @@ export function WorkflowRoutingSheet({
           break;
         }
         case "original_sender": {
-          // Find original sender user
-          const sender = users.find((u: any) => u.name === originalSender);
+          // Prefer lookup by id (assignedBy), then by resolved name.
+          const sender =
+            users.find((u: any) => u.id === originalSenderId) ||
+            (originalSenderName
+              ? users.find((u: any) => u.name === originalSenderName)
+              : null);
+          const senderLabel =
+            sender?.name ||
+            sender?.email ||
+            originalSenderName ||
+            "original sender";
           if (sender) {
             newAssignedTo = {
               type: "user",
               id: sender.id,
-              name: sender.name,
+              name: senderLabel,
             };
-            message = `Workflow routed back to ${originalSender}`;
-          } else {
-            // If user not found, create generic entry
+          } else if (originalSenderId) {
             newAssignedTo = {
               type: "user",
-              name: originalSender,
+              id: originalSenderId,
+              name: senderLabel,
             };
-            message = `Workflow routed back to ${originalSender}`;
+          } else {
+            toast.error("Original sender not found");
+            return;
           }
+          message = `Workflow routed back to ${senderLabel}`;
           break;
         }
       }
@@ -400,7 +422,7 @@ export function WorkflowRoutingSheet({
             <p className="text-sm text-muted-foreground">Loading...</p>
           </div>
         ) : (
-          <div className="space-y-6 mt-6">
+          <div className="mt-2 space-y-6">
             <RadioGroup
               value={routingType}
               onValueChange={(value: any) => {
@@ -408,10 +430,11 @@ export function WorkflowRoutingSheet({
                 setSelectedDepartment("");
                 setSelectedIndividual("");
               }}
+              className="gap-3"
             >
               {/* Show file option for completed workflows or for secretary when ready_for_review */}
               {(workflow?.status === "completed" || (isSecretary && workflow?.status === "ready_for_review")) ? (
-                <div className="flex items-start space-x-2 space-y-0 rounded-md border p-4">
+                <div className="flex items-start gap-3 rounded-md border p-4">
                   <RadioGroupItem value="file_documents" id="file_documents" className="mt-1" />
                   <div className="space-y-1 leading-none flex-1">
                     <Label htmlFor="file_documents" className="cursor-pointer font-medium">
@@ -423,7 +446,7 @@ export function WorkflowRoutingSheet({
                   </div>
                 </div>
               ) : (
-                <div className="flex items-start space-x-2 space-y-0 rounded-md border p-4">
+                <div className="flex items-start gap-3 rounded-md border p-4">
                   <RadioGroupItem value="secretary" id="secretary" className="mt-1" />
                   <div className="space-y-1 leading-none flex-1">
                     <Label htmlFor="secretary" className="cursor-pointer font-medium">
@@ -439,8 +462,8 @@ export function WorkflowRoutingSheet({
               {/* Only show other routing options if workflow is not completed and not being filed by secretary */}
               {workflow?.status !== "completed" && !(isSecretary && workflow?.status === "ready_for_review") && (
                 <>
-                  {originalSender && (
-                <div className="flex items-start space-x-2 space-y-0 rounded-md border p-4">
+                  {originalSenderId && (
+                <div className="flex items-start gap-3 rounded-md border p-4">
                   <RadioGroupItem value="original_sender" id="original_sender" className="mt-1" />
                   <div className="space-y-1 leading-none flex-1">
                     <Label htmlFor="original_sender" className="cursor-pointer font-medium flex items-center gap-2">
@@ -448,14 +471,14 @@ export function WorkflowRoutingSheet({
                       <User className="h-3 w-3" />
                     </Label>
                     <p className="text-sm text-muted-foreground">
-                      Send back to {originalSender} (who assigned this document)
+                      Send back to {originalSenderName || "the original sender"} (who assigned this document)
                     </p>
                   </div>
                 </div>
               )}
 
               {departmentHeads.length > 0 && (
-                <div className="flex items-start space-x-2 space-y-0 rounded-md border p-4">
+                <div className="flex items-start gap-3 rounded-md border p-4">
                   <RadioGroupItem value="department_head" id="department_head" className="mt-1" />
                   <div className="space-y-1 leading-none flex-1">
                     <Label htmlFor="department_head" className="cursor-pointer font-medium flex items-center gap-2">
@@ -470,7 +493,7 @@ export function WorkflowRoutingSheet({
               )}
 
               {currentDeptUsers.length > 0 && (
-                <div className="flex items-start space-x-2 space-y-0 rounded-md border p-4">
+                <div className="flex items-start gap-3 rounded-md border p-4">
                   <RadioGroupItem value="individual" id="individual" className="mt-1" />
                   <div className="space-y-1 leading-none flex-1">
                     <Label htmlFor="individual" className="cursor-pointer font-medium">
@@ -483,7 +506,7 @@ export function WorkflowRoutingSheet({
                 </div>
               )}
 
-              <div className="flex items-start space-x-2 space-y-0 rounded-md border p-4">
+              <div className="flex items-start gap-3 rounded-md border p-4">
                 <RadioGroupItem value="department" id="department" className="mt-1" />
                 <div className="space-y-1 leading-none flex-1">
                   <Label htmlFor="department" className="cursor-pointer font-medium">
@@ -495,7 +518,7 @@ export function WorkflowRoutingSheet({
                 </div>
               </div>
 
-              <div className="flex items-start space-x-2 space-y-0 rounded-md border p-4">
+              <div className="flex items-start gap-3 rounded-md border p-4">
                 <RadioGroupItem value="actions" id="actions" className="mt-1" />
                 <div className="space-y-1 leading-none flex-1">
                   <Label htmlFor="actions" className="cursor-pointer font-medium">
@@ -638,14 +661,16 @@ export function WorkflowRoutingSheet({
               </div>
             )}
 
-            {routingType === "original_sender" && originalSender && (
+            {routingType === "original_sender" && originalSenderId && (
               <div className="space-y-2">
                 <Label>Original Sender</Label>
                 <div className="p-3 border rounded-md bg-muted/50">
                   <div className="flex items-center gap-2">
                     <User className="h-4 w-4" />
                     <div>
-                      <p className="font-medium text-sm">{originalSender}</p>
+                      <p className="font-medium text-sm">
+                        {originalSenderName || "Original sender"}
+                      </p>
                       <p className="text-xs text-muted-foreground">Who assigned this document</p>
                     </div>
                   </div>
@@ -701,7 +726,7 @@ export function WorkflowRoutingSheet({
                 {routingType === "original_sender" && (
                   <>
                     <ArrowLeft className="mr-2 h-4 w-4" />
-                    Send to {originalSender}
+                    Send to {originalSenderName || "Original Sender"}
                   </>
                 )}
                 {routingType === "department_head" && (

@@ -99,5 +99,130 @@ export class ActivityService {
       take: limit,
     });
   }
+
+  async getCompanyActivities(
+    companyId: string,
+    filters?: {
+      userId?: string;
+      activityType?: string;
+      resourceType?: string;
+      resourceId?: string;
+      from?: Date;
+      to?: Date;
+      skip?: number;
+      take?: number;
+    }
+  ) {
+    const where: any = {
+      companyId,
+    };
+
+    if (filters?.userId) {
+      where.userId = filters.userId;
+    }
+
+    if (filters?.activityType) {
+      where.activityType = filters.activityType;
+    }
+
+    if (filters?.resourceType) {
+      where.resourceType = filters.resourceType;
+    }
+
+    if (filters?.resourceId) {
+      where.resourceId = filters.resourceId;
+    }
+
+    if (filters?.from || filters?.to) {
+      where.createdAt = {};
+      if (filters.from) {
+        where.createdAt.gte = filters.from;
+      }
+      if (filters.to) {
+        where.createdAt.lte = filters.to;
+      }
+    }
+
+    const [items, total] = await Promise.all([
+      this.prisma.activity.findMany({
+        where,
+        include: {
+          user: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+            },
+          },
+        },
+        orderBy: {
+          createdAt: 'desc',
+        },
+        skip: filters?.skip || 0,
+        take: filters?.take || 100,
+      }),
+      this.prisma.activity.count({ where }),
+    ]);
+
+    return { items, total };
+  }
+
+  async exportActivities(
+    companyId: string,
+    filters?: {
+      userId?: string;
+      activityType?: string;
+      resourceType?: string;
+      resourceId?: string;
+      from?: Date;
+      to?: Date;
+    }
+  ) {
+    const where: any = {
+      companyId,
+    };
+
+    if (filters?.userId) {
+      where.userId = filters.userId;
+    }
+
+    if (filters?.activityType) {
+      where.activityType = filters.activityType;
+    }
+
+    if (filters?.resourceType) {
+      where.resourceType = filters.resourceType;
+    }
+
+    if (filters?.resourceId) {
+      where.resourceId = filters.resourceId;
+    }
+
+    if (filters?.from || filters?.to) {
+      where.createdAt = {};
+      if (filters.from) {
+        where.createdAt.gte = filters.from;
+      }
+      if (filters.to) {
+        where.createdAt.lte = filters.to;
+      }
+    }
+
+    return this.prisma.activity.findMany({
+      where,
+      include: {
+        user: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+          },
+        },
+      },
+      orderBy: {
+        createdAt: 'desc',
+      },
+    });
+  }
 }
 

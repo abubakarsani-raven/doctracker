@@ -1,5 +1,6 @@
 "use client";
 
+import { seesAllCompanies } from "@/lib/permissions";
 import { useMemo, useState } from "react";
 import { WorkflowCard, EmptyState, LoadingState } from "@/components/common";
 import { Button } from "@/components/ui/button";
@@ -39,7 +40,7 @@ export default function WorkflowsPage() {
       // Visibility check for cross-company workflows
       if (workflow.isCrossCompany && currentUser) {
         // Master can see all
-        if (currentUser.role === "Master") {
+        if (seesAllCompanies(currentUser)) {
           // Allow through
         }
         // Company Admin can see if:
@@ -184,11 +185,11 @@ export default function WorkflowsPage() {
                   documentId: workflow.documentId || workflow.id,
                   status: workflow.status || "assigned",
                   assignedTo:
-                    typeof workflow.assignedTo === "object"
+                    workflow.assignedTo && typeof workflow.assignedTo === "object"
                       ? workflow.assignedTo.name?.trim() || "Unassigned"
                       : workflow.assignedTo || "Unassigned",
                   assignedToType:
-                    typeof workflow.assignedTo === "object"
+                    workflow.assignedTo && typeof workflow.assignedTo === "object"
                       ? workflow.assignedTo.type
                       : workflow.assignedToType || "user",
                   progress: workflow.progress || 0,

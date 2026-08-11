@@ -86,9 +86,10 @@ export function WorkflowList({ workflows, isLoading, title = "Workflows" }: Work
                 : workflow.assignedToName || "Unassigned";
 
             const creatorName =
+              workflow.assignedByName ||
+              workflow.creatorName ||
               workflow.creator?.name ||
               workflow.creator?.email ||
-              workflow.assignedBy ||
               "Unknown";
 
             const completedActions =

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
+import { usePermissions } from "@/lib/hooks/use-permissions";
 import {
   Dialog,
   DialogContent,
@@ -15,10 +16,9 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
-import { Folder, FolderOpen, X } from "lucide-react";
+import { FolderOpen, X } from "lucide-react";
 import { useFolders } from "@/lib/hooks/use-documents";
 import { useCurrentUser } from "@/lib/hooks/use-users";
-import { useCompanies } from "@/lib/hooks/use-companies";
 
 interface AddToFolderDialogProps {
   open: boolean;
@@ -31,16 +31,13 @@ interface AddToFolderDialogProps {
 export function AddToFolderDialog({
   open,
   onOpenChange,
-  documentId,
   currentFolderId,
-  onAdded,
 }: AddToFolderDialogProps) {
   const { data: currentUser } = useCurrentUser();
-  const { data: companies = [] } = useCompanies();
+  const { canOn } = usePermissions();
   const { data: allFolders = [] } = useFolders();
 
   const [selectedFolderIds, setSelectedFolderIds] = useState<string[]>([]);
-  const [adding, setAdding] = useState(false);
 
   useEffect(() => {
     if (open && currentFolderId) {
@@ -51,112 +48,19 @@ export function AddToFolderDialog({
   }, [open, currentFolderId]);
 
   // Get user's department and division IDs from companies data
-  const userContext = useMemo(() => {
-    if (!currentUser || !companies.length) {
-      return { userDeptId: null, userDivId: null, userCompanyId: null };
-    }
-
-    let userCompanyId: string | null = currentUser.companyId || null;
-    const userDeptName = currentUser.department;
-    const userDivName = currentUser.division;
-    let userDeptId: string | null = null;
-    let userDivId: string | null = null;
-
-    if (!userCompanyId) {
-      companies.forEach((company: any) => {
-        if (company.departments) {
-          company.departments.forEach((dept: any) => {
-            if (dept.name === userDeptName) {
-              userDeptId = dept.id;
-              if (!userCompanyId) {
-                userCompanyId = company.id;
-              }
-              if (dept.divisions && userDivName) {
-                dept.divisions.forEach((div: any) => {
-                  if (div.name === userDivName) {
-                    userDivId = div.id;
-                  }
-                });
-              }
-            }
-          });
-        }
-      });
-    } else {
-      const userCompany = companies.find((c: any) => c.id === userCompanyId);
-      if (userCompany?.departments) {
-        userCompany.departments.forEach((dept: any) => {
-          if (dept.name === userDeptName) {
-            userDeptId = dept.id;
-            if (dept.divisions && userDivName) {
-              dept.divisions.forEach((div: any) => {
-                if (div.name === userDivName) {
-                  userDivId = div.id;
-                }
-              });
-            }
-          }
-        });
-      }
-    }
-
-    return { userDeptId, userDivId, userCompanyId };
-  }, [currentUser, companies]);
 
   // Get accessible folders based on permissions
+  // Only folders the user may actually write into are offered as targets.
+  // This used to be a copy of the role ladder from the documents page; it is
+  // now the same decision the API will make when the move is submitted.
   const accessibleFolders = useMemo(() => {
-    if (!currentUser || !companies.length || !allFolders.length) return [];
-    const { userDeptId, userDivId, userCompanyId } = userContext;
+    if (!currentUser || !allFolders.length) return [];
 
     return allFolders.filter((folder: any) => {
-      // Filter out current folder
-      if (folder.id === currentFolderId) {
-        return false;
-      }
-
-      if (currentUser.role === "Master") {
-        return true;
-      }
-
-      if (currentUser.role === "Company Admin") {
-        return folder.companyId === userCompanyId;
-      }
-
-      const folderScope = folder.scopeLevel || folder.scope;
-
-      if (currentUser.role === "Department Head") {
-        if (folderScope === "company") {
-          return folder.companyId === userCompanyId;
-        }
-        return folder.departmentId === userDeptId;
-      }
-
-      if (currentUser.role === "Division Head") {
-        if (folderScope === "company") {
-          return folder.companyId === userCompanyId;
-        }
-        if (folderScope === "department") {
-          return folder.departmentId === userDeptId;
-        }
-        return folderScope === "division" && folder.departmentId === userDeptId;
-      }
-
-      // Regular users: scope-based access
-      if (folderScope === "company") {
-        return folder.companyId === userCompanyId;
-      }
-
-      if (folderScope === "department") {
-        return folder.departmentId === userDeptId;
-      }
-
-      if (folderScope === "division") {
-        return folder.departmentId === userDeptId && userDivId !== null;
-      }
-
-      return false;
+      if (folder.id === currentFolderId) return false;
+      return canOn(folder, "write", "folder");
     });
-  }, [allFolders, currentUser, userContext, companies, currentFolderId]);
+  }, [allFolders, currentUser, currentFolderId, canOn]);
 
   const buildFolderPath = (folder: any, allFolders: any[]): string => {
     if (!folder.parentFolderId) {
@@ -181,30 +85,14 @@ export function AddToFolderDialog({
     });
   };
 
-  const handleAdd = async () => {
+  const handleAdd = () => {
     if (selectedFolderIds.length === 0) {
       toast.error("Please select at least one folder");
       return;
     }
 
-    setAdding(true);
-    try {
-      // TODO: Replace with actual API call when endpoint is available
-      // await api.addDocumentToFolders(documentId, selectedFolderIds);
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-
-      toast.success(
-        `Document added to ${selectedFolderIds.length} folder(s) successfully`
-      );
-      onAdded?.();
-      onOpenChange(false);
-      setSelectedFolderIds([]);
-    } catch (error: any) {
-      console.error("Failed to add document to folders:", error);
-      toast.error(error.message || "Failed to add document to folders");
-    } finally {
-      setAdding(false);
-    }
+    // Add-to-folder endpoint is not wired yet — do not fake success.
+    toast.error("This action is not available yet");
   };
 
   return (
@@ -290,17 +178,14 @@ export function AddToFolderDialog({
           <Button
             variant="outline"
             onClick={() => onOpenChange(false)}
-            disabled={adding}
           >
             Cancel
           </Button>
           <Button
             onClick={handleAdd}
-            disabled={adding || selectedFolderIds.length === 0}
+            disabled={selectedFolderIds.length === 0}
           >
-            {adding
-              ? `Adding to ${selectedFolderIds.length} folder(s)...`
-              : `Add to ${selectedFolderIds.length || ""} Folder(s)`}
+            {`Add to ${selectedFolderIds.length || ""} Folder(s)`}
           </Button>
         </DialogFooter>
       </DialogContent>

@@ -91,10 +91,11 @@ export function DocumentUploadActionDialog({
     }
 
     try {
-      // Upload file to backend
+      const targetFolder = folders.find((f: any) => f.id === action?.targetFolderId);
       const uploadedFile = await api.uploadFile(files[0].file, {
-        scopeLevel: "company", // Default scope, can be made configurable
+        scopeLevel: "company",
         folderId: action?.targetFolderId,
+        companyId: targetFolder?.companyId,
       });
 
       // Update action status with uploaded document info

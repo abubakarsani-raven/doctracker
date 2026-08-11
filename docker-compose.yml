@@ -1,0 +1,89 @@
+# ---------------------------------------------------------------------------
+# DocTracker — full local stack.
+#
+#   docker compose up            start postgres + backend + frontend
+#   docker compose up -d postgres    just the database
+#   docker compose logs -f backend
+#   docker compose down -v       stop and wipe the database volume
+#
+# Host ports are configurable in the root `.env` file. The defaults avoid
+# 5432 and 3000, which are already in use on this machine.
+# ---------------------------------------------------------------------------
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: doctracker-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-doctracker}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-doctracker}
+      POSTGRES_DB: ${POSTGRES_DB:-doctracker}
+    ports:
+      - "${POSTGRES_PORT:-5433}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      # Backend and frontend wait on this, so the app never boots against a
+      # database that is still initialising.
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-doctracker} -d ${POSTGRES_DB:-doctracker}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  backend:
+    build:
+      context: ./backend
+      target: dev
+    container_name: doctracker-backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file:
+      - ./backend/.env
+    environment:
+      # Overrides the host-facing value in backend/.env: inside the compose
+      # network Postgres is reachable as `postgres:5432`, not localhost:5433.
+      DATABASE_URL: postgresql://${POSTGRES_USER:-doctracker}:${POSTGRES_PASSWORD:-doctracker}@postgres:5432/${POSTGRES_DB:-doctracker}?schema=public
+      PORT: 4003
+      CORS_ORIGIN: http://localhost:${FRONTEND_PORT:-3001}
+      FRONTEND_URL: http://localhost:${FRONTEND_PORT:-3001}
+    ports:
+      - "${BACKEND_PORT:-4003}:4003"
+    volumes:
+      # Bind-mount source for hot reload, but keep container-built
+      # node_modules and dist as named volumes. Both are platform- and
+      # build-specific: sharing dist/ with the host means a host `npm run build`
+      # and the container's watcher overwrite each other's output, which leaves
+      # the container requiring modules that are no longer there.
+      - ./backend:/app
+      - backend-node-modules:/app/node_modules
+      - backend-dist:/app/dist
+
+  frontend:
+    build:
+      context: ./frontend
+      target: dev
+    container_name: doctracker-frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    environment:
+      # Inlined into the browser bundle, so it must be reachable from the
+      # host browser — not the docker-internal `http://backend:4003`.
+      NEXT_PUBLIC_API_URL: http://localhost:${BACKEND_PORT:-4003}
+    ports:
+      - "${FRONTEND_PORT:-3001}:3000"
+    volumes:
+      - ./frontend:/app
+      - frontend-node-modules:/app/node_modules
+      - frontend-next:/app/.next
+
+volumes:
+  postgres-data:
+  backend-node-modules:
+  backend-dist:
+  frontend-node-modules:
+  frontend-next:

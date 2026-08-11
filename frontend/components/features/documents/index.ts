@@ -18,4 +18,3 @@ export { ArchiveDialog } from "./ArchiveDialog";
 export { DocumentTagsManager } from "./DocumentTagsManager";
 export { DocumentLinking } from "./DocumentLinking";
 export { BulkOperations } from "./BulkOperations";
-export { TemplateLibrary } from "./TemplateLibrary";

@@ -17,6 +17,8 @@ import { StorageModule } from './storage/storage.module';
 import { WebSocketModule } from './websocket/websocket.module';
 import { ActivityModule } from './activity/activity.module';
 import { DocumentNotesModule } from './document-notes/document-notes.module';
+import { TagsModule } from './tags/tags.module';
+import { SignaturesModule } from './signatures/signatures.module';
 
 @Module({
   imports: [
@@ -38,6 +40,8 @@ import { DocumentNotesModule } from './document-notes/document-notes.module';
     WebSocketModule,
     ActivityModule,
     DocumentNotesModule,
+    TagsModule,
+    SignaturesModule,
   ],
   controllers: [AppController],
   providers: [AppService],

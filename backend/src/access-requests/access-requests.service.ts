@@ -1,12 +1,16 @@
-import { Injectable } from '@nestjs/common';
+import { ForbiddenException, Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { ActivityService } from '../activity/activity.service';
+import { PermissionsService } from '../permissions/permissions.service';
 
 @Injectable()
 export class AccessRequestsService {
   constructor(
     private prisma: PrismaService,
     private notificationsService: NotificationsService,
+    private activityService: ActivityService,
+    private permissionsService: PermissionsService,
   ) {}
 
   async findAll(userId: string) {
@@ -58,8 +62,8 @@ export class AccessRequestsService {
     return requests;
   }
 
-  async findOne(id: string) {
-    return this.prisma.accessRequest.findUnique({
+  async findOne(id: string, currentUser: any) {
+    const request = await this.prisma.accessRequest.findUnique({
       where: { id },
       include: {
         company: {
@@ -70,6 +74,32 @@ export class AccessRequestsService {
         },
       },
     });
+
+    if (!request) {
+      throw new NotFoundException('Access request not found');
+    }
+
+    const capabilities: string[] = currentUser?.permissions?.capabilities ?? [];
+    const isRequester = request.requestedBy === currentUser?.id;
+    const isReviewer = capabilities.includes('access_requests.review');
+
+    if (!isRequester && !isReviewer) {
+      throw new ForbiddenException('You cannot view this access request.');
+    }
+
+    if (
+      isReviewer &&
+      !isRequester &&
+      currentUser?.permissions?.dataScope !== 'all' &&
+      request.companyId &&
+      request.companyId !== currentUser.companyId
+    ) {
+      throw new ForbiddenException(
+        'That access request belongs to another company.',
+      );
+    }
+
+    return request;
   }
 
   async create(data: any, currentUser: any) {
@@ -147,16 +177,99 @@ export class AccessRequestsService {
     });
 
     if (!existingRequest) {
-      throw new Error('Access request not found');
+      throw new NotFoundException('Access request not found');
+    }
+
+    // Approving or rejecting is a reviewer's decision, so it takes the
+    // capability rather than merely being signed in.
+    const capabilities: string[] = currentUser?.permissions?.capabilities ?? [];
+    if (!capabilities.includes('access_requests.review')) {
+      throw new ForbiddenException(
+        'Your role cannot approve or reject access requests.',
+      );
+    }
+
+    // A reviewer only decides requests inside their own company; only an
+    // instance-wide scope reaches across companies.
+    if (
+      currentUser?.permissions?.dataScope !== 'all' &&
+      existingRequest.companyId &&
+      existingRequest.companyId !== currentUser.companyId
+    ) {
+      throw new ForbiddenException(
+        'That access request belongs to another company.',
+      );
+    }
+
+    // Reviewer identity comes from the session, never from the request body.
+    const now = new Date();
+    const reviewerName =
+      currentUser?.name || currentUser?.email || currentUser?.id || 'Unknown';
+
+    const decision: any = {
+      status: data.status,
+      updatedAt: now,
+    };
+
+    if (data.status === 'approved') {
+      decision.approvedBy = currentUser.id;
+      decision.approvedByName = reviewerName;
+      decision.approvedAt = now;
+    } else if (data.status === 'rejected') {
+      decision.rejectedBy = currentUser.id;
+      decision.rejectedByName = reviewerName;
+      decision.rejectedAt = now;
+      decision.rejectionReason = data.rejectionReason ?? null;
     }
 
     const updatedRequest = await this.prisma.accessRequest.update({
       where: { id },
-      data: {
-        ...data,
-        updatedAt: new Date(),
-      },
+      data: decision,
     });
+
+    // Grant ACL when approved so the requester can actually open the resource.
+    if (data.status === 'approved') {
+      try {
+        const actor = {
+          id: currentUser.id,
+          name: currentUser.name,
+          email: currentUser.email,
+        };
+        const resourceId = existingRequest.resourceId;
+
+        if (existingRequest.resourceType === 'folder') {
+          await this.permissionsService.grantUserFolderAccess(
+            resourceId,
+            existingRequest.requestedBy,
+            ['read'],
+            actor,
+            {
+              source: `access_request:${id}`,
+              subjectName: existingRequest.requestedByName,
+              notify: false,
+            },
+          );
+        } else {
+          // document / file
+          await this.permissionsService.grantUserFileAccess(
+            resourceId,
+            existingRequest.requestedBy,
+            ['read'],
+            actor,
+            {
+              source: `access_request:${id}`,
+              subjectName: existingRequest.requestedByName,
+              notify: false,
+            },
+          );
+        }
+      } catch (error) {
+        console.error('Failed to grant access after approval:', error);
+        throw new BadRequestException(
+          'Request was recorded but access could not be granted. Try again or grant manually.',
+        );
+      }
+    }
 
     // Create notification for requester
     try {
@@ -188,13 +301,64 @@ export class AccessRequestsService {
       // Don't throw - notification failure shouldn't break request update
     }
 
+    // Record activity for decision
+    try {
+      await this.activityService.createActivity({
+        userId: currentUser.id,
+        companyId: currentUser.companyId,
+        activityType: 'access_request_decision',
+        resourceType: existingRequest.resourceType,
+        resourceId: existingRequest.resourceId,
+        description: `${data.status === 'approved' ? 'Approved' : 'Rejected'} access request for ${existingRequest.resourceName}`,
+        metadata: { 
+          requestId: id,
+          decision: data.status,
+          rejectionReason: data.rejectionReason,
+        },
+      });
+    } catch (error) {
+      // Don't fail the operation if activity logging fails
+    }
+
     return updatedRequest;
   }
 
-  async delete(id: string) {
-    return this.prisma.accessRequest.delete({
+  /**
+   * Withdraw a request. The person who raised it can take it back; a reviewer
+   * can dismiss it. Nobody else.
+   */
+  async delete(id: string, currentUser: any) {
+    const request = await this.prisma.accessRequest.findUnique({
       where: { id },
     });
+
+    if (!request) {
+      throw new NotFoundException('Access request not found');
+    }
+
+    const capabilities: string[] = currentUser?.permissions?.capabilities ?? [];
+    const isRequester = request.requestedBy === currentUser?.id;
+    const isReviewer = capabilities.includes('access_requests.review');
+
+    if (!isRequester && !isReviewer) {
+      throw new ForbiddenException(
+        'You can only withdraw your own access requests.',
+      );
+    }
+
+    if (
+      isReviewer &&
+      !isRequester &&
+      currentUser?.permissions?.dataScope !== 'all' &&
+      request.companyId &&
+      request.companyId !== currentUser.companyId
+    ) {
+      throw new ForbiddenException(
+        'That access request belongs to another company.',
+      );
+    }
+
+    return this.prisma.accessRequest.delete({ where: { id } });
   }
 }
 

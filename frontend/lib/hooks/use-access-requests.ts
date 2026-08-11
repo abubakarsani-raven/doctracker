@@ -27,6 +27,9 @@ export function useCreateAccessRequest() {
       queryClient.invalidateQueries({ queryKey: ["accessRequests"] });
       toast.success("Access request created successfully");
     },
+    onError: (error: any) => {
+      toast.error(error?.message || "Failed to create access request");
+    },
   });
 }
 
@@ -40,6 +43,9 @@ export function useUpdateAccessRequest() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["accessRequests"] });
       toast.success("Access request updated successfully");
+    },
+    onError: (error: any) => {
+      toast.error(error?.message || "Failed to update access request");
     },
   });
 }

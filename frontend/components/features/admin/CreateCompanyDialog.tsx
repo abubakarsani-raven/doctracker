@@ -14,6 +14,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
+import { Loader2 } from "lucide-react";
+import { useCreateCompany } from "@/lib/hooks/use-companies";
 
 interface CreateCompanyDialogProps {
   open: boolean;
@@ -26,25 +28,38 @@ export function CreateCompanyDialog({
 }: CreateCompanyDialogProps) {
   const [formData, setFormData] = useState({
     name: "",
-    domain: "",
+    address: "",
     description: "",
   });
-  const [loading, setLoading] = useState(false);
+
+  const createCompany = useCreateCompany();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setLoading(true);
+
+    if (!formData.name.trim()) {
+      toast.error("Please enter a company name");
+      return;
+    }
 
     try {
-      // TODO: Replace with actual API call
-      await new Promise((resolve) => setTimeout(resolve, 1000));
+      await createCompany.mutateAsync({
+        name: formData.name.trim(),
+        description: formData.description.trim() || undefined,
+        address: formData.address.trim() || undefined,
+      });
+
       toast.success("Company created successfully");
-      setFormData({ name: "", domain: "", description: "" });
       onOpenChange(false);
-    } catch (error) {
-      toast.error("Failed to create company");
-    } finally {
-      setLoading(false);
+      
+      // Reset form
+      setFormData({
+        name: "",
+        address: "",
+        description: "",
+      });
+    } catch (error: any) {
+      toast.error(error.message || "Failed to create company");
     }
   };
 
@@ -72,18 +87,17 @@ export function CreateCompanyDialog({
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="domain">Domain *</Label>
+              <Label htmlFor="address">Address</Label>
               <Input
-                id="domain"
-                placeholder="acme.com"
-                value={formData.domain}
+                id="address"
+                placeholder="123 Main St, City, State"
+                value={formData.address}
                 onChange={(e) =>
-                  setFormData({ ...formData, domain: e.target.value })
+                  setFormData({ ...formData, address: e.target.value })
                 }
-                required
               />
               <p className="text-xs text-muted-foreground">
-                The primary domain for this company
+                The physical address of the company
               </p>
             </div>
             <div className="space-y-2">
@@ -104,12 +118,18 @@ export function CreateCompanyDialog({
               type="button"
               variant="outline"
               onClick={() => onOpenChange(false)}
-              disabled={loading}
             >
               Cancel
             </Button>
-            <Button type="submit" disabled={loading}>
-              {loading ? "Creating..." : "Create Company"}
+            <Button type="submit" disabled={createCompany.isPending}>
+              {createCompany.isPending ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Creating...
+                </>
+              ) : (
+                "Create Company"
+              )}
             </Button>
           </DialogFooter>
         </form>

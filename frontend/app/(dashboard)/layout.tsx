@@ -1,6 +1,8 @@
 "use client";
 
 import { DashboardLayout } from "@/components/layout";
+import { ApiErrorListener } from "@/components/common/ApiErrorListener";
+import { SessionKeepAlive } from "@/components/common/SessionKeepAlive";
 import { useRealtime } from "@/lib/hooks/use-realtime";
 
 export default function DashboardLayoutWrapper({
@@ -11,7 +13,13 @@ export default function DashboardLayoutWrapper({
   // Initialize WebSocket connection
   useRealtime();
 
-  // Allow navigation without auth for testing with mock data
-  // TODO: Add proper auth check when backend is ready
-  return <DashboardLayout>{children}</DashboardLayout>;
+  return (
+    <DashboardLayout>
+      {/* Surfaces 401/403 responses as toasts instead of silent no-ops. */}
+      <ApiErrorListener />
+      {/* Renew the access cookie while the user is still active. */}
+      <SessionKeepAlive />
+      {children}
+    </DashboardLayout>
+  );
 }

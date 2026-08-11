@@ -1,5 +1,6 @@
 "use client";
 
+import { seesAllCompanies } from "@/lib/permissions";
 import { Search, Bell, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -13,35 +14,56 @@ import {
 import { Input } from "@/components/ui/input";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { CommandDialogComponent as CommandDialog } from "@/components/common/CommandDialog";
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { NotificationDropdown } from "@/components/common/NotificationDropdown";
 import { useCurrentUser } from "@/lib/hooks/use-users";
 import { useCompanies } from "@/lib/hooks/use-companies";
+import { usePermissions } from "@/lib/hooks/use-permissions";
+import { api } from "@/lib/api";
 
 export function Header() {
   const [openCommand, setOpenCommand] = useState(false);
   const router = useRouter();
   const { data: currentUser } = useCurrentUser();
   const { data: companies = [] } = useCompanies();
+  const { permissions } = usePermissions();
 
-  const handleLogout = () => {
-    // Clear authentication
+  // ⌘K / Ctrl+K opens the command palette (same entry as the search button).
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (!(event.metaKey || event.ctrlKey)) return;
+      if (event.key.toLowerCase() !== "k") return;
+      // Ignore when typing in native dialogs that manage their own shortcuts.
+      event.preventDefault();
+      setOpenCommand((open) => !open);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
+
+  const handleLogout = async () => {
+    try {
+      // Call logout API to clear cookies
+      await api.logout();
+    } catch (error) {
+      console.warn("Logout API call failed:", error);
+    }
+    
+    // Clear local storage
     localStorage.removeItem("mockCurrentUser");
     localStorage.removeItem("mockAuth");
     localStorage.removeItem("access_token");
     localStorage.removeItem("authToken");
 
-    // Redirect to login
-    router.push("/login");
-    // Force reload to clear React Query cache
+    // Redirect to login and force reload to clear React Query cache
     window.location.href = "/login";
   };
 
   // Get company name for current user
   const companyName = useMemo(() => {
     if (!currentUser || !companies.length) return null;
-    if (currentUser.role === "Master") return "All Companies";
+    if (seesAllCompanies(currentUser)) return "All Companies";
     const company = companies.find((c: any) => c.id === currentUser.companyId);
     return company?.name || null;
   }, [currentUser, companies]);
@@ -69,11 +91,16 @@ export function Header() {
         {/* Logo and Search */}
         <div className="flex items-center gap-4 flex-1">
           <div className="flex items-center gap-3">
-            <div className="font-bold text-lg">DocTracker</div>
+            <div className="font-display text-lg font-bold tracking-tight">
+              DocTracker
+            </div>
             {companyName && (
-              <div className="text-sm text-muted-foreground font-medium">
-                {companyName}
-              </div>
+              <>
+                <span className="h-4 w-px bg-border" aria-hidden />
+                {/* Which company's records you are looking at is the first thing
+                    to establish — most confusion here is cross-company. */}
+                <span className="stamp text-muted-foreground">{companyName}</span>
+              </>
             )}
           </div>
 
@@ -108,8 +135,20 @@ export function Header() {
                 </Avatar>
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent className="w-56" align="end">
-              <DropdownMenuLabel>My Account</DropdownMenuLabel>
+            <DropdownMenuContent className="w-64" align="end">
+              <DropdownMenuLabel className="font-normal">
+                <div className="truncate font-medium">
+                  {currentUser?.name ?? "Signed in"}
+                </div>
+                <div className="truncate text-xs text-muted-foreground">
+                  {currentUser?.email}
+                </div>
+                {/* Role is shown here because almost every "why can't I do X"
+                    question starts with the person not knowing their own role. */}
+                <div className="stamp mt-2 text-muted-foreground">
+                  {permissions.role}
+                </div>
+              </DropdownMenuLabel>
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={() => router.push("/profile")}>
                 Profile

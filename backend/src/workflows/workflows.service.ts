@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { WebSocketGateway } from '../websocket/websocket.gateway';
 import { ActivityService } from '../activity/activity.service';
@@ -115,6 +115,16 @@ export class WorkflowsService {
     return {
       ...workflow,
       assignedTo,
+      // Prefer creator name for UI — assignedBy is stored as a user id.
+      assignedByName:
+        workflow.creator?.name ||
+        workflow.creator?.email ||
+        workflow.assignedByName ||
+        null,
+      creatorName:
+        workflow.creator?.name ||
+        workflow.creator?.email ||
+        null,
       routingHistory: transformedRoutingHistory,
     };
   }
@@ -210,7 +220,22 @@ export class WorkflowsService {
     }
   }
 
-  async findByFolderId(folderId: string) {
+  async findByFolderId(folderId: string, currentUser?: any) {
+    const folder = await this.prisma.folder.findUnique({
+      where: { id: folderId },
+      select: { id: true, companyId: true },
+    });
+    if (!folder) {
+      throw new NotFoundException('Folder not found');
+    }
+    if (
+      currentUser &&
+      currentUser?.permissions?.dataScope !== 'all' &&
+      folder.companyId !== currentUser.companyId
+    ) {
+      throw new ForbiddenException('Folder belongs to another company');
+    }
+
     const workflows = await this.prisma.workflow.findMany({
       where: { folderId },
       include: {
@@ -237,7 +262,22 @@ export class WorkflowsService {
     return this.transformWorkflows(workflows);
   }
 
-  async findByDocumentId(documentId: string) {
+  async findByDocumentId(documentId: string, currentUser?: any) {
+    const file = await this.prisma.file.findUnique({
+      where: { id: documentId },
+      select: { id: true, companyId: true },
+    });
+    if (!file) {
+      throw new NotFoundException('Document not found');
+    }
+    if (
+      currentUser &&
+      currentUser?.permissions?.dataScope !== 'all' &&
+      file.companyId !== currentUser.companyId
+    ) {
+      throw new ForbiddenException('Document belongs to another company');
+    }
+
     const workflows = await this.prisma.workflow.findMany({
       where: { documentId },
       include: {
@@ -294,7 +334,7 @@ export class WorkflowsService {
     
     // Check access control - user must be from same company (unless Master)
     if (currentUser) {
-      if (currentUser.role !== 'Master' && workflow.companyId !== currentUser.companyId) {
+      if (currentUser?.permissions?.dataScope !== 'all' && workflow.companyId !== currentUser.companyId) {
         throw new Error('Access denied: Workflow belongs to a different company');
       }
     }
@@ -356,8 +396,11 @@ export class WorkflowsService {
       documentId: data.documentId || null,
     };
 
-    // Determine companyId - prioritize from data, then sourceCompanyId, then user, then from folder/document
-    let companyId = data.companyId || data.sourceCompanyId;
+    // Determine companyId — non-instance users cannot create under another company
+    let companyId =
+      currentUser?.permissions?.dataScope === 'all'
+        ? data.companyId || data.sourceCompanyId || currentUser?.companyId
+        : currentUser?.companyId;
     
     if (!companyId && currentUser?.companyId) {
       companyId = currentUser.companyId;
@@ -618,7 +661,13 @@ export class WorkflowsService {
     }
     
     if (currentUser) {
-      if (currentUser.role !== 'Master' && existingWorkflow.companyId !== currentUser.companyId) {
+      // Master / Group Secretary have no home company (companyId null) but
+      // still need to edit workflows across companies.
+      const crossCompany =
+        currentUser?.permissions?.dataScope === 'all' ||
+        currentUser.role === 'Group Secretary' ||
+        currentUser.companyId == null;
+      if (!crossCompany && existingWorkflow.companyId !== currentUser.companyId) {
         throw new Error('Access denied: Cannot update workflow from different company');
       }
     }
@@ -924,7 +973,7 @@ export class WorkflowsService {
     }
     
     if (currentUser) {
-      if (currentUser.role !== 'Master' && goal.workflow.companyId !== currentUser.companyId) {
+      if (currentUser?.permissions?.dataScope !== 'all' && goal.workflow.companyId !== currentUser.companyId) {
         throw new Error('Access denied: Cannot update goal from different company');
       }
     }
@@ -984,7 +1033,7 @@ export class WorkflowsService {
     }
     
     if (currentUser) {
-      if (currentUser.role !== 'Master' && goal.workflow.companyId !== currentUser.companyId) {
+      if (currentUser?.permissions?.dataScope !== 'all' && goal.workflow.companyId !== currentUser.companyId) {
         throw new Error('Access denied: Cannot delete goal from different company');
       }
     }
@@ -1125,5 +1174,234 @@ export class WorkflowsService {
       console.error('Failed to notify participants about goals:', error);
       // Don't throw - notification failure shouldn't break workflow filing
     }
+  }
+
+  /**
+   * Files attached to a workflow (Files Added section).
+   * Includes the primary workflow document when present, plus explicit attachments.
+   */
+  async listFiles(workflowId: string, currentUser: any) {
+    const workflow = await this.prisma.workflow.findUnique({
+      where: { id: workflowId },
+      select: {
+        id: true,
+        companyId: true,
+        documentId: true,
+        document: {
+          select: {
+            id: true,
+            fileName: true,
+            fileSize: true,
+            createdAt: true,
+            createdBy: true,
+            creator: { select: { name: true, email: true } },
+            deletedAt: true,
+          },
+        },
+      },
+    });
+
+    if (!workflow) {
+      throw new NotFoundException('Workflow not found');
+    }
+    if (
+      currentUser?.permissions?.dataScope !== 'all' &&
+      currentUser?.companyId &&
+      workflow.companyId !== currentUser.companyId
+    ) {
+      throw new ForbiddenException('Access denied');
+    }
+
+    const attachments = await this.prisma.workflowFile.findMany({
+      where: { workflowId, file: { deletedAt: null } },
+      include: {
+        file: {
+          select: {
+            id: true,
+            fileName: true,
+            fileSize: true,
+            deletedAt: true,
+          },
+        },
+        adder: { select: { id: true, name: true, email: true } },
+        action: { select: { id: true, title: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    const seen = new Set<string>();
+    const files: any[] = [];
+
+    for (const row of attachments) {
+      if (!row.file || seen.has(row.fileId)) continue;
+      seen.add(row.fileId);
+      files.push({
+        id: row.file.id,
+        attachmentId: row.id,
+        name: row.file.fileName,
+        size: Number(row.file.fileSize ?? 0),
+        addedBy: row.adder?.name || row.adder?.email || 'Unknown',
+        addedByType: 'user' as const,
+        addedAt: row.createdAt,
+        actionId: row.actionId,
+        actionTitle: row.action?.title ?? null,
+        note: row.note,
+        isPrimary: row.fileId === workflow.documentId,
+      });
+    }
+
+    // Surface the workflow's primary document even if never explicitly attached.
+    if (
+      workflow.document &&
+      !workflow.document.deletedAt &&
+      !seen.has(workflow.document.id)
+    ) {
+      files.push({
+        id: workflow.document.id,
+        attachmentId: null,
+        name: workflow.document.fileName,
+        size: Number(workflow.document.fileSize ?? 0),
+        addedBy:
+          workflow.document.creator?.name ||
+          workflow.document.creator?.email ||
+          'Unknown',
+        addedByType: 'user' as const,
+        addedAt: workflow.document.createdAt,
+        actionId: null,
+        actionTitle: null,
+        note: 'Primary workflow document',
+        isPrimary: true,
+      });
+    }
+
+    return files;
+  }
+
+  /**
+   * Attach an existing registry file to a workflow (reference, not a copy).
+   */
+  async attachFile(
+    workflowId: string,
+    data: { fileId: string; actionId?: string; note?: string },
+    currentUser: any,
+  ) {
+    if (!data?.fileId) {
+      throw new BadRequestException('fileId is required');
+    }
+
+    const workflow = await this.prisma.workflow.findUnique({
+      where: { id: workflowId },
+      select: { id: true, companyId: true, title: true },
+    });
+    if (!workflow) {
+      throw new NotFoundException('Workflow not found');
+    }
+    if (
+      currentUser?.permissions?.dataScope !== 'all' &&
+      currentUser?.companyId &&
+      workflow.companyId !== currentUser.companyId
+    ) {
+      throw new ForbiddenException('Access denied');
+    }
+
+    const file = await this.prisma.file.findUnique({
+      where: { id: data.fileId },
+      select: {
+        id: true,
+        fileName: true,
+        fileSize: true,
+        companyId: true,
+        deletedAt: true,
+      },
+    });
+    if (!file || file.deletedAt) {
+      throw new NotFoundException('File not found');
+    }
+    if (file.companyId && file.companyId !== workflow.companyId) {
+      throw new ForbiddenException(
+        'You can only attach files from the same company as the workflow.',
+      );
+    }
+
+    if (data.actionId) {
+      const action = await this.prisma.action.findUnique({
+        where: { id: data.actionId },
+        select: { id: true, workflowId: true },
+      });
+      if (!action || action.workflowId !== workflowId) {
+        throw new BadRequestException(
+          'actionId must belong to this workflow',
+        );
+      }
+    }
+
+    const existing = await this.prisma.workflowFile.findUnique({
+      where: {
+        workflowId_fileId: { workflowId, fileId: data.fileId },
+      },
+    });
+    if (existing) {
+      // Idempotent: update note/action link if re-attached.
+      const updated = await this.prisma.workflowFile.update({
+        where: { id: existing.id },
+        data: {
+          ...(data.note !== undefined ? { note: data.note } : {}),
+          ...(data.actionId ? { actionId: data.actionId } : {}),
+        },
+        include: {
+          file: { select: { id: true, fileName: true, fileSize: true } },
+          adder: { select: { name: true, email: true } },
+          action: { select: { id: true, title: true } },
+        },
+      });
+      return this.mapAttachment(updated);
+    }
+
+    const created = await this.prisma.workflowFile.create({
+      data: {
+        workflowId,
+        fileId: data.fileId,
+        addedBy: currentUser.id,
+        actionId: data.actionId || null,
+        note: data.note?.trim() || null,
+      },
+      include: {
+        file: { select: { id: true, fileName: true, fileSize: true } },
+        adder: { select: { name: true, email: true } },
+        action: { select: { id: true, title: true } },
+      },
+    });
+
+    try {
+      await this.activityService.createActivity({
+        userId: currentUser.id,
+        companyId: workflow.companyId,
+        activityType: 'workflow_file_added',
+        resourceType: 'workflow',
+        resourceId: workflowId,
+        description: `Attached "${file.fileName}" to workflow "${workflow.title}"`,
+        metadata: { fileId: file.id, actionId: data.actionId || null },
+      });
+    } catch {
+      // non-fatal
+    }
+
+    return this.mapAttachment(created);
+  }
+
+  private mapAttachment(row: any) {
+    return {
+      id: row.file.id,
+      attachmentId: row.id,
+      name: row.file.fileName,
+      size: Number(row.file.fileSize ?? 0),
+      addedBy: row.adder?.name || row.adder?.email || 'Unknown',
+      addedByType: 'user' as const,
+      addedAt: row.createdAt,
+      actionId: row.actionId,
+      actionTitle: row.action?.title ?? null,
+      note: row.note,
+      isPrimary: false,
+    };
   }
 }

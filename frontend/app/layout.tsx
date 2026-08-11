@@ -1,22 +1,43 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Archivo, Public_Sans, IBM_Plex_Mono } from "next/font/google";
 import { Toaster } from "@/components/ui/sonner";
 import { Providers } from "@/lib/providers";
+import { RequestProgress } from "@/components/common/RequestProgress";
 import "./globals.css";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
+/**
+ * Three voices, one per role.
+ *
+ * Archivo is a grotesque drawn for signage and official print — it sets
+ * headings tight and confident. Public Sans is the typeface of US federal
+ * public records, which is exactly the register a document registry wants for
+ * running text. IBM Plex Mono is the "stamp": scope markings, record IDs and
+ * timestamps, never prose.
+ */
+const archivo = Archivo({
+  variable: "--font-archivo",
   subsets: ["latin"],
+  weight: ["500", "600", "700"],
+  display: "swap",
 });
 
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
+const publicSans = Public_Sans({
+  variable: "--font-public-sans",
   subsets: ["latin"],
+  display: "swap",
+});
+
+const plexMono = IBM_Plex_Mono({
+  variable: "--font-plex-mono",
+  subsets: ["latin"],
+  weight: ["400", "500", "600"],
+  display: "swap",
 });
 
 export const metadata: Metadata = {
-  title: "Document Repository System",
-  description: "Document repository and workflow management system",
+  title: "DocTracker — Document Registry",
+  description:
+    "File, route and approve documents across departments, with access controlled by role and scope.",
 };
 
 export default function RootLayout({
@@ -27,10 +48,11 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
+        className={`${publicSans.variable} ${archivo.variable} ${plexMono.variable} font-sans antialiased`}
         suppressHydrationWarning
       >
         <Providers>
+          <RequestProgress />
           {children}
           <Toaster />
         </Providers>

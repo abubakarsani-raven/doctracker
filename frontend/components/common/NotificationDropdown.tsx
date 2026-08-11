@@ -42,7 +42,20 @@ export function NotificationDropdown() {
     if (notification.resourceType === "access_request" && notification.resourceId) {
       return `/access-requests`;
     }
-    return "#";
+    if (
+      (notification.resourceType === "file" ||
+        notification.resourceType === "document" ||
+        notification.type === "signature_requested" ||
+        notification.type === "signature_completed" ||
+        notification.type === "permission_granted") &&
+      notification.resourceId
+    ) {
+      return `/documents/${notification.resourceId}`;
+    }
+    if (notification.resourceType === "folder" && notification.resourceId) {
+      return `/documents/folder/${notification.resourceId}`;
+    }
+    return "/documents";
   };
 
   return (
@@ -147,8 +160,8 @@ export function NotificationDropdown() {
         </ScrollArea>
         <DropdownMenuSeparator />
         <DropdownMenuItem asChild>
-          <Link href="/notifications" className="w-full text-center">
-            View all notifications
+          <Link href="/documents" className="w-full text-center">
+            Back to documents
           </Link>
         </DropdownMenuItem>
       </DropdownMenuContent>

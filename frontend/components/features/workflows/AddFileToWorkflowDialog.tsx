@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import {
   Dialog,
   DialogContent,
@@ -16,7 +16,17 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { FileUpload, FileWithMetadata } from "@/components/common";
 import { RichTextEditor } from "@/components/features/documents/RichTextEditor";
 import { toast } from "sonner";
-import { Upload, FileText, FilePlus } from "lucide-react";
+import { Upload, FileText, FilePlus, Link2 } from "lucide-react";
+import { api } from "@/lib/api";
+import { useDocuments } from "@/lib/hooks/use-documents";
+import { useWorkflow } from "@/lib/hooks/use-workflows";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 interface AddFileToWorkflowDialogProps {
   open: boolean;
@@ -31,21 +41,64 @@ export function AddFileToWorkflowDialog({
   workflowId,
   onFileAdded,
 }: AddFileToWorkflowDialogProps) {
-  const [activeTab, setActiveTab] = useState<"upload" | "rich-text">("upload");
+  const [activeTab, setActiveTab] = useState<"reference" | "upload" | "rich-text">(
+    "reference",
+  );
   const [files, setFiles] = useState<FileWithMetadata[]>([]);
   const [uploading, setUploading] = useState(false);
-  
-  // Rich text document state
+  const [selectedDocId, setSelectedDocId] = useState<string>("");
+  const [note, setNote] = useState("");
+
   const [richTextName, setRichTextName] = useState("");
   const [richTextContent, setRichTextContent] = useState("");
   const [creatingRichText, setCreatingRichText] = useState(false);
 
-  const handleFilesSelected = (selectedFiles: FileWithMetadata[]) => {
-    setFiles(selectedFiles);
+  const { data: workflow } = useWorkflow(workflowId);
+  const { data: documents = [] } = useDocuments();
+
+  const companyDocs = useMemo(() => {
+    return documents.filter((d: any) => {
+      if (workflow?.companyId && d.companyId && d.companyId !== workflow.companyId) {
+        return false;
+      }
+      return true;
+    });
+  }, [documents, workflow?.companyId]);
+
+  const reset = () => {
+    setFiles([]);
+    setSelectedDocId("");
+    setNote("");
+    setRichTextName("");
+    setRichTextContent("");
+    setActiveTab("reference");
   };
 
-  const handleFilesRemoved = (fileIds: string[]) => {
-    setFiles((prev) => prev.filter((f) => !fileIds.includes(f.id)));
+  const handleClose = () => {
+    reset();
+    onOpenChange(false);
+  };
+
+  const handleReference = async () => {
+    if (!selectedDocId) {
+      toast.error("Select a document to reference");
+      return;
+    }
+    setUploading(true);
+    try {
+      await api.attachFileToWorkflow(workflowId, {
+        fileId: selectedDocId,
+        note: note.trim() || undefined,
+      });
+      toast.success("Document referenced on this workflow");
+      reset();
+      onFileAdded?.();
+      onOpenChange(false);
+    } catch (error: any) {
+      toast.error(error.message || "Failed to attach document");
+    } finally {
+      setUploading(false);
+    }
   };
 
   const handleUpload = async () => {
@@ -55,21 +108,30 @@ export function AddFileToWorkflowDialog({
     }
 
     setUploading(true);
-
     try {
-      // TODO: Replace with actual API call
-      // Simulate upload
       for (const fileWithMeta of files) {
-        await new Promise((resolve) => setTimeout(resolve, 1000));
+        const created = await api.uploadFile(fileWithMeta.file, {
+          scopeLevel: "company",
+          folderId: workflow?.folderId || undefined,
+          companyId: workflow?.companyId || undefined,
+          fileName: fileWithMeta.file.name,
+        });
+        const fileId = created?.id || created?.file?.id;
+        if (fileId) {
+          await api.attachFileToWorkflow(workflowId, {
+            fileId,
+            note: note.trim() || undefined,
+          });
+        }
       }
 
-      toast.success(`Successfully added ${files.length} file(s) to workflow`);
-      setFiles([]);
+      toast.success(`Added ${files.length} file(s) to workflow`);
+      reset();
       onFileAdded?.();
       onOpenChange(false);
-    } catch (error) {
+    } catch (error: any) {
       console.error("Failed to add files:", error);
-      toast.error("Failed to add files. Please try again.");
+      toast.error(error.message || "Failed to add files. Please try again.");
     } finally {
       setUploading(false);
     }
@@ -87,68 +149,119 @@ export function AddFileToWorkflowDialog({
     }
 
     setCreatingRichText(true);
-
     try {
-      // TODO: Replace with actual API call
-      // Create rich text document
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-
-      toast.success("Rich text document created successfully");
-      setRichTextName("");
-      setRichTextContent("");
+      if (!workflow?.folderId) {
+        toast.error("This workflow has no folder — upload or reference a file instead.");
+        return;
+      }
+      const created = await api.createRichTextDocument({
+        fileName: richTextName.trim(),
+        htmlContent: richTextContent,
+        scopeLevel: "company",
+        folderId: workflow.folderId,
+        companyId: workflow?.companyId,
+      });
+      const fileId = created?.id || created?.file?.id;
+      if (fileId) {
+        await api.attachFileToWorkflow(workflowId, {
+          fileId,
+          note: note.trim() || "Rich text document",
+        });
+      }
+      toast.success("Rich text document added to workflow");
+      reset();
       onFileAdded?.();
       onOpenChange(false);
-    } catch (error) {
+    } catch (error: any) {
       console.error("Failed to create rich text document:", error);
-      toast.error("Failed to create document. Please try again.");
+      toast.error(error.message || "Failed to create document. Please try again.");
     } finally {
       setCreatingRichText(false);
     }
   };
 
-  const handleClose = () => {
-    setFiles([]);
-    setRichTextName("");
-    setRichTextContent("");
-    setActiveTab("upload");
-    onOpenChange(false);
-  };
-
-  const canSubmit =
-    activeTab === "upload"
-      ? files.length > 0 && !uploading
-      : richTextName.trim() && richTextContent.trim() && richTextContent !== "<p></p>" && !creatingRichText;
+  const busy = uploading || creatingRichText;
 
   return (
-    <Dialog open={open} onOpenChange={handleClose}>
+    <Dialog open={open} onOpenChange={(o) => (!o ? handleClose() : onOpenChange(o))}>
       <DialogContent className="sm:max-w-[700px] max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Add to Workflow</DialogTitle>
           <DialogDescription>
-            Upload files or create a rich text document to attach to this workflow
+            {workflow?.type === "document"
+              ? "Document workflows can attach any company document here. Completing an action can only reference the primary document."
+              : "Reference an existing document, upload a new file, or create rich text. Attached files show under Files Added."}
           </DialogDescription>
         </DialogHeader>
 
-        <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "upload" | "rich-text")} className="mt-4">
-          <TabsList className="grid w-full grid-cols-2">
+        <Tabs
+          value={activeTab}
+          onValueChange={(v) => setActiveTab(v as typeof activeTab)}
+          className="mt-4"
+        >
+          <TabsList className="grid w-full grid-cols-3">
+            <TabsTrigger value="reference">
+              <Link2 className="mr-2 h-4 w-4" />
+              Reference
+            </TabsTrigger>
             <TabsTrigger value="upload">
               <Upload className="mr-2 h-4 w-4" />
-              Upload File
+              Upload
             </TabsTrigger>
             <TabsTrigger value="rich-text">
               <FileText className="mr-2 h-4 w-4" />
-              Create Rich Text
+              Rich Text
             </TabsTrigger>
           </TabsList>
 
+          <TabsContent value="reference" className="space-y-4 mt-4">
+            <div className="space-y-2">
+              <Label>Document</Label>
+              <Select value={selectedDocId} onValueChange={setSelectedDocId}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select a document…" />
+                </SelectTrigger>
+                <SelectContent>
+                  {companyDocs.map((doc: any) => (
+                    <SelectItem key={doc.id} value={doc.id}>
+                      {doc.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="attach-note">Note (optional)</Label>
+              <Input
+                id="attach-note"
+                placeholder="Why this file matters…"
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+                disabled={busy}
+              />
+            </div>
+          </TabsContent>
+
           <TabsContent value="upload" className="space-y-4 mt-4">
             <FileUpload
-              onFilesSelected={handleFilesSelected}
-              onFilesRemoved={handleFilesRemoved}
+              onFilesSelected={setFiles}
+              onFilesRemoved={(ids) =>
+                setFiles((prev) => prev.filter((f) => !ids.includes(f.id)))
+              }
               multiple={true}
               accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png,.txt"
-              maxSize={100 * 1024 * 1024} // 100MB
+              maxSize={100 * 1024 * 1024}
             />
+            <div className="space-y-2">
+              <Label htmlFor="upload-note">Note (optional)</Label>
+              <Input
+                id="upload-note"
+                placeholder="Why this file matters…"
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+                disabled={busy}
+              />
+            </div>
           </TabsContent>
 
           <TabsContent value="rich-text" className="space-y-4 mt-4">
@@ -176,18 +289,33 @@ export function AddFileToWorkflowDialog({
         </Tabs>
 
         <DialogFooter>
-          <Button variant="outline" onClick={handleClose} disabled={uploading || creatingRichText}>
+          <Button variant="outline" onClick={handleClose} disabled={busy}>
             Cancel
           </Button>
-          {activeTab === "upload" ? (
-            <Button onClick={handleUpload} disabled={uploading || files.length === 0}>
-              <Upload className="mr-2 h-4 w-4" />
-              {uploading ? `Uploading...` : `Upload ${files.length} file(s)`}
+          {activeTab === "reference" && (
+            <Button onClick={handleReference} disabled={busy || !selectedDocId}>
+              <Link2 className="mr-2 h-4 w-4" />
+              {uploading ? "Attaching…" : "Attach reference"}
             </Button>
-          ) : (
-            <Button onClick={handleCreateRichText} disabled={!canSubmit}>
+          )}
+          {activeTab === "upload" && (
+            <Button onClick={handleUpload} disabled={busy || files.length === 0}>
+              <Upload className="mr-2 h-4 w-4" />
+              {uploading ? "Uploading…" : `Upload ${files.length || ""} file(s)`}
+            </Button>
+          )}
+          {activeTab === "rich-text" && (
+            <Button
+              onClick={handleCreateRichText}
+              disabled={
+                busy ||
+                !richTextName.trim() ||
+                !richTextContent.trim() ||
+                richTextContent === "<p></p>"
+              }
+            >
               <FilePlus className="mr-2 h-4 w-4" />
-              {creatingRichText ? "Creating..." : "Create Document"}
+              {creatingRichText ? "Creating…" : "Create & attach"}
             </Button>
           )}
         </DialogFooter>

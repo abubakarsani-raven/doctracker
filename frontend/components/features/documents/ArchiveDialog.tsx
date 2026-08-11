@@ -14,6 +14,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import { Archive, ArchiveRestore } from "lucide-react";
+import { api } from "@/lib/api";
 
 interface ArchiveDialogProps {
   open: boolean;
@@ -21,6 +22,7 @@ interface ArchiveDialogProps {
   documentId?: string;
   folderId?: string;
   isRestore?: boolean;
+  onComplete?: () => void;
 }
 
 export function ArchiveDialog({
@@ -29,28 +31,42 @@ export function ArchiveDialog({
   documentId,
   folderId,
   isRestore = false,
+  onComplete,
 }: ArchiveDialogProps) {
   const [reason, setReason] = useState("");
-  const [archiving, setArchiving] = useState(false);
 
   const handleArchive = async () => {
-    setArchiving(true);
+    if (!documentId && !folderId) {
+      toast.error("No document or folder specified");
+      return;
+    }
+
     try {
-      // TODO: Replace with actual API call
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-      toast.success(
-        isRestore
-          ? "Document restored successfully"
-          : "Document archived successfully"
-      );
+      if (documentId) {
+        if (isRestore) {
+          await api.unarchiveDocument(documentId);
+          toast.success("Document restored successfully");
+        } else {
+          await api.archiveDocument(documentId);
+          toast.success("Document archived successfully");
+        }
+      } else if (folderId) {
+        if (isRestore) {
+          // Add unarchive folder API when available
+          toast.error("Folder restore not implemented yet");
+          return;
+        } else {
+          await api.archiveFolder(folderId);
+          toast.success("Folder archived successfully");
+        }
+      }
+      
+      onComplete?.();
       onOpenChange(false);
       setReason("");
     } catch (error) {
-      toast.error(
-        isRestore ? "Failed to restore document" : "Failed to archive document"
-      );
-    } finally {
-      setArchiving(false);
+      console.error("Error with archive operation:", error);
+      toast.error(`Failed to ${isRestore ? 'restore' : 'archive'} ${documentId ? 'document' : 'folder'}`);
     }
   };
 
@@ -95,18 +111,11 @@ export function ArchiveDialog({
           <Button
             variant="outline"
             onClick={() => onOpenChange(false)}
-            disabled={archiving}
           >
             Cancel
           </Button>
-          <Button onClick={handleArchive} disabled={archiving}>
-            {archiving
-              ? isRestore
-                ? "Restoring..."
-                : "Archiving..."
-              : isRestore
-              ? "Restore"
-              : "Archive"}
+          <Button onClick={handleArchive}>
+            {isRestore ? "Restore" : "Archive"}
           </Button>
         </DialogFooter>
       </DialogContent>

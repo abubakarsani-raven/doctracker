@@ -12,31 +12,9 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { ArchiveDialog } from "@/components/features/documents/ArchiveDialog";
-import { ArchiveRestore, Search, Archive } from "lucide-react";
-
-// Mock archived documents
-const archivedDocuments = [
-  {
-    id: "1",
-    name: "old_contract.pdf",
-    type: "pdf",
-    size: 2450000,
-    scope: "company" as const,
-    status: "archived",
-    modifiedAt: new Date(Date.now() - 90 * 24 * 60 * 60 * 1000),
-    archivedAt: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000),
-  },
-  {
-    id: "2",
-    name: "completed_project.docx",
-    type: "docx",
-    size: 125000,
-    scope: "department" as const,
-    status: "archived",
-    modifiedAt: new Date(Date.now() - 120 * 24 * 60 * 60 * 1000),
-    archivedAt: new Date(Date.now() - 45 * 24 * 60 * 60 * 1000),
-  },
-];
+import { ArchiveRestore, Search, Archive, Loader2 } from "lucide-react";
+import { useArchivedDocuments } from "@/lib/hooks/use-documents";
+import { toast } from "sonner";
 
 export default function ArchivedDocumentsPage() {
   const [searchQuery, setSearchQuery] = useState("");
@@ -44,7 +22,13 @@ export default function ArchivedDocumentsPage() {
   const [restoreDialogOpen, setRestoreDialogOpen] = useState(false);
   const [selectedDocumentId, setSelectedDocumentId] = useState<string | undefined>();
 
-  const filteredDocuments = archivedDocuments.filter((doc) => {
+  const { data: archivedDocuments = [], isLoading, error } = useArchivedDocuments();
+
+  if (error) {
+    toast.error("Failed to load archived documents");
+  }
+
+  const filteredDocuments = archivedDocuments.filter((doc: any) => {
     const matchesSearch = doc.name.toLowerCase().includes(searchQuery.toLowerCase());
     const matchesStatus = statusFilter === "all" || doc.status === statusFilter;
     return matchesSearch && matchesStatus;
@@ -87,8 +71,15 @@ export default function ArchivedDocumentsPage() {
           </Select>
         </div>
 
+        {/* Loading State */}
+        {isLoading && (
+          <div className="flex items-center justify-center py-12">
+            <Loader2 className="h-8 w-8 animate-spin" />
+          </div>
+        )}
+
         {/* Documents Grid */}
-        {filteredDocuments.length === 0 ? (
+        {!isLoading && filteredDocuments.length === 0 ? (
           <EmptyState
             icon={Archive}
             title="No archived documents found"
@@ -98,7 +89,7 @@ export default function ArchivedDocumentsPage() {
                 : "Archived documents will appear here"
             }
           />
-        ) : (
+        ) : !isLoading ? (
           <>
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
               {filteredDocuments.map((doc) => (
@@ -133,7 +124,7 @@ export default function ArchivedDocumentsPage() {
               Showing {filteredDocuments.length} archived document(s)
             </div>
           </>
-        )}
+        ) : null}
 
         <ArchiveDialog
           open={restoreDialogOpen}

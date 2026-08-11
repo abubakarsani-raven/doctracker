@@ -74,9 +74,6 @@ export default function AccessRequestsPage() {
         id: requestId,
         data: {
           status: "approved",
-          approvedBy: currentUser.id || currentUser.email || "Unknown",
-          approvedByName: currentUser.name || currentUser.email || "Unknown User",
-          approvedAt: new Date().toISOString(),
         },
       });
 
@@ -104,10 +101,7 @@ export default function AccessRequestsPage() {
         id: selectedRequest.id,
         data: {
           status: "rejected",
-          rejectedBy: currentUser.id || currentUser.email || "Unknown",
-          rejectedByName: currentUser.name || currentUser.email || "Unknown User",
           rejectionReason: rejectionReason.trim(),
-          rejectedAt: new Date().toISOString(),
         },
       });
 
@@ -132,10 +126,7 @@ export default function AccessRequestsPage() {
         id: request.id,
         data: {
           status: "rejected",
-          rejectedBy: currentUser.id || currentUser.email || "Unknown",
-          rejectedByName: currentUser.name || currentUser.email || "Unknown User",
           rejectionReason: "Access revoked by approver",
-          rejectedAt: new Date().toISOString(),
         },
       });
 

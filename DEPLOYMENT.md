@@ -57,8 +57,8 @@ After the first deployment, you need to run Prisma migrations:
 5. Run the following commands:
 
 ```bash
-npx prisma migrate deploy
-npx prisma db seed
+npm run prisma:migrate:deploy
+npm run prisma:seed
 ```
 
 Alternatively, you can add a custom build command in Railway settings:

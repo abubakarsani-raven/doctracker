@@ -21,7 +21,8 @@ import {
 } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
-import { Mail } from "lucide-react";
+import { Mail, Loader2 } from "lucide-react";
+import { useInviteUser } from "@/lib/hooks/use-users";
 
 interface InviteUserDialogProps {
   open: boolean;
@@ -37,7 +38,8 @@ export function InviteUserDialog({
   const [department, setDepartment] = useState("");
   const [division, setDivision] = useState("");
   const [sendEmail, setSendEmail] = useState(true);
-  const [inviting, setInviting] = useState(false);
+
+  const inviteUser = useInviteUser();
 
   const handleInvite = async () => {
     if (!email.trim()) {
@@ -50,23 +52,26 @@ export function InviteUserDialog({
       return;
     }
 
-    setInviting(true);
-
     try {
-      // TODO: Replace with actual API call
-      await new Promise((resolve) => setTimeout(resolve, 1000));
+      await inviteUser.mutateAsync({
+        email: email.trim(),
+        role,
+        departmentId: department || undefined,
+        divisionId: division || undefined,
+        sendEmail,
+      });
 
-      toast.success(`Invitation sent to ${email}`);
+      toast.success("User invitation sent successfully");
+      onOpenChange(false);
+      
+      // Reset form
       setEmail("");
       setRole("");
       setDepartment("");
       setDivision("");
       setSendEmail(true);
-      onOpenChange(false);
-    } catch (error) {
-      toast.error("Failed to send invitation. Please try again.");
-    } finally {
-      setInviting(false);
+    } catch (error: any) {
+      toast.error(error.message || "Failed to send invitation");
     }
   };
 
@@ -90,7 +95,6 @@ export function InviteUserDialog({
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               required
-              disabled={inviting}
             />
           </div>
 
@@ -144,7 +148,6 @@ export function InviteUserDialog({
               id="sendEmail"
               checked={sendEmail}
               onCheckedChange={(checked) => setSendEmail(checked === true)}
-              disabled={inviting}
             />
             <Label htmlFor="sendEmail" className="cursor-pointer">
               Send invitation email
@@ -156,19 +159,19 @@ export function InviteUserDialog({
           <Button
             variant="outline"
             onClick={() => onOpenChange(false)}
-            disabled={inviting}
           >
             Cancel
           </Button>
-          <Button onClick={handleInvite} disabled={inviting || !email || !role}>
-            {inviting ? (
-              "Sending..."
+          <Button
+            onClick={handleInvite}
+            disabled={!email || !role || inviteUser.isPending}
+          >
+            {inviteUser.isPending ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
             ) : (
-              <>
-                <Mail className="mr-2 h-4 w-4" />
-                Send Invitation
-              </>
+              <Mail className="mr-2 h-4 w-4" />
             )}
+            {inviteUser.isPending ? "Sending..." : "Send Invitation"}
           </Button>
         </DialogFooter>
       </DialogContent>

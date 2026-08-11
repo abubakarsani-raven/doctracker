@@ -1,3 +1,4 @@
+import { can, seesAllCompanies } from "@/lib/permissions";
 /**
  * Access Request Utilities
  * Handles document/folder access requests with role-based approval
@@ -51,12 +52,11 @@ export function canApproveAccessRequest(
   if (!currentUser) return false;
 
   // Master can approve everything
-  if (currentUser.role === "Master") return true;
+  if (seesAllCompanies(currentUser)) return true;
 
-  const approvers = getApproversForScope(request.scope);
-  
-  // Check if user's role is in the approvers list
-  return approvers.includes(currentUser.role);
+  // Reviewing access requests is a capability, so a role gaining or losing it
+  // takes effect without editing this list.
+  return can(currentUser, "access_requests.review");
 }
 
 /**
@@ -225,33 +225,25 @@ export function rejectAccessRequest(
 }
 
 /**
- * Check if user has access to a resource (either has permission or approved request)
+ * Check if user has access to a resource.
+ *
+ * Access is decided by server-backed permissions (`hasPermission` / canOn),
+ * never by localStorage "approved" grants. Pending-request helpers below may
+ * still use localStorage for UI affordances only.
  */
 export function hasAccessToResource(
-  resourceId: string,
-  resourceType: "folder" | "document",
+  _resourceId: string,
+  _resourceType: "folder" | "document",
   currentUser: any,
   hasPermission: boolean // Whether user has permission based on role/scope
 ): boolean {
   if (!currentUser) return false;
 
-  // If user has permission, they have access
-  if (hasPermission) return true;
-
   // Master has access to everything
-  if (currentUser.role === "Master") return true;
+  if (seesAllCompanies(currentUser)) return true;
 
-  // Check approved access requests
-  const requests = getAccessRequests();
-  const approvedRequest = requests.find(
-    (r) =>
-      r.resourceId === resourceId &&
-      r.resourceType === resourceType &&
-      r.requestedBy === currentUser.id &&
-      r.status === "approved"
-  );
-
-  return !!approvedRequest;
+  // Defer entirely to permissions — do not unlock from localStorage approvals.
+  return !!hasPermission;
 }
 
 /**

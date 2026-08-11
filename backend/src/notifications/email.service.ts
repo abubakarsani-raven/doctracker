@@ -250,6 +250,188 @@ export class EmailService {
     return this.sendEmail(to, subject, html);
   }
 
+  async sendSignatureRequestedEmail(
+    to: string,
+    payload: {
+      fileName: string;
+      fileId: string;
+      requesterName: string;
+      participantName?: string;
+    },
+  ) {
+    const front = this.frontendUrl();
+    const subject = `Signature requested: ${payload.fileName}`;
+    const greeting = payload.participantName
+      ? `Hello ${this.escape(payload.participantName)},`
+      : 'Hello,';
+    const html = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <style>
+          body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+          .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+          .header { background-color: #0F766E; color: white; padding: 20px; border-radius: 5px 5px 0 0; }
+          .content { background-color: #f9fafb; padding: 20px; border-radius: 0 0 5px 5px; }
+          .button { display: inline-block; padding: 10px 20px; background-color: #0F766E; color: white; text-decoration: none; border-radius: 5px; margin-top: 10px; }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header">
+            <h1>Signature requested</h1>
+          </div>
+          <div class="content">
+            <p>${greeting}</p>
+            <p>${this.escape(payload.requesterName)} has asked you to sign <strong>${this.escape(payload.fileName)}</strong>.</p>
+            <p>You have temporary access to open and sign the document. Access is removed once signing is complete.</p>
+            <a href="${front}/documents/${payload.fileId}" class="button">Open document</a>
+          </div>
+        </div>
+      </body>
+      </html>
+    `;
+
+    return this.sendEmail(to, subject, html);
+  }
+
+  async sendSignatureCompletedEmail(
+    to: string,
+    payload: {
+      fileName: string;
+      fileId: string;
+      signerName: string;
+    },
+  ) {
+    const front = this.frontendUrl();
+    const subject = `Signing complete: ${payload.fileName}`;
+    const html = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <style>
+          body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+          .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+          .header { background-color: #10B981; color: white; padding: 20px; border-radius: 5px 5px 0 0; }
+          .content { background-color: #f9fafb; padding: 20px; border-radius: 0 0 5px 5px; }
+          .button { display: inline-block; padding: 10px 20px; background-color: #10B981; color: white; text-decoration: none; border-radius: 5px; margin-top: 10px; }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header">
+            <h1>All signatures collected</h1>
+          </div>
+          <div class="content">
+            <p>Hello,</p>
+            <p>Everyone has signed <strong>${this.escape(payload.fileName)}</strong>.</p>
+            <p>Last signer: ${this.escape(payload.signerName)}</p>
+            <a href="${front}/documents/${payload.fileId}" class="button">View document</a>
+          </div>
+        </div>
+      </body>
+      </html>
+    `;
+
+    return this.sendEmail(to, subject, html);
+  }
+
+  /** Fallback for notification types without a dedicated template. */
+  async sendGenericNotificationEmail(
+    to: string,
+    payload: { title: string; message: string; href?: string },
+  ) {
+    const subject = payload.title;
+    const button = payload.href
+      ? `<a href="${payload.href}" class="button">Open</a>`
+      : '';
+    const html = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <style>
+          body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+          .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+          .header { background-color: #334155; color: white; padding: 20px; border-radius: 5px 5px 0 0; }
+          .content { background-color: #f9fafb; padding: 20px; border-radius: 0 0 5px 5px; }
+          .button { display: inline-block; padding: 10px 20px; background-color: #334155; color: white; text-decoration: none; border-radius: 5px; margin-top: 10px; }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header">
+            <h1>${this.escape(payload.title)}</h1>
+          </div>
+          <div class="content">
+            <p>${this.escape(payload.message)}</p>
+            ${button}
+          </div>
+        </div>
+      </body>
+      </html>
+    `;
+
+    return this.sendEmail(to, subject, html);
+  }
+
+  async sendPasswordResetEmail(to: string, resetUrl: string, name?: string) {
+    const subject = 'Reset your DocTracker password';
+    const greeting = name ? this.escape(name) : 'there';
+    const safeUrl = this.escape(resetUrl);
+    const html = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <style>
+          body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+          .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+          .header { background-color: #1e293b; color: white; padding: 20px; border-radius: 5px 5px 0 0; }
+          .content { background-color: #f9fafb; padding: 20px; border-radius: 0 0 5px 5px; }
+          .button { display: inline-block; padding: 12px 24px; background-color: #2563eb; color: white; text-decoration: none; border-radius: 5px; margin-top: 16px; }
+          .muted { color: #64748b; font-size: 13px; margin-top: 24px; }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header">
+            <h1>Password reset</h1>
+          </div>
+          <div class="content">
+            <p>Hello ${greeting},</p>
+            <p>We received a request to reset your DocTracker password. This link expires in one hour.</p>
+            <p><a href="${safeUrl}" class="button">Reset password</a></p>
+            <p class="muted">If you did not ask for this, you can ignore this email. Your password will stay the same.</p>
+            <p class="muted">Or paste this link into your browser:<br>${safeUrl}</p>
+          </div>
+        </div>
+      </body>
+      </html>
+    `;
+
+    return this.sendEmail(to, subject, html);
+  }
+
+  /** Whether outbound SMTP is configured. */
+  isConfigured(): boolean {
+    return this.transporter != null;
+  }
+
+  private frontendUrl(): string {
+    return (
+      this.configService.get<string>('FRONTEND_URL') ||
+      process.env.FRONTEND_URL ||
+      'http://localhost:3001'
+    );
+  }
+
+  private escape(value: string): string {
+    return String(value || '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
   private stripHtml(html: string): string {
     return html.replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').trim();
   }

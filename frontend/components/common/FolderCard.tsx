@@ -15,12 +15,18 @@ import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { formatDistanceToNow } from "date-fns";
 import { AccessRequestDialog } from "@/components/features/documents/AccessRequestDialog";
+import {
+  ScopeMark,
+  RestrictedMark,
+  scopeIconClass,
+} from "@/components/common/ScopeMark";
 
 export interface FolderData {
   id: string;
   name: string;
   description?: string;
   scope?: "company" | "department" | "division";
+  scopeLevel?: string;
   documentCount?: number;
   modifiedAt: Date;
   createdBy?: string;
@@ -33,14 +39,11 @@ interface FolderCardProps {
   onEdit?: (id: string) => void;
   onDelete?: (id: string) => void;
   className?: string;
-  hasAccess?: boolean; // Whether the current user has access to this folder
+  /** Whether the current user may open this folder. */
+  hasAccess?: boolean;
+  /** Optional sentence explaining why access is refused. */
+  accessReason?: string | null;
 }
-
-const scopeLabels: Record<string, string> = {
-  company: "Company-wide",
-  department: "Dept-wide",
-  division: "Division-wide",
-};
 
 export function FolderCard({
   folder,
@@ -48,106 +51,144 @@ export function FolderCard({
   onEdit,
   onDelete,
   className,
-  hasAccess = true, // Default to true for backward compatibility
+  hasAccess = true,
+  accessReason,
 }: FolderCardProps) {
   const [requestAccessOpen, setRequestAccessOpen] = useState(false);
+  const scope = folder.scopeLevel ?? folder.scope;
 
-  const handleView = () => {
+  const guard = (action?: (id: string) => void) => () => {
     if (!hasAccess) {
       setRequestAccessOpen(true);
       return;
     }
-    onView?.(folder.id);
+    action?.(folder.id);
   };
 
-  const handleEdit = () => {
-    if (!hasAccess) {
-      setRequestAccessOpen(true);
-      return;
-    }
-    onEdit?.(folder.id);
-  };
+  const title = (
+    <div className="flex items-center gap-2">
+      <h3
+        className={cn(
+          "truncate font-semibold text-sm",
+          hasAccess && "group-hover:text-primary",
+        )}
+      >
+        {folder.name}
+      </h3>
+      {hasAccess ? (
+        <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
+      ) : (
+        <Lock className="h-3.5 w-3.5 shrink-0 text-scope-restricted" aria-hidden />
+      )}
+    </div>
+  );
 
-  const handleDelete = () => {
-    if (!hasAccess) {
-      setRequestAccessOpen(true);
-      return;
-    }
-    onDelete?.(folder.id);
-  };
+  const heading = (
+    <>
+      <div className="shrink-0">
+        <Folder
+          className={cn("h-8 w-8", scopeIconClass(scope, !hasAccess))}
+        />
+      </div>
+      <div className="min-w-0 flex-1">
+        {title}
+        {folder.description && (
+          <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
+            {folder.description}
+          </p>
+        )}
+      </div>
+    </>
+  );
 
   return (
-    <Card className={cn("hover:shadow-md transition-shadow flex flex-col h-full", className)}>
+    <Card
+      className={cn(
+        "flex h-full flex-col transition-shadow",
+        hasAccess ? "hover:shadow-md" : "bg-muted/20",
+        className,
+      )}
+    >
       <CardHeader className="pb-3">
-        <div className="flex items-start justify-between">
-          <Link
-            href={`/documents/folder/${folder.id}`}
-            className="flex items-center gap-3 flex-1 min-w-0 group"
-          >
-            <div className="flex-shrink-0">
-              <Folder className="h-8 w-8 text-yellow-500 fill-yellow-500" />
+        <div className="flex items-start justify-between gap-2">
+          {/* A folder the viewer cannot open is not a link. Rendering one that
+              leads to a locked page is a dead end dressed up as an affordance. */}
+          {hasAccess ? (
+            <Link
+              href={`/documents/folder/${folder.id}`}
+              className="group flex min-w-0 flex-1 items-center gap-3"
+            >
+              {heading}
+            </Link>
+          ) : (
+            <div
+              className="flex min-w-0 flex-1 items-center gap-3"
+              title={accessReason ?? undefined}
+            >
+              {heading}
             </div>
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2">
-                <h3 className="font-semibold text-sm truncate group-hover:text-primary">
-                  {folder.name}
-                </h3>
-                <ChevronRight className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
-              </div>
-              {folder.description && (
-                <p className="text-xs text-muted-foreground mt-1 line-clamp-2">
-                  {folder.description}
-                </p>
-              )}
-            </div>
-          </Link>
+          )}
+
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon" className="h-8 w-8">
+              <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0">
                 <MoreVertical className="h-4 w-4" />
-                <span className="sr-only">More options</span>
+                <span className="sr-only">More options for {folder.name}</span>
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-              <DropdownMenuItem onClick={handleView}>View</DropdownMenuItem>
-              <DropdownMenuItem onClick={handleEdit}>Edit</DropdownMenuItem>
-              <DropdownMenuItem onClick={handleDelete} className="text-destructive">
+              <DropdownMenuItem onClick={guard(onView)}>Open</DropdownMenuItem>
+              <DropdownMenuItem onClick={guard(onEdit)}>Rename</DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={guard(onDelete)}
+                className="text-destructive"
+              >
                 Delete
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
       </CardHeader>
-      <CardContent className="pt-0 flex-1">
-        <div className="flex items-center justify-between">
+
+      <CardContent className="flex-1 pt-0">
+        <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex flex-wrap items-center gap-2">
-            {folder.scope && (
-              <Badge variant="outline" className="text-xs">
-                {scopeLabels[folder.scope]}
-              </Badge>
+            {hasAccess ? (
+              <ScopeMark scope={scope} />
+            ) : (
+              <RestrictedMark />
             )}
             {folder.documentCount !== undefined && (
               <Badge variant="secondary" className="text-xs">
-                {folder.documentCount} {folder.documentCount === 1 ? "file" : "files"}
+                {folder.documentCount}{" "}
+                {folder.documentCount === 1 ? "file" : "files"}
               </Badge>
             )}
           </div>
-          <p className="text-xs text-muted-foreground">
-            Modified {formatDistanceToNow(folder.modifiedAt, { addSuffix: true })}
+          <p className="stamp text-muted-foreground">
+            {formatDistanceToNow(folder.modifiedAt, { addSuffix: true })}
           </p>
         </div>
       </CardContent>
-      <CardFooter className="pt-3 border-t min-h-[52px] flex items-center">
+
+      <CardFooter className="flex min-h-[52px] items-center border-t pt-3">
         {!hasAccess ? (
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setRequestAccessOpen(true)}
-            className="text-xs w-full"
-          >
-            <Lock className="h-3 w-3 mr-1" />
-            Request Access
-          </Button>
+          <div className="w-full space-y-2">
+            {accessReason && (
+              <p className="text-xs leading-snug text-muted-foreground">
+                {accessReason}
+              </p>
+            )}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setRequestAccessOpen(true)}
+              className="w-full text-xs"
+            >
+              <Lock className="mr-1 h-3 w-3" />
+              Request access
+            </Button>
+          </div>
         ) : (
           <div className="w-full" />
         )}
