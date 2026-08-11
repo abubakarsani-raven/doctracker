@@ -54,6 +54,40 @@ export function onAuthFailure(handler: AuthFailureHandler | null) {
   }
 }
 
+const CSRF_STORAGE_KEY = "dt_csrf_token";
+
+/** In-memory CSRF fallback when document.cookie cannot see dt_csrf (cross-origin). */
+let csrfTokenMemory: string | null = null;
+
+function persistCsrfToken(token: string | null) {
+  csrfTokenMemory = token;
+  if (typeof window === "undefined") return;
+  try {
+    if (token) {
+      sessionStorage.setItem(CSRF_STORAGE_KEY, token);
+    } else {
+      sessionStorage.removeItem(CSRF_STORAGE_KEY);
+    }
+  } catch {
+    // ignore
+  }
+}
+
+function readStoredCsrfToken(): string | null {
+  if (csrfTokenMemory) return csrfTokenMemory;
+  if (typeof window === "undefined") return null;
+  try {
+    const stored = sessionStorage.getItem(CSRF_STORAGE_KEY);
+    if (stored) {
+      csrfTokenMemory = stored;
+      return stored;
+    }
+  } catch {
+    // ignore
+  }
+  return null;
+}
+
 /** Clear client-side auth leftovers. Cookies are cleared by /auth/logout. */
 export function clearClientSession() {
   if (typeof window === "undefined") return;
@@ -67,16 +101,23 @@ export function clearClientSession() {
   } catch {
     // ignore
   }
+  persistCsrfToken(null);
 }
 
 /**
- * Read CSRF token from dt_csrf cookie
+ * Read CSRF token: prefer first-party dt_csrf cookie, then body/session fallback.
  */
 function getCSRFToken(): string | null {
-  if (typeof document === 'undefined') return null;
-  
+  if (typeof document === "undefined") return null;
+
   const match = document.cookie.match(/dt_csrf=([^;]+)/);
-  return match ? decodeURIComponent(match[1]) : null;
+  if (match) {
+    const fromCookie = decodeURIComponent(match[1]);
+    persistCsrfToken(fromCookie);
+    return fromCookie;
+  }
+
+  return readStoredCsrfToken();
 }
 
 /**
@@ -151,11 +192,24 @@ class ApiClient {
 
   /** Refresh the access cookie if needed; coalesces parallel callers. */
   async ensureFreshSession(): Promise<void> {
-    this.refreshInFlight ??= this.rawRequest<any>('/auth/refresh', {
+    this.refreshInFlight ??= this.rawRequest<{
+      access_token?: string;
+      csrfToken?: string;
+    }>('/auth/refresh', {
       method: 'POST',
-    }).finally(() => {
-      this.refreshInFlight = null;
-    });
+    })
+      .then((result) => {
+        if (result?.access_token) {
+          this.setToken(result.access_token);
+        }
+        if (result?.csrfToken) {
+          persistCsrfToken(result.csrfToken);
+        }
+        return result;
+      })
+      .finally(() => {
+        this.refreshInFlight = null;
+      });
     await this.refreshInFlight;
   }
 
@@ -319,10 +373,19 @@ class ApiClient {
       method: 'POST',
       body: JSON.stringify({ email, password }),
     });
-    
-    // Clear any old localStorage tokens - we're using cookies now
-    this.setToken(null);
-    
+
+    // Cookies (via same-origin /api-backend proxy) are primary for REST.
+    // Keep access_token for WebSocket handshake — WS still hits Railway
+    // directly and cannot read first-party Vercel cookies.
+    if (result?.access_token) {
+      this.setToken(result.access_token);
+    } else {
+      this.setToken(null);
+    }
+    if (result?.csrfToken) {
+      persistCsrfToken(result.csrfToken);
+    }
+
     console.log('[API Client] Login successful, using cookie-based auth');
     return result;
   }
@@ -356,6 +419,7 @@ class ApiClient {
 
     clearClientSession();
     this.setToken(null);
+    persistCsrfToken(null);
     sessionExpiryHandled = false;
     console.log('[API Client] Logged out');
   }
@@ -364,7 +428,11 @@ class ApiClient {
    * Get current CSRF token
    */
   async getCSRFToken() {
-    return this.request<{ csrfToken: string }>('/auth/csrf');
+    const result = await this.request<{ csrfToken: string }>('/auth/csrf');
+    if (result?.csrfToken) {
+      persistCsrfToken(result.csrfToken);
+    }
+    return result;
   }
 
   /**
@@ -1151,8 +1219,9 @@ export const getApiClient = () => {
   }
   
   if (!apiClientInstance) {
+    // Relative `/api-backend` (Vercel rewrite) or absolute local/Railway URL.
     const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4003';
-    apiClientInstance = new ApiClient(API_BASE_URL);
+    apiClientInstance = new ApiClient(API_BASE_URL.replace(/\/$/, ''));
   }
   
   return apiClientInstance;

@@ -1,11 +1,31 @@
 import { io, Socket } from 'socket.io-client';
 
 /**
- * Resolve the Socket.IO base URL from NEXT_PUBLIC_API_URL.
- * Socket.IO expects http(s), not ws(s) — it upgrades the transport itself.
+ * Resolve the Socket.IO base URL.
+ *
+ * HTTP can be same-origin via `/api-backend` rewrites, but WebSocket cannot.
+ * Prefer NEXT_PUBLIC_WS_URL (Railway host in production); fall back to an
+ * absolute NEXT_PUBLIC_API_URL for local dev.
  */
 function resolveSocketUrl(): string {
+  const wsUrl = process.env.NEXT_PUBLIC_WS_URL?.trim();
+  if (wsUrl) {
+    try {
+      const url = new URL(wsUrl);
+      return `${url.protocol}//${url.host}`;
+    } catch {
+      console.warn('[WebSocket] Invalid NEXT_PUBLIC_WS_URL:', wsUrl);
+    }
+  }
+
   const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4003';
+  if (apiUrl.startsWith('/')) {
+    console.warn(
+      '[WebSocket] NEXT_PUBLIC_API_URL is relative; set NEXT_PUBLIC_WS_URL to the Railway host',
+    );
+    return 'http://localhost:4003';
+  }
+
   try {
     const url = new URL(apiUrl);
     // Preserve host + port; drop any path so we hit the Nest Socket.IO root.
