@@ -1,7 +1,6 @@
 "use client";
 
-import { seesAllCompanies } from "@/lib/permissions";
-import { Search, Bell, User } from "lucide-react";
+import { Search, PanelLeft, PanelLeftClose } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -11,7 +10,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Input } from "@/components/ui/input";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { CommandDialogComponent as CommandDialog } from "@/components/common/CommandDialog";
 import { useState, useMemo, useEffect } from "react";
@@ -19,10 +17,13 @@ import { useRouter } from "next/navigation";
 import { NotificationDropdown } from "@/components/common/NotificationDropdown";
 import { ThemeToggle } from "@/components/layout/ThemeToggle";
 import { FontSizeToggle } from "@/components/layout/FontSizeToggle";
+import { MobileNav } from "@/components/layout/MobileNav";
+import { useSidebarCollapse } from "@/components/layout/SidebarCollapse";
 import { useCurrentUser } from "@/lib/hooks/use-users";
 import { useCompanies } from "@/lib/hooks/use-companies";
 import { usePermissions } from "@/lib/hooks/use-permissions";
 import { api } from "@/lib/api";
+import { seesAllCompanies } from "@/lib/permissions";
 
 export function Header() {
   const [openCommand, setOpenCommand] = useState(false);
@@ -30,6 +31,7 @@ export function Header() {
   const { data: currentUser } = useCurrentUser();
   const { data: companies = [] } = useCompanies();
   const { permissions } = usePermissions();
+  const { collapsed, toggle } = useSidebarCollapse();
 
   // ⌘K / Ctrl+K opens the command palette (same entry as the search button).
   useEffect(() => {
@@ -96,7 +98,23 @@ export function Header() {
     <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
       <div className="container flex h-14 items-center justify-between px-4">
         {/* Logo and Search */}
-        <div className="flex items-center gap-4 flex-1">
+        <div className="flex items-center gap-3 flex-1 sm:gap-4">
+          <MobileNav />
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="hidden h-8 w-8 md:inline-flex"
+            onClick={toggle}
+            aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+            title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+          >
+            {collapsed ? (
+              <PanelLeft className="h-4 w-4" />
+            ) : (
+              <PanelLeftClose className="h-4 w-4" />
+            )}
+          </Button>
           <div className="flex items-center gap-3">
             <div className="font-display text-lg font-bold tracking-tight">
               DocTracker
@@ -106,7 +124,9 @@ export function Header() {
                 <span className="h-4 w-px bg-border" aria-hidden />
                 {/* Which company's records you are looking at is the first thing
                     to establish — most confusion here is cross-company. */}
-                <span className="stamp text-muted-foreground">{companyName}</span>
+                <span className="stamp hidden text-muted-foreground sm:inline">
+                  {companyName}
+                </span>
               </>
             )}
           </div>
