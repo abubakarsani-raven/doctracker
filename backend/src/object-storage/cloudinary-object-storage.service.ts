@@ -93,73 +93,87 @@ export class CloudinaryObjectStorageService extends ObjectStorageService {
   /**
    * Fetch raw bytes for streaming to clients.
    *
-   * Production accounts often enable Restricted media types for `raw`, which
-   * makes unsigned delivery URLs return 401. We therefore:
-   *  1. Resolve the resource via the Admin API (authoritative public_id/version)
-   *  2. Try a correctly signed delivery URL (no invalid `expires_at` on url())
-   *  3. Fall back to `private_download_url` (time-limited authenticated download)
+   * Restricted media types for `raw` make CDN delivery URLs return 401.
+   * Prefer Cloudinary's authenticated Admin download helper first — it is
+   * signed with the API secret and works regardless of delivery restrictions.
    */
   async getStream(key: string): Promise<Readable> {
     const publicId = this.toPublicId(key);
+    const format = this.extensionOf(key);
+    const publicIdNoExt = format
+      ? publicId.replace(new RegExp(`\\.${format}$`, 'i'), '')
+      : publicId;
+    const expiresAt = Math.floor(Date.now() / 1000) + 600;
     const candidates: string[] = [];
 
+    // 1) Authenticated Admin download URLs (API-signed) — most reliable in prod.
+    try {
+      candidates.push(
+        cloudinary.utils.private_download_url(publicIdNoExt, format || '', {
+          resource_type: 'raw',
+          type: 'upload',
+          expires_at: expiresAt,
+        }),
+      );
+      candidates.push(
+        cloudinary.utils.private_download_url(publicId, '', {
+          resource_type: 'raw',
+          type: 'upload',
+          expires_at: expiresAt,
+        }),
+      );
+      if (format) {
+        candidates.push(
+          cloudinary.utils.private_download_url(publicId, format, {
+            resource_type: 'raw',
+            type: 'upload',
+            expires_at: expiresAt,
+          }),
+        );
+      }
+    } catch (error: any) {
+      this.logger.warn(
+        `Could not build private_download_url for ${publicId}: ${error?.message || error}`,
+      );
+    }
+
+    // 2) Delivery URLs (signed, then unsigned) for accounts without restrictions.
     let version: number | string | undefined;
     try {
       const resource = await cloudinary.api.resource(publicId, {
         resource_type: 'raw',
       });
       version = resource.version;
+      candidates.push(
+        cloudinary.url(publicId, {
+          resource_type: 'raw',
+          type: 'upload',
+          secure: true,
+          sign_url: true,
+          ...(version ? { version } : {}),
+        }),
+      );
       if (resource.secure_url) candidates.push(resource.secure_url);
       if (resource.url) candidates.push(resource.url);
+      candidates.push(
+        cloudinary.url(publicId, {
+          resource_type: 'raw',
+          type: 'upload',
+          secure: true,
+          ...(version ? { version } : {}),
+        }),
+      );
     } catch (error: any) {
       this.logger.warn(
         `Cloudinary admin lookup failed for ${publicId}: ${error?.message || error}`,
       );
-    }
-
-    candidates.push(
-      cloudinary.url(publicId, {
-        resource_type: 'raw',
-        type: 'upload',
-        secure: true,
-        sign_url: true,
-        ...(version ? { version } : {}),
-      }),
-    );
-
-    // Unsigned — works when Restricted media types is off.
-    candidates.push(
-      cloudinary.url(publicId, {
-        resource_type: 'raw',
-        type: 'upload',
-        secure: true,
-        ...(version ? { version } : {}),
-      }),
-    );
-
-    const format = this.extensionOf(key);
-    const publicIdNoExt = format
-      ? publicId.replace(new RegExp(`\\.${format}$`, 'i'), '')
-      : publicId;
-    try {
       candidates.push(
-        cloudinary.utils.private_download_url(publicIdNoExt, format || '', {
+        cloudinary.url(publicId, {
           resource_type: 'raw',
           type: 'upload',
-          expires_at: Math.floor(Date.now() / 1000) + 600,
+          secure: true,
+          sign_url: true,
         }),
-      );
-      // Some raw assets keep the extension inside public_id.
-      candidates.push(
-        cloudinary.utils.private_download_url(publicId, format || '', {
-          resource_type: 'raw',
-          type: 'upload',
-          expires_at: Math.floor(Date.now() / 1000) + 600,
-        }),
-      );
-    } catch (error: any) {
-      this.logger.warn(
-        `Could not build private_download_url for ${publicId}: ${error?.message || error}`,
       );
     }
 
@@ -174,8 +188,8 @@ export class CloudinaryObjectStorageService extends ObjectStorageService {
           return Readable.fromWeb(response.body as any);
         }
         lastStatus = response.status;
-        this.logger.debug(
-          `Cloudinary candidate returned HTTP ${response.status} for ${publicId}`,
+        this.logger.warn(
+          `Cloudinary candidate HTTP ${response.status} for ${publicId}`,
         );
       } catch (error) {
         lastError = error;
