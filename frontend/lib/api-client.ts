@@ -188,8 +188,12 @@ class ApiClient {
       try {
         await this.ensureFreshSession();
       } catch {
-        this.notifyAuthFailure(error);
-        throw error;
+        // Cookie refresh can fail in Safari while the Bearer token from login
+        // is still valid — keep the session and retry once with Authorization.
+        if (!this.token) {
+          this.notifyAuthFailure(error);
+          throw error;
+        }
       }
 
       try {
@@ -397,6 +401,7 @@ class ApiClient {
       persistCsrfToken(result.csrfToken);
     }
 
+    sessionExpiryHandled = false;
     console.log('[API Client] Login successful, using cookie-based auth');
     return result;
   }
@@ -411,7 +416,26 @@ class ApiClient {
       sessionExpiryHandled = false;
       console.log('[API Client] Token refreshed');
     } catch (error) {
-      this.notifyAuthFailure(error);
+      // Rehydrate Bearer from storage in case this.token was never set on
+      // a remounted client instance.
+      if (!this.token && typeof window !== 'undefined') {
+        try {
+          this.token =
+            localStorage.getItem('authToken') ||
+            localStorage.getItem('access_token');
+        } catch {
+          // ignore
+        }
+      }
+      // Keep-alive must not eject a user who still has a valid Bearer token
+      // (cookie refresh often fails in Safari before Lax cookies settle).
+      if (!this.token) {
+        this.notifyAuthFailure(error);
+      } else {
+        console.warn(
+          '[API Client] Cookie refresh failed; continuing with Bearer token',
+        );
+      }
       throw error;
     }
   }

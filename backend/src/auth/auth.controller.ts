@@ -35,13 +35,39 @@ export class AuthController {
 
   private cookieBase() {
     const isProduction = this.configService.get('NODE_ENV') === 'production';
+    // Default Lax: production frontend talks same-origin via Vercel /api-backend
+    // rewrite, so cookies are first-party. SameSite=None is Safari-hostile and
+    // only needed when the browser hits Railway cross-origin directly.
+    // Override with COOKIE_SAME_SITE=none if you must use a cross-origin API URL.
+    const raw = (this.configService.get<string>('COOKIE_SAME_SITE') || '')
+      .trim()
+      .toLowerCase();
+    const sameSite: 'none' | 'lax' =
+      raw === 'none' ? 'none' : raw === 'lax' ? 'lax' : 'lax';
+    // SameSite=None requires Secure; Lax can be Secure in production too.
+    const secure = isProduction || sameSite === 'none';
     return {
       isProduction,
       httpOnly: true,
-      secure: isProduction,
-      sameSite: (isProduction ? 'none' : 'lax') as 'none' | 'lax',
+      secure,
+      sameSite,
       path: '/',
     };
+  }
+
+  /** Clear cookies under both Lax and None so a SameSite migration sticks. */
+  private clearAuthCookies(res: ExpressResponse) {
+    const { secure, path } = this.cookieBase();
+    for (const sameSite of ['lax', 'none'] as const) {
+      const opts = {
+        path,
+        secure: secure || sameSite === 'none',
+        sameSite,
+      };
+      res.clearCookie('dt_access', { ...opts, httpOnly: true });
+      res.clearCookie('dt_refresh', { ...opts, httpOnly: true });
+      res.clearCookie('dt_csrf', { ...opts, httpOnly: false });
+    }
   }
 
   /**
@@ -58,6 +84,9 @@ export class AuthController {
     },
     rememberMe: boolean,
   ) {
+    // Drop any prior SameSite=None cookies before writing Lax (Safari migrate).
+    this.clearAuthCookies(res);
+
     const { httpOnly, secure, sameSite, path } = this.cookieBase();
     const base = { httpOnly, secure, sameSite, path };
     const persistMs = rememberMe ? REMEMBER_REFRESH_MS : undefined;
@@ -146,16 +175,7 @@ export class AuthController {
       this.logger.warn('Error revoking refresh token during logout', error);
     }
 
-    // Clear all auth cookies
-    const cookieOptions = {
-      path: '/',
-      secure: this.configService.get('NODE_ENV') === 'production',
-      sameSite: this.configService.get('NODE_ENV') === 'production' ? 'none' as const : 'lax' as const,
-    };
-
-    res.clearCookie('dt_access', cookieOptions);
-    res.clearCookie('dt_refresh', cookieOptions);
-    res.clearCookie('dt_csrf', { ...cookieOptions, httpOnly: false });
+    this.clearAuthCookies(res);
 
     return { message: 'Logged out successfully' };
   }
@@ -181,6 +201,7 @@ export class AuthController {
       return {
         user: result.user,
         csrfToken: result.csrfToken,
+        access_token: result.access_token,
         rememberMe: result.rememberMe,
       };
     } catch (error) {

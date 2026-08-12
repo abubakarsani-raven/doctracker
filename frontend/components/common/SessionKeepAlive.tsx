@@ -12,6 +12,9 @@ import { api } from "@/lib/api";
  *  - every 10 minutes while the tab is visible
  *  - when the tab becomes visible again
  *  - after meaningful user activity (throttled to once per 5 minutes)
+ *
+ * Cookie refresh failures are soft when a Bearer token still exists (Safari
+ * often drops cross-site cookies; SameSite=Lax via /api-backend is preferred).
  */
 const INTERVAL_MS = 10 * 60 * 1000;
 const ACTIVITY_THROTTLE_MS = 5 * 60 * 1000;
@@ -27,7 +30,7 @@ export function SessionKeepAlive() {
       try {
         await api.refreshSession();
       } catch {
-        // Refresh cookie may already be gone — ApiErrorListener handles real logout.
+        // Soft failure — ApiErrorListener only hard-logs-out when Bearer is gone.
       }
     };
 

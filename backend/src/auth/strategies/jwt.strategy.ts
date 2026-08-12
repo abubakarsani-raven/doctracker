@@ -24,12 +24,13 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
 
     super({
       jwtFromRequest: ExtractJwt.fromExtractors([
-        // Try cookie first (dt_access), then fall back to Bearer header
+        // Prefer explicit Bearer: a stale/truncated cookie must not block a
+        // valid Authorization header (common after Safari / proxy cookie quirks).
+        ExtractJwt.fromAuthHeaderAsBearerToken(),
         (request: Request) => {
           const token = request?.cookies?.dt_access;
           return token || null;
         },
-        ExtractJwt.fromAuthHeaderAsBearerToken(),
       ]),
       ignoreExpiration: false,
       secretOrKey: secret,
