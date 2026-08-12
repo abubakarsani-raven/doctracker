@@ -1,9 +1,12 @@
 import { useEffect, useMemo, useRef } from 'react';
+import { toast } from 'sonner';
 import { wsClient } from '@/lib/websocket-client';
 import { useCurrentUser } from './use-users';
 
 /** Which user id the singleton socket is currently bound to. */
 let connectedForUserId: string | null = null;
+/** Avoid spamming the soft "Updates paused" toast across remounts. */
+let updatesPausedToastShown = false;
 
 export function useRealtime() {
   const { data: currentUser } = useCurrentUser();
@@ -21,6 +24,7 @@ export function useRealtime() {
         wsClient.disconnect();
         connectedForUserId = null;
       }
+      updatesPausedToastShown = false;
       return;
     }
 
@@ -46,6 +50,27 @@ export function useRealtime() {
     // Do not disconnect on unmount — other consumers share the singleton.
     // Logout (null user) is handled when this effect re-runs.
   }, [currentUser?.id]);
+
+  // Soft notice once when live updates give up reconnecting.
+  useEffect(() => {
+    const onPaused = () => {
+      if (updatesPausedToastShown) return;
+      updatesPausedToastShown = true;
+      toast.message('Updates paused', {
+        description: 'Live updates are offline. Refresh the page to reconnect.',
+        duration: 6000,
+      });
+    };
+    const onConnected = () => {
+      updatesPausedToastShown = false;
+    };
+    wsClient.on('updates_paused', onPaused);
+    wsClient.on('connected', onConnected);
+    return () => {
+      wsClient.off('updates_paused', onPaused);
+      wsClient.off('connected', onConnected);
+    };
+  }, []);
 
   // Stable API so effect deps that include these methods don't thrash.
   const api = useMemo(

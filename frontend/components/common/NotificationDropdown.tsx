@@ -18,7 +18,13 @@ import { useNotifications, useUnreadNotificationsCount, useMarkNotificationRead 
 import { formatDistanceToNow } from "date-fns";
 
 export function NotificationDropdown() {
-  const { data: notifications = [], isLoading, error } = useNotifications();
+  const {
+    data: notifications = [],
+    isLoading,
+    error,
+    refetch,
+    isFetching,
+  } = useNotifications();
   const unreadCount = useUnreadNotificationsCount();
   const markAsRead = useMarkNotificationRead();
 
@@ -46,6 +52,7 @@ export function NotificationDropdown() {
       (notification.resourceType === "file" ||
         notification.resourceType === "document" ||
         notification.type === "signature_requested" ||
+        notification.type === "signature_signed" ||
         notification.type === "signature_completed" ||
         notification.type === "permission_granted") &&
       notification.resourceId
@@ -61,7 +68,7 @@ export function NotificationDropdown() {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="icon" className="relative">
+        <Button variant="ghost" size="icon" className="relative" aria-label="Notifications">
           <Bell className="h-5 w-5" />
           {unreadCount > 0 && (
             <Badge
@@ -110,8 +117,23 @@ export function NotificationDropdown() {
               Loading notifications...
             </div>
           ) : error ? (
-            <div className="p-4 text-center text-sm text-destructive">
-              Failed to load notifications
+            <div className="flex flex-col items-center gap-3 p-4 text-center">
+              <p className="text-sm text-destructive">
+                Failed to load notifications
+              </p>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={isFetching}
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  void refetch();
+                }}
+              >
+                {isFetching ? "Retrying…" : "Retry"}
+              </Button>
             </div>
           ) : notifications.length === 0 ? (
             <div className="p-4 text-center text-sm text-muted-foreground">

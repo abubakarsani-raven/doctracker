@@ -2,7 +2,7 @@
 
 import { seesAllCompanies } from "@/lib/permissions";
 import { useMemo, useState } from "react";
-import { WorkflowCard, EmptyState, LoadingState } from "@/components/common";
+import { WorkflowCard, EmptyState, LoadingState, QueryErrorState } from "@/components/common";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -24,7 +24,7 @@ import { isCompanyAdmin } from "@/lib/cross-company-utils";
 export default function WorkflowsPage() {
   const router = useRouter();
   const { data: currentUser } = useCurrentUser();
-  const { data: workflows = [], isLoading } = useWorkflows();
+  const { data: workflows = [], isLoading, isError, error, refetch } = useWorkflows();
   const {
     createWorkflowDialogOpen,
     setCreateWorkflowDialogOpen,
@@ -100,14 +100,17 @@ export default function WorkflowsPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
+      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+        <div className="min-w-0">
           <h1 className="text-3xl font-bold tracking-tight">Workflows</h1>
           <p className="text-muted-foreground">
             Track and manage document workflows
           </p>
         </div>
-        <Button onClick={() => setCreateWorkflowDialogOpen(true)}>
+        <Button
+          className="w-full shrink-0 sm:w-auto"
+          onClick={() => setCreateWorkflowDialogOpen(true)}
+        >
           <Plus className="mr-2 h-4 w-4" />
           Create Workflow
         </Button>
@@ -154,6 +157,12 @@ export default function WorkflowsPage() {
         <TabsContent value={activeTab} className="mt-6">
           {isLoading ? (
             <LoadingState type="card" />
+          ) : isError ? (
+            <QueryErrorState
+              title="Failed to load workflows"
+              error={error}
+              onRetry={() => refetch()}
+            />
           ) : filteredWorkflows.length === 0 ? (
             <EmptyState
               icon={Search}

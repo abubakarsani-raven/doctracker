@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { ActionCard, EmptyState, LoadingState } from "@/components/common";
+import { ActionCard, EmptyState, LoadingState, QueryErrorState } from "@/components/common";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -25,8 +25,20 @@ import { isCompanyAdmin } from "@/lib/cross-company-utils";
 export default function ActionsPage() {
   const router = useRouter();
   const { data: currentUser } = useCurrentUser();
-  const { data: actions = [], isLoading: actionsLoading } = useActions();
-  const { data: workflows = [], isLoading: workflowsLoading } = useWorkflows();
+  const {
+    data: actions = [],
+    isLoading: actionsLoading,
+    isError: actionsError,
+    error: actionsErr,
+    refetch: refetchActions,
+  } = useActions();
+  const {
+    data: workflows = [],
+    isLoading: workflowsLoading,
+    isError: workflowsError,
+    error: workflowsErr,
+    refetch: refetchWorkflows,
+  } = useWorkflows();
   const {
     createActionDialogOpen,
     setCreateActionDialogOpen,
@@ -38,6 +50,12 @@ export default function ActionsPage() {
   const [activeTab, setActiveTab] = useState("pending");
 
   const isLoading = actionsLoading || workflowsLoading;
+  const isError = actionsError || workflowsError;
+  const error = actionsErr || workflowsErr;
+  const refetch = () => {
+    refetchActions();
+    refetchWorkflows();
+  };
 
   // Filter actions by visibility (assigned or workflow participant)
   const filteredActions = useMemo(() => {
@@ -152,6 +170,12 @@ export default function ActionsPage() {
         <TabsContent value={activeTab} className="mt-6">
           {isLoading ? (
             <LoadingState type="card" />
+          ) : isError ? (
+            <QueryErrorState
+              title="Failed to load actions"
+              error={error}
+              onRetry={() => refetch()}
+            />
           ) : filteredActions.length === 0 ? (
             <EmptyState
               icon={Search}

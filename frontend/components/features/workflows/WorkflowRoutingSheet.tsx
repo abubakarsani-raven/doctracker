@@ -24,7 +24,6 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { toast } from "sonner";
 import { Send, ArrowRight, ArrowLeft, Plus, User, Building2, Crown, FileText } from "lucide-react";
 import { Separator } from "@/components/ui/separator";
-import { CreateActionFromWorkflowDialog } from "./CreateActionFromWorkflowDialog";
 import {
   isCompanyAdmin,
   getUserCompanyId,
@@ -44,12 +43,15 @@ interface WorkflowRoutingSheetProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   workflowId: string;
+  /** Prefer opening create-action on the page so it is not nested in the Sheet. */
+  onRequestCreateAction?: () => void;
 }
 
 export function WorkflowRoutingSheet({
   open,
   onOpenChange,
   workflowId,
+  onRequestCreateAction,
 }: WorkflowRoutingSheetProps) {
   // Fetch workflow data first
   const { data: workflow, isLoading: workflowLoading } = useWorkflow(workflowId);
@@ -82,7 +84,6 @@ export function WorkflowRoutingSheet({
   const [selectedIndividual, setSelectedIndividual] = useState("");
   const [notes, setNotes] = useState("");
 
-  const [actionDialogOpen, setActionDialogOpen] = useState(false);
   const [selectedCompanyId, setSelectedCompanyId] = useState<string>("");
   const isAdmin = currentUser && isCompanyAdmin(currentUser);
 
@@ -141,8 +142,11 @@ export function WorkflowRoutingSheet({
 
   const handleRoute = async () => {
     if (routingType === "actions") {
-      // Open action creation dialog instead
-      setActionDialogOpen(true);
+      // Close sheet first so nested dialog focus traps don’t stack.
+      onOpenChange(false);
+      window.setTimeout(() => {
+        onRequestCreateAction?.();
+      }, 150);
       return;
     }
 
@@ -390,7 +394,7 @@ export function WorkflowRoutingSheet({
         data: updateData,
       });
 
-      // TODO: Create notifications via API when endpoint is available
+      // Notifications for routing are not wired yet — don't claim they were sent.
       toast.success(message);
 
       // Reset form
@@ -402,7 +406,7 @@ export function WorkflowRoutingSheet({
       onOpenChange(false);
     } catch (error: any) {
       console.error("Failed to route workflow:", error);
-      // Error toast is handled by mutation hooks
+      // onError toast is on useUpdateWorkflow
     }
   };
 
@@ -758,23 +762,6 @@ export function WorkflowRoutingSheet({
           </Button>
         </SheetFooter>
       </SheetContent>
-
-      {/* Create Action Dialog */}
-      <CreateActionFromWorkflowDialog
-        open={actionDialogOpen}
-        onOpenChange={(open) => {
-          setActionDialogOpen(open);
-          if (!open) {
-            // Close routing sheet after action is created
-            onOpenChange(false);
-          }
-        }}
-        workflowId={workflowId}
-        workflow={workflow}
-        onActionCreated={() => {
-          toast.success("Action created and notifications sent to assigned parties");
-        }}
-      />
     </Sheet>
   );
 }

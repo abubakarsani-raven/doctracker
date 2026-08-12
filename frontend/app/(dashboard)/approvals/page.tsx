@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ApprovalRequestCard } from "@/components/features/workflows/ApprovalRequestCard";
 import { CrossCompanyApprovalDialog } from "@/components/features/workflows/CrossCompanyApprovalDialog";
-import { EmptyState, LoadingState } from "@/components/common";
+import { EmptyState, LoadingState, QueryErrorState } from "@/components/common";
 import { FileText, Search } from "lucide-react";
 import {
   getPendingApprovalsForCompany,
@@ -25,7 +25,7 @@ export default function ApprovalsPage() {
   const { data: currentUser } = useCurrentUser();
   useRouteProtection({ requires: "approvals.review" });
   const { isMaster } = usePermissions();
-  const { data: approvals = [], isLoading } = useApprovalRequests();
+  const { data: approvals = [], isLoading, isError, error, refetch } = useApprovalRequests();
   const updateApprovalRequest = useUpdateApprovalRequest();
 
   const [activeTab, setActiveTab] = useState("pending");
@@ -109,6 +109,16 @@ export default function ApprovalsPage() {
 
   if (isLoading) {
     return <LoadingState type="card" />;
+  }
+
+  if (isError) {
+    return (
+      <QueryErrorState
+        title="Failed to load approval requests"
+        error={error}
+        onRetry={() => refetch()}
+      />
+    );
   }
 
   return (

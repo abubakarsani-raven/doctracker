@@ -373,7 +373,7 @@ export function CreateWorkflowDialog({
       onOpenChange(false);
     } catch (error: any) {
       console.error("Failed to create workflow:", error);
-      // Error toast is handled by mutation hooks
+      // onError toast is on useCreateWorkflow
     }
   };
 

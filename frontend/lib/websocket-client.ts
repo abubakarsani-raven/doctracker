@@ -88,10 +88,20 @@ class WebSocketClient {
       // a full-screen "Console Error" overlay.
       console.warn('[WebSocket] Connection error:', error.message);
       this.reconnectAttempts++;
-      if (this.reconnectAttempts >= this.maxReconnectAttempts) {
+      if (this.reconnectAttempts === this.maxReconnectAttempts) {
         console.warn('[WebSocket] Max reconnection attempts reached');
+        this.emitLocal('updates_paused', {
+          reason: 'max_reconnect_attempts',
+        });
       }
     });
+
+    const onReconnectFailed = () => {
+      console.warn('[WebSocket] Reconnect failed');
+      this.emitLocal('updates_paused', { reason: 'reconnect_failed' });
+    };
+    this.socket.io.off('reconnect_failed', onReconnectFailed);
+    this.socket.io.on('reconnect_failed', onReconnectFailed);
 
     // Forward all events to listeners
     this.socket.onAny((event, ...args) => {
@@ -104,11 +114,17 @@ class WebSocketClient {
 
   disconnect() {
     if (this.socket) {
+      try {
+        this.socket.io.removeAllListeners('reconnect_failed');
+      } catch {
+        // ignore
+      }
       this.socket.removeAllListeners();
       this.socket.disconnect();
       this.socket = null;
     }
-    this.listeners.clear();
+    // Preserve app-level listeners (e.g. soft "Updates paused" toast) across
+    // reconnect cycles; only the socket wiring is torn down.
   }
 
   on(event: string, callback: (data: any) => void) {

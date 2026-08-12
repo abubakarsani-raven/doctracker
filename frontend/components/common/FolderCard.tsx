@@ -129,24 +129,30 @@ export function FolderCard({
             </div>
           )}
 
+          {(onEdit || onDelete) && (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0">
+              <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" aria-label={`More options for ${folder.name}`}>
                 <MoreVertical className="h-4 w-4" />
                 <span className="sr-only">More options for {folder.name}</span>
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
               <DropdownMenuItem onClick={guard(onView)}>Open</DropdownMenuItem>
-              <DropdownMenuItem onClick={guard(onEdit)}>Rename</DropdownMenuItem>
-              <DropdownMenuItem
-                onClick={guard(onDelete)}
-                className="text-destructive"
-              >
-                Delete
-              </DropdownMenuItem>
+              {onEdit && (
+                <DropdownMenuItem onClick={guard(onEdit)}>Rename</DropdownMenuItem>
+              )}
+              {onDelete && (
+                <DropdownMenuItem
+                  onClick={guard(onDelete)}
+                  className="text-destructive"
+                >
+                  Delete
+                </DropdownMenuItem>
+              )}
             </DropdownMenuContent>
           </DropdownMenu>
+          )}
         </div>
       </CardHeader>
 

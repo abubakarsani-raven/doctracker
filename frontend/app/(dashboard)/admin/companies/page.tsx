@@ -20,11 +20,10 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { CreateCompanyDialog } from "@/components/features/admin/CreateCompanyDialog";
 import { Plus, Search, MoreVertical, Building2, Users, FileText, Settings, Loader2 } from "lucide-react";
-import { EmptyState } from "@/components/common";
+import { EmptyState, QueryErrorState } from "@/components/common";
 import Link from "next/link";
 import { useRouteProtection } from "@/lib/hooks/useRouteProtection";
 import { useCompanies } from "@/lib/hooks/use-companies";
-import { toast } from "sonner";
 import { formatDistanceToNow } from "date-fns";
 
 export default function CompaniesPage() {
@@ -32,11 +31,7 @@ export default function CompaniesPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   
-  const { data: companies = [], isLoading, error } = useCompanies();
-
-  if (error) {
-    toast.error("Failed to load companies");
-  }
+  const { data: companies = [], isLoading, isError, error, refetch } = useCompanies();
 
   const filteredCompanies = companies.filter((company: any) =>
     company.name?.toLowerCase().includes(searchQuery.toLowerCase())
@@ -79,7 +74,13 @@ export default function CompaniesPage() {
         )}
 
         {/* Companies Table */}
-        {!isLoading && filteredCompanies.length === 0 ? (
+        {!isLoading && isError ? (
+          <QueryErrorState
+            title="Failed to load companies"
+            error={error}
+            onRetry={() => refetch()}
+          />
+        ) : !isLoading && filteredCompanies.length === 0 ? (
           <EmptyState
             icon={Building2}
             title="No companies found"
@@ -154,7 +155,11 @@ export default function CompaniesPage() {
                     <TableCell className="text-right">
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="icon">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            aria-label={`More actions for ${company.name}`}
+                          >
                             <MoreVertical className="h-4 w-4" />
                           </Button>
                         </DropdownMenuTrigger>

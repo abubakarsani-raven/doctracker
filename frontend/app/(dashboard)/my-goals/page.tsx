@@ -6,14 +6,14 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Target, ExternalLink, Calendar } from "lucide-react";
-import { LoadingState } from "@/components/common";
+import { LoadingState, QueryErrorState } from "@/components/common";
 import { useMyGoals } from "@/lib/hooks/use-goals";
 import { format, isPast, isToday } from "date-fns";
 import { GoalCard } from "@/components/features/workflows/GoalCard";
 
 export default function MyGoalsPage() {
   const router = useRouter();
-  const { data: goals = [], isLoading } = useMyGoals();
+  const { data: goals = [], isLoading, isError, error, refetch } = useMyGoals();
 
   // Group goals by status
   const groupedGoals = useMemo(() => {
@@ -34,6 +34,16 @@ export default function MyGoalsPage() {
 
   if (isLoading) {
     return <LoadingState type="card" />;
+  }
+
+  if (isError) {
+    return (
+      <QueryErrorState
+        title="Failed to load goals"
+        error={error}
+        onRetry={() => refetch()}
+      />
+    );
   }
 
   return (

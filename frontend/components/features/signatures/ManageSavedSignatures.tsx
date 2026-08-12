@@ -27,8 +27,14 @@ import {
   RotateCcw,
 } from "lucide-react";
 import { api } from "@/lib/api";
-import { removeSignaturePaperBackground } from "@/lib/signature-image";
 import { cn } from "@/lib/utils";
+import { removeSignaturePaperBackground } from "@/lib/signature-image";
+import {
+  PEN_COLORS,
+  penColorValue,
+  penIsForDarkDoc,
+  type PenColorId,
+} from "@/lib/signature-pen-colors";
 
 export type SavedSignature = {
   id: string;
@@ -154,6 +160,7 @@ export function ManageSavedSignatures() {
                       size="icon"
                       className="h-8 w-8"
                       title="Set as default"
+                      aria-label="Set as default signature"
                       disabled={busyId === sig.id}
                       onClick={() => handleSetDefault(sig)}
                     >
@@ -170,6 +177,7 @@ export function ManageSavedSignatures() {
                     size="icon"
                     className="h-8 w-8 text-destructive hover:text-destructive"
                     title="Delete"
+                    aria-label="Delete signature"
                     onClick={() => setDeleteTarget(sig)}
                   >
                     <Trash2 className="h-4 w-4" />
@@ -245,6 +253,9 @@ export function SaveSignatureEditorDialog({
   const [isDrawing, setIsDrawing] = useState(false);
   const [hasDrawn, setHasDrawn] = useState(false);
   const [drawnUrl, setDrawnUrl] = useState<string | null>(null);
+  const [penColorId, setPenColorId] = useState<PenColorId>("black");
+  const penColor = penColorValue(penColorId);
+  const penForDarkDoc = penIsForDarkDoc(penColorId);
   const [uploadedUrl, setUploadedUrl] = useState<string | null>(
     initialImageData,
   );
@@ -259,6 +270,7 @@ export function SaveSignatureEditorDialog({
     setDrawnUrl(null);
     setUploadedUrl(initialImageData);
     setMode(initialImageData ? "upload" : "draw");
+    setPenColorId("black");
     setIsDrawing(false);
     if (fileInputRef.current) fileInputRef.current.value = "";
     const canvas = canvasRef.current;
@@ -311,7 +323,7 @@ export function SaveSignatureEditorDialog({
     ctx.lineWidth = 2.5;
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
-    ctx.strokeStyle = "#111";
+    ctx.strokeStyle = penColor;
     ctx.lineTo(x, y);
     ctx.stroke();
   };
@@ -438,12 +450,74 @@ export function SaveSignatureEditorDialog({
               </Button>
             </div>
 
-            <TabsContent value="draw" className="mt-0">
+            <TabsContent value="draw" className="mt-0 space-y-3">
+              <div className="space-y-2">
+                <p className="text-xs font-medium text-muted-foreground">
+                  Pen color
+                </p>
+                <div className="flex flex-wrap gap-3">
+                  <div className="space-y-1.5">
+                    <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                      Light document
+                    </p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {PEN_COLORS.filter((c) => c.forBg === "light").map(
+                        (c) => (
+                          <button
+                            key={c.id}
+                            type="button"
+                            title={c.label}
+                            aria-label={`${c.label} pen for light backgrounds`}
+                            aria-pressed={penColorId === c.id}
+                            onClick={() => setPenColorId(c.id)}
+                            className={cn(
+                              "flex h-8 w-8 items-center justify-center rounded-full border-2 transition-shadow",
+                              penColorId === c.id
+                                ? "border-primary ring-2 ring-primary/30"
+                                : "border-border",
+                            )}
+                            style={{ backgroundColor: c.value }}
+                          />
+                        ),
+                      )}
+                    </div>
+                  </div>
+                  <div className="space-y-1.5">
+                    <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                      Dark document
+                    </p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {PEN_COLORS.filter((c) => c.forBg === "dark").map(
+                        (c) => (
+                          <button
+                            key={c.id}
+                            type="button"
+                            title={c.label}
+                            aria-label={`${c.label} pen for dark backgrounds`}
+                            aria-pressed={penColorId === c.id}
+                            onClick={() => setPenColorId(c.id)}
+                            className={cn(
+                              "flex h-8 w-8 items-center justify-center rounded-full border-2 transition-shadow",
+                              penColorId === c.id
+                                ? "border-primary ring-2 ring-primary/30"
+                                : "border-border",
+                            )}
+                            style={{ backgroundColor: c.value }}
+                          />
+                        ),
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
               <canvas
                 ref={canvasRef}
                 width={480}
                 height={140}
-                className="w-full cursor-crosshair rounded-md border bg-white"
+                className={cn(
+                  "w-full cursor-crosshair rounded-md border",
+                  penForDarkDoc ? "bg-zinc-800" : "bg-white",
+                )}
                 onMouseDown={startDrawing}
                 onMouseMove={draw}
                 onMouseUp={stopDrawing}

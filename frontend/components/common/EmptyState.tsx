@@ -1,5 +1,13 @@
+"use client";
+
 import { ReactNode } from "react";
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -11,6 +19,8 @@ interface EmptyStateProps {
     label: string;
     onClick: () => void;
   };
+  /** Prefer for multiple CTAs (Retry + Go back). */
+  footer?: ReactNode;
   className?: string;
 }
 
@@ -19,6 +29,7 @@ export function EmptyState({
   title,
   description,
   action,
+  footer,
   className,
 }: EmptyStateProps) {
   return (
@@ -32,9 +43,12 @@ export function EmptyState({
         <CardTitle>{title}</CardTitle>
         {description && <CardDescription>{description}</CardDescription>}
       </CardHeader>
-      {action && (
+      {(action || footer) && (
         <CardFooter className="justify-center">
-          <Button onClick={action.onClick}>{action.label}</Button>
+          {footer ??
+            (action ? (
+              <Button onClick={action.onClick}>{action.label}</Button>
+            ) : null)}
         </CardFooter>
       )}
     </Card>

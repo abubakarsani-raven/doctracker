@@ -239,6 +239,32 @@
   }
 }
 
+/*
+  Sidebar collapse bootstrap (mirrors font-scale): an inline script sets
+  html[data-sidebar] before paint so main margin / sidebar width don't flash
+  expanded→collapsed on first load. --dt-sidebar-offset is used until React
+  marks the collapse provider ready.
+*/
+html {
+  --dt-sidebar-offset: 16rem;
+}
+html[data-sidebar="collapsed"] {
+  --dt-sidebar-offset: 4rem;
+}
+html[data-sidebar="expanded"] {
+  --dt-sidebar-offset: 16rem;
+}
+
+@media (min-width: 768px) {
+  html[data-sidebar="collapsed"] .dt-sidebar:not([data-mobile="true"]) {
+    width: 4rem;
+  }
+  html[data-sidebar="expanded"] .dt-sidebar:not([data-mobile="true"]),
+  html:not([data-sidebar]) .dt-sidebar:not([data-mobile="true"]) {
+    width: 16rem;
+  }
+}
+
 /* Respect a reduced-motion preference: keep state changes, drop the movement. */
 @media (prefers-reduced-motion: reduce) {
   *,

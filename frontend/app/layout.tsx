@@ -50,7 +50,7 @@ export default function RootLayout({
       <head>
         <script
           dangerouslySetInnerHTML={{
-            __html: `(function(){try{var s=localStorage.getItem("dt_font_scale");var m={sm:"87.5%",md:"100%",lg:"112.5%",xl:"125%"};if(s&&m[s]){document.documentElement.style.fontSize=m[s];document.documentElement.dataset.fontScale=s;}}catch(e){}})();`,
+            __html: `(function(){try{var s=localStorage.getItem("dt_font_scale");var m={sm:"87.5%",md:"100%",lg:"112.5%",xl:"125%"};if(s&&m[s]){document.documentElement.style.fontSize=m[s];document.documentElement.dataset.fontScale=s;}}catch(e){}try{var c=document.cookie.match(/(?:^|; )dt_sidebar_collapsed=([^;]*)/);var v=c?c[1]:null;if(v===null){try{v=localStorage.getItem("dt_sidebar_collapsed")==="true"?"1":"0";}catch(e2){v="0";}}document.documentElement.dataset.sidebar=(v==="1"||v==="true")?"collapsed":"expanded";}catch(e3){}})();`,
           }}
         />
       </head>

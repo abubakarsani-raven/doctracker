@@ -179,6 +179,7 @@ export function Sidebar({ className, mobile = false }: SidebarProps) {
   return (
     <aside
       data-collapsed={collapsed ? "true" : "false"}
+      data-mobile={mobile ? "true" : "false"}
       className={cn(
         "z-40 flex h-[calc(100vh-3.5rem)] flex-col border-r bg-sidebar transition-[width] duration-200 ease-out",
         mobile

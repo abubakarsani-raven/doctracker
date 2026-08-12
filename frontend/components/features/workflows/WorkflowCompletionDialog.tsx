@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo, useState } from "react";
 import {
   Dialog,
   DialogContent,
@@ -21,6 +22,17 @@ interface WorkflowCompletionDialogProps {
   onWorkflowCompleted?: () => void;
 }
 
+function isActionOpen(action: any): boolean {
+  const status = String(action?.status || "").toLowerCase();
+  return !(
+    status === "completed" ||
+    status === "cancelled" ||
+    status === "canceled" ||
+    status === "document_uploaded" ||
+    status === "response_received"
+  );
+}
+
 export function WorkflowCompletionDialog({
   open,
   onOpenChange,
@@ -29,10 +41,23 @@ export function WorkflowCompletionDialog({
   onWorkflowCompleted,
 }: WorkflowCompletionDialogProps) {
   const updateWorkflow = useUpdateWorkflow();
+  const [forceComplete, setForceComplete] = useState(false);
+
+  const openActions = useMemo(() => {
+    const list = Array.isArray(workflow?.actions) ? workflow.actions : [];
+    return list.filter(isActionOpen);
+  }, [workflow]);
+
+  const hasOpenActions = openActions.length > 0;
+  const canComplete = !hasOpenActions || forceComplete;
 
   const handleComplete = async () => {
     if (!workflow) {
       toast.error("Workflow not found");
+      return;
+    }
+    if (!canComplete) {
+      toast.error("Resolve open actions or choose “Complete anyway”");
       return;
     }
 
@@ -46,6 +71,7 @@ export function WorkflowCompletionDialog({
       });
 
       toast.success("Workflow marked as completed");
+      setForceComplete(false);
       onWorkflowCompleted?.();
       onOpenChange(false);
     } catch (error: any) {
@@ -63,7 +89,13 @@ export function WorkflowCompletionDialog({
     "Untitled Workflow";
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) setForceComplete(false);
+        onOpenChange(next);
+      }}
+    >
       <DialogContent className="sm:max-w-[500px]">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
@@ -71,8 +103,7 @@ export function WorkflowCompletionDialog({
             Complete workflow?
           </DialogTitle>
           <DialogDescription>
-            This finalizes the workflow and moves it to Completed. Open actions
-            stay as they are — make sure everything that needed doing is done.
+            This finalizes the workflow and moves it to Completed.
           </DialogDescription>
         </DialogHeader>
 
@@ -87,13 +118,49 @@ export function WorkflowCompletionDialog({
             ) : null}
           </div>
 
-          <div className="flex gap-2 rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 text-sm text-muted-foreground">
-            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
-            <p>
-              Completing cannot be undone from this screen. Only reopen the
-              workflow if your organization allows status changes later.
-            </p>
-          </div>
+          {hasOpenActions ? (
+            <div className="space-y-2 rounded-lg border border-amber-500/30 bg-amber-500/5 p-3">
+              <div className="flex gap-2 text-sm">
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
+                <div>
+                  <p className="font-medium text-foreground">
+                    {openActions.length} open action
+                    {openActions.length === 1 ? "" : "s"}
+                  </p>
+                  <ul className="mt-1 list-inside list-disc text-muted-foreground">
+                    {openActions.slice(0, 5).map((action: any) => (
+                      <li key={action.id}>
+                        {action.title || action.name || "Untitled action"}
+                        {action.status ? ` (${action.status})` : ""}
+                      </li>
+                    ))}
+                    {openActions.length > 5 ? (
+                      <li>…and {openActions.length - 5} more</li>
+                    ) : null}
+                  </ul>
+                </div>
+              </div>
+              <label className="flex cursor-pointer items-start gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  className="mt-1"
+                  checked={forceComplete}
+                  onChange={(e) => setForceComplete(e.target.checked)}
+                />
+                <span>
+                  Complete anyway — leave open actions as they are
+                </span>
+              </label>
+            </div>
+          ) : (
+            <div className="flex gap-2 rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 text-sm text-muted-foreground">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
+              <p>
+                Completing cannot be undone from this screen. Only reopen the
+                workflow if your organization allows status changes later.
+              </p>
+            </div>
+          )}
         </div>
 
         <DialogFooter className="flex-col-reverse gap-2 sm:flex-row">
@@ -109,7 +176,7 @@ export function WorkflowCompletionDialog({
           <Button
             type="button"
             onClick={handleComplete}
-            disabled={updateWorkflow.isPending}
+            disabled={updateWorkflow.isPending || !canComplete}
             className="w-full bg-green-600 hover:bg-green-700 sm:w-auto"
           >
             {updateWorkflow.isPending ? (
@@ -120,7 +187,9 @@ export function WorkflowCompletionDialog({
             ) : (
               <>
                 <CheckCircle2 className="mr-2 h-4 w-4" />
-                Yes, mark complete
+                {hasOpenActions && forceComplete
+                  ? "Complete anyway"
+                  : "Yes, mark complete"}
               </>
             )}
           </Button>

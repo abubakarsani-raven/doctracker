@@ -120,9 +120,61 @@ function buildService(fixture: Fixture) {
     signatureParticipant: {
       findFirst: async ({ where }: any) => {
         const rows = fixture.signatureParticipants ?? [];
+
+        const matchesIdentity = (row: any, identity: any) => {
+          if (Array.isArray(identity?.OR)) {
+            return identity.OR.some((clause: any) => {
+              if (clause.userId) return row.userId === clause.userId;
+              if (clause.email?.equals) {
+                return (
+                  String(row.email || '').toLowerCase() ===
+                  String(clause.email.equals).toLowerCase()
+                );
+              }
+              return false;
+            });
+          }
+          if (identity?.userId) return row.userId === identity.userId;
+          return true;
+        };
+
+        const matchesInviteClause = (row: any, clause: any) => {
+          if (clause.status && row.status !== clause.status) return false;
+          if (
+            clause.status?.in &&
+            !clause.status.in.includes(row.status)
+          ) {
+            return false;
+          }
+          if (
+            clause.request?.fileId &&
+            row.request?.fileId !== clause.request.fileId
+          ) {
+            return false;
+          }
+          if (
+            clause.request?.status &&
+            row.request?.status !== clause.request.status
+          ) {
+            return false;
+          }
+          return true;
+        };
+
         return (
           rows.find((row) => {
-            if (where.userId && row.userId !== where.userId) return false;
+            // Shape: { AND: [ identityFilter, { OR: [pending…, signed…] } ] }
+            if (Array.isArray(where.AND) && where.AND.length >= 2) {
+              const [identity, statusBlock] = where.AND;
+              if (!matchesIdentity(row, identity)) return false;
+              if (Array.isArray(statusBlock?.OR)) {
+                return statusBlock.OR.some((clause: any) =>
+                  matchesInviteClause(row, clause),
+                );
+              }
+              return matchesInviteClause(row, statusBlock);
+            }
+
             if (
               where.status?.in &&
               !where.status.in.includes(row.status)
@@ -141,6 +193,20 @@ function buildService(fixture: Fixture) {
             ) {
               return false;
             }
+            // Legacy shape: OR [ { userId }, { email } ]
+            if (Array.isArray(where.OR)) {
+              return where.OR.some((clause: any) => {
+                if (clause.userId) return row.userId === clause.userId;
+                if (clause.email?.equals) {
+                  return (
+                    String(row.email || '').toLowerCase() ===
+                    String(clause.email.equals).toLowerCase()
+                  );
+                }
+                return false;
+              });
+            }
+            if (where.userId && row.userId !== where.userId) return false;
             return true;
           }) ?? null
         );
@@ -226,6 +292,59 @@ describe('PermissionsService.decide', () => {
             userId: 'signer-b',
             status: 'pending',
             request: { fileId: 'file-a', status: 'pending' },
+          },
+        ],
+      });
+
+      const decision = await service.decide('signer-b', 'file', 'file-a', 'read');
+
+      expect(decision).toEqual({ allowed: true, reason: 'signature_invite' });
+    });
+
+    it('lets a same-company signature invitee read without an ACL row', async () => {
+      const service = buildService({
+        users: [
+          makeUser('signer-a', 'Staff', {
+            companyId: COMPANY_A,
+            departmentIds: [DEPT_LEGAL],
+          }),
+        ],
+        folders: [makeFolder('folder-a', { companyId: COMPANY_A })],
+        files: [makeFile('file-a', { companyId: COMPANY_A })],
+        fileFolderLinks: [
+          { fileId: 'file-a', folderId: 'folder-a', permissionsJson: [] },
+        ],
+        signatureParticipants: [
+          {
+            id: 'sp-2',
+            userId: 'signer-a',
+            status: 'pending',
+            request: { fileId: 'file-a', status: 'pending' },
+          },
+        ],
+      });
+
+      const decision = await service.decide('signer-a', 'file', 'file-a', 'read');
+
+      expect(decision).toEqual({ allowed: true, reason: 'signature_invite' });
+    });
+
+    it('lets a signer keep read access after the request completes', async () => {
+      const service = buildService({
+        users: [
+          makeUser('signer-b', 'Division Head', { companyId: COMPANY_B }),
+        ],
+        folders: [makeFolder('folder-a', { companyId: COMPANY_A })],
+        files: [makeFile('file-a', { companyId: COMPANY_A })],
+        fileFolderLinks: [
+          { fileId: 'file-a', folderId: 'folder-a', permissionsJson: [] },
+        ],
+        signatureParticipants: [
+          {
+            id: 'sp-3',
+            userId: 'signer-b',
+            status: 'signed',
+            request: { fileId: 'file-a', status: 'completed' },
           },
         ],
       });

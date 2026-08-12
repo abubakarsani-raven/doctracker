@@ -238,6 +238,34 @@ export class SignaturesService {
     }
   }
 
+  private async notifyRequesterOfSignature(input: {
+    fileId: string;
+    fileName: string;
+    companyId: string | null;
+    createdBy: string;
+    signerName: string;
+  }) {
+    const { fileId, fileName, companyId, createdBy, signerName } = input;
+    try {
+      await this.notificationsService.create({
+        userId: createdBy,
+        companyId,
+        type: 'signature_signed',
+        title: 'Document signed',
+        message: `${signerName} signed "${fileName}".`,
+        resourceType: 'file',
+        resourceId: fileId,
+        read: false,
+      });
+    } catch (err) {
+      this.logger.warn(
+        `Failed to notify requester of signature: ${
+          err instanceof Error ? err.message : err
+        }`,
+      );
+    }
+  }
+
   private async notifyRequestCompleted(input: {
     requestId: string;
     fileId: string;
@@ -804,24 +832,38 @@ export class SignaturesService {
       };
     });
 
-    if (result.allCompleted) {
-      await this.revokeTemporaryAccessForRequest(requestId, result.fileId, {
-        id: user.id,
-        name: user.name,
-        email: user.email,
-      });
+    const signerName =
+      participant.name || user.name || user.email || 'A signer';
 
-      // Don't spam the requester when a signer is only revising their stamp.
-      if (!isResign) {
+    // Don't spam the requester when a signer is only revising their stamp,
+    // or when the requester signed their own request.
+    if (!isResign && request.createdBy !== user.id) {
+      if (result.allCompleted) {
         await this.notifyRequestCompleted({
           requestId,
           fileId: result.fileId,
           fileName: request.file.fileName,
           companyId: request.companyId,
           createdBy: request.createdBy,
-          signerName: participant.name || user.name || user.email || 'A signer',
+          signerName,
+        });
+      } else {
+        await this.notifyRequesterOfSignature({
+          fileId: result.fileId,
+          fileName: request.file.fileName,
+          companyId: request.companyId,
+          createdBy: request.createdBy,
+          signerName,
         });
       }
+    }
+
+    if (result.allCompleted) {
+      await this.revokeTemporaryAccessForRequest(requestId, result.fileId, {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+      });
     }
 
     const { fileId: _fileId, ...response } = result;
@@ -942,17 +984,11 @@ export class SignaturesService {
       return contentHash;
     } catch (error) {
       console.error('PDF stamping error:', error);
-      return crypto
-        .createHash('sha256')
-        .update(
-          JSON.stringify({
-            requestId: request.id,
-            participantId: participant.id,
-            placement,
-            timestamp: new Date().toISOString(),
-          }),
-        )
-        .digest('hex');
+      throw new BadRequestException(
+        error instanceof Error
+          ? `Couldn’t stamp the PDF: ${error.message}`
+          : 'Couldn’t stamp the PDF — storage is unavailable. Try again.',
+      );
     }
   }
 

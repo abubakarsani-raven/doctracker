@@ -10,7 +10,7 @@ import {
 } from "@/components/ui/breadcrumb";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { StatusBadge, LoadingState, EmptyState } from "@/components/common";
+import { StatusBadge, LoadingState, EmptyState, QueryErrorState } from "@/components/common";
 import { Separator } from "@/components/ui/separator";
 import {
   ArrowLeft,
@@ -41,7 +41,7 @@ export default function ActionDetailPage() {
   const router = useRouter();
   const actionId = params.id as string;
 
-  const { data: action, isLoading } = useAction(actionId);
+  const { data: action, isLoading, isError, error, refetch } = useAction(actionId);
   const { data: currentUser } = useCurrentUser();
   const { data: users = [] } = useUsers();
   const { data: workflow } = useWorkflow(action?.workflowId || "");
@@ -96,6 +96,17 @@ export default function ActionDetailPage() {
 
   if (isLoading) {
     return <LoadingState type="card" />;
+  }
+
+  if (isError) {
+    return (
+      <QueryErrorState
+        title="Failed to load action"
+        error={error}
+        onRetry={() => refetch()}
+        onBack={() => router.back()}
+      />
+    );
   }
 
   if (!action) {
@@ -153,7 +164,12 @@ export default function ActionDetailPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-4">
-          <Button variant="ghost" size="icon" onClick={() => router.back()}>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => router.back()}
+            aria-label="Go back"
+          >
             <ArrowLeft className="h-4 w-4" />
           </Button>
           <div>

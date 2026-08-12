@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { EmptyState, LoadingState } from "@/components/common";
+import { EmptyState, LoadingState, QueryErrorState } from "@/components/common";
 import {
   ShieldCheck,
   CheckCircle2,
@@ -35,7 +35,7 @@ import {
 
 export default function AccessRequestsPage() {
   const { data: currentUser } = useCurrentUser();
-  const { data: allRequests = [], isLoading } = useAccessRequests();
+  const { data: allRequests = [], isLoading, isError, error, refetch } = useAccessRequests();
   const updateRequest = useUpdateAccessRequest();
 
   const [activeTab, setActiveTab] = useState("pending");
@@ -145,6 +145,16 @@ export default function AccessRequestsPage() {
 
   if (isLoading) {
     return <LoadingState />;
+  }
+
+  if (isError) {
+    return (
+      <QueryErrorState
+        title="Failed to load access requests"
+        error={error}
+        onRetry={() => refetch()}
+      />
+    );
   }
 
   return (

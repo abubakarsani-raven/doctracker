@@ -11,12 +11,19 @@
 export class ApiError extends Error {
   readonly status: number;
   readonly body: unknown;
+  readonly code?: string;
 
-  constructor(status: number, message: string, body?: unknown) {
+  constructor(status: number, message: string, body?: unknown, code?: string) {
     super(message);
     this.name = 'ApiError';
     this.status = status;
     this.body = body;
+    this.code =
+      code ||
+      (body && typeof body === 'object' && 'code' in body
+        ? String((body as { code?: string }).code || '')
+        : undefined) ||
+      undefined;
   }
 
   /** The signed-in user is not allowed to perform this action. */
@@ -1133,18 +1140,25 @@ class ApiClient {
 
     if (!response.ok) {
       let detail = 'Failed to load document';
+      let body: unknown;
+      let code: string | undefined;
       try {
-        const body = await response.json();
-        if (body?.message) {
-          detail = Array.isArray(body.message)
-            ? body.message.join(', ')
-            : String(body.message);
+        body = await response.json();
+        const b = body as { message?: string | string[]; code?: string };
+        if (b?.message) {
+          detail = Array.isArray(b.message)
+            ? b.message.join(', ')
+            : String(b.message);
         }
+        code = b?.code;
       } catch {
         // non-JSON error body
       }
-      const err = new ApiError(response.status, detail);
-      this.notifyAuthFailure(err);
+      const err = new ApiError(response.status, detail, body, code);
+      // Only session/permission failures should trigger the global auth listener.
+      if (response.status === 401 || response.status === 403) {
+        this.notifyAuthFailure(err);
+      }
       throw err;
     }
 
