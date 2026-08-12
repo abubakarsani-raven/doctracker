@@ -3,6 +3,7 @@ import {
   Get,
   Post,
   Put,
+  Patch,
   Param,
   Body,
   UseGuards,
@@ -11,8 +12,15 @@ import {
 } from '@nestjs/common';
 import { CompaniesService } from './companies.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
-import { CapabilityGuard, RequireCapability } from '../permissions/require-capability.decorator';
-import { CreateCompanyDto, UpdateCompanyDto } from './dto/company.dto';
+import {
+  CapabilityGuard,
+  RequireCapability,
+} from '../permissions/require-capability.decorator';
+import {
+  CreateCompanyDto,
+  TransferOwnershipDto,
+  UpdateCompanyDto,
+} from './dto/company.dto';
 
 @Controller('companies')
 export class CompaniesController {
@@ -46,14 +54,54 @@ export class CompaniesController {
   @Post()
   @RequireCapability('companies.manage')
   @UseGuards(JwtAuthGuard, CapabilityGuard)
-  async create(@Body() createCompanyDto: CreateCompanyDto, @Request() req: any) {
+  async create(
+    @Body() createCompanyDto: CreateCompanyDto,
+    @Request() req: any,
+  ) {
     return this.companiesService.create(createCompanyDto, req.user);
   }
 
   @Put(':id')
   @RequireCapability('companies.manage')
   @UseGuards(JwtAuthGuard, CapabilityGuard)
-  async update(@Param('id') id: string, @Body() updateCompanyDto: UpdateCompanyDto, @Request() req: any) {
+  async update(
+    @Param('id') id: string,
+    @Body() updateCompanyDto: UpdateCompanyDto,
+    @Request() req: any,
+  ) {
     return this.companiesService.update(id, updateCompanyDto, req.user);
+  }
+
+  @Patch(':id/deactivate')
+  @RequireCapability('companies.manage')
+  @UseGuards(JwtAuthGuard, CapabilityGuard)
+  async deactivate(@Param('id') id: string, @Request() req: any) {
+    return this.companiesService.update(id, { isActive: false }, req.user);
+  }
+
+  @Patch(':id/activate')
+  @RequireCapability('companies.manage')
+  @UseGuards(JwtAuthGuard, CapabilityGuard)
+  async activate(@Param('id') id: string, @Request() req: any) {
+    return this.companiesService.update(id, { isActive: true }, req.user);
+  }
+
+  /**
+   * Move document ownership between companies. Files stay on disk; only
+   * companyId (registry home) changes. Use before deactivating a company that
+   * still holds documents.
+   */
+  @Post(':id/transfer-ownership')
+  @RequireCapability('companies.manage')
+  @UseGuards(JwtAuthGuard, CapabilityGuard)
+  async transferOwnership(
+    @Param('id') id: string,
+    @Body() body: TransferOwnershipDto,
+  ) {
+    return this.companiesService.transferOwnership(id, body.targetCompanyId, {
+      transferAll: body.transferAll,
+      fileIds: body.fileIds,
+      folderIds: body.folderIds,
+    });
   }
 }

@@ -226,15 +226,24 @@ export class CloudinaryObjectStorageService extends ObjectStorageService {
     etag?: string;
   }> {
     const publicId = this.toPublicId(key);
+    const extensionMime = this.extensionOf(key)
+      ? this.mimeFromFormat(this.extensionOf(key)!)
+      : 'application/octet-stream';
     try {
       const resource = await cloudinary.api.resource(publicId, {
         resource_type: 'raw',
       });
+      const fromFormat = resource.format
+        ? this.mimeFromFormat(resource.format)
+        : undefined;
+      // Raw assets often omit `format`; never advertise octet-stream for known
+      // extensions — browsers will not render PDFs/images in an iframe otherwise.
       return {
         contentLength: resource.bytes,
-        contentType: resource.format
-          ? this.mimeFromFormat(resource.format)
-          : 'application/octet-stream',
+        contentType:
+          fromFormat && fromFormat !== 'application/octet-stream'
+            ? fromFormat
+            : extensionMime,
         lastModified: resource.created_at
           ? new Date(resource.created_at)
           : undefined,

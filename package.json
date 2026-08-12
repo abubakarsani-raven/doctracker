@@ -1,0 +1,14 @@
+{
+  "name": "doctracker",
+  "private": true,
+  "description": "DocTracker monorepo — document registry, workflows, and e2e suite",
+  "scripts": {
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
+    "test:e2e:headed": "playwright test --headed"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.62.1",
+    "dotenv": "^17.4.2"
+  }
+}

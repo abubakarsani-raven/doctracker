@@ -50,6 +50,11 @@ export interface PermissionUpdateOptions {
    * Default true.
    */
   notify?: boolean;
+  /**
+   * Allow `source: signature:<requestId>` entries. Only the server-side
+   * signature grant/revoke paths should set this — never the public Share UI.
+   */
+  allowSignatureSources?: boolean;
 }
 
 /** Which capability each verb requires, per resource type. */
@@ -317,7 +322,11 @@ export class PermissionsService {
     }
 
     const before = normaliseAcl(link.permissionsJson);
-    const acl = await this.validateAcl(permissions, link.file?.companyId ?? null);
+    const acl = await this.validateAcl(
+      permissions,
+      link.file?.companyId ?? null,
+      { allowSignatureSources: options.allowSignatureSources },
+    );
 
     const updated = await this.prisma.fileFolderLink.update({
       where: { fileId_folderId: { fileId, folderId } },
@@ -386,6 +395,7 @@ export class PermissionsService {
 
     const updateOptions: PermissionUpdateOptions = {
       notify: options.notify,
+      allowSignatureSources: !!options.source && isSignatureAclSource(options.source),
     };
 
     let changed = false;
@@ -542,6 +552,8 @@ export class PermissionsService {
 
     await this.updateFolderPermissions(folderId, next, actor, {
       notify: options.notify,
+      allowSignatureSources:
+        !!options.source && isSignatureAclSource(options.source),
     });
     return true;
   }
@@ -568,6 +580,7 @@ export class PermissionsService {
       await this.updateFilePermissions(fileId, link.folderId, next, actor, {
         onRevoke: 'leave',
         notify: false,
+        allowSignatureSources: true,
       });
     }
   }
@@ -587,7 +600,9 @@ export class PermissionsService {
     }
 
     const before = normaliseAcl(folder.permissionsJson);
-    const acl = await this.validateAcl(permissions, folder.companyId);
+    const acl = await this.validateAcl(permissions, folder.companyId, {
+      allowSignatureSources: options.allowSignatureSources,
+    });
 
     const updated = await this.prisma.folder.update({
       where: { id: folderId },
@@ -611,11 +626,12 @@ export class PermissionsService {
   /**
    * Check a client-supplied ACL: entries must be well formed, and every subject
    * must exist and belong to the same company as the resource — except temporary
-   * signature invites, which may name a signer in another company.
+   * signature invites created by the signing flow (`allowSignatureSources`).
    */
   private async validateAcl(
     permissions: unknown,
     companyId: string | null,
+    options: { allowSignatureSources?: boolean } = {},
   ): Promise<AclEntry[]> {
     if (permissions === null || permissions === undefined) return [];
     if (!Array.isArray(permissions)) {
@@ -637,16 +653,28 @@ export class PermissionsService {
           `Entry for ${entry.subjectType} ${entry.subjectId} lists no permissions. Valid values: ${VALID_PERMISSIONS.join(', ')}.`,
         );
       }
+      if (
+        isSignatureAclSource(entry.source) &&
+        !options.allowSignatureSources
+      ) {
+        throw new BadRequestException(
+          'Signature access grants can only be created by the signing flow.',
+        );
+      }
     }
 
     if (companyId) {
-      await this.assertSubjectsInCompany(acl, companyId);
+      await this.assertSubjectsInCompany(acl, companyId, options);
     }
 
     return acl;
   }
 
-  private async assertSubjectsInCompany(acl: AclEntry[], companyId: string) {
+  private async assertSubjectsInCompany(
+    acl: AclEntry[],
+    companyId: string,
+    options: { allowSignatureSources?: boolean } = {},
+  ) {
     const userIds = acl
       .filter((e) => e.subjectType === 'user')
       .map((e) => e.subjectId);
@@ -670,13 +698,14 @@ export class PermissionsService {
         }
         // Group-level staff have no home company and may legitimately be named.
         if (user.companyId && user.companyId !== companyId) {
-          // Signature invites are the one intentional cross-company share.
+          // Signature invites are the one intentional cross-company share,
+          // and only when the server-side signing flow opts in.
           const entriesForUser = acl.filter(
             (e) => e.subjectType === 'user' && e.subjectId === id,
           );
-          const allSignatureInvites = entriesForUser.every((e) =>
-            isSignatureAclSource(e.source),
-          );
+          const allSignatureInvites =
+            !!options.allowSignatureSources &&
+            entriesForUser.every((e) => isSignatureAclSource(e.source));
           if (!allSignatureInvites) {
             throw new ForbiddenException(
               'You cannot grant access to someone in another company.',

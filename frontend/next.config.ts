@@ -12,6 +12,11 @@ import type { NextConfig } from "next";
  * are skipped.
  */
 const nextConfig: NextConfig = {
+  // Lock Turbopack to this app so a parent lockfile (e.g. $HOME) cannot steal
+  // the workspace root and break .env.local / module resolution.
+  turbopack: {
+    root: __dirname,
+  },
   async rewrites() {
     const backend =
       process.env.BACKEND_URL || process.env.NEXT_PUBLIC_API_URL || "";

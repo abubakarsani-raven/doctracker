@@ -91,3 +91,35 @@ export function isUploadAllowed(originalname: string, mimetype: string): boolean
     return false;
   }
 }
+
+/**
+ * Resolve a browser-usable Content-Type for downloads / previews.
+ * Prefers a real MIME from storage, then filename / stored fileType.
+ */
+export function resolveDownloadContentType(options: {
+  storageContentType?: string | null;
+  fileName?: string | null;
+  fileType?: string | null;
+}): string {
+  const stored = options.storageContentType?.split(';')[0]?.trim();
+  if (stored && stored !== 'application/octet-stream' && stored.includes('/')) {
+    return stored;
+  }
+
+  const fromName = options.fileName?.toLowerCase().match(/\.[^.]+$/)?.[0];
+  if (fromName) {
+    const allowed =
+      UPLOAD_ALLOWLIST[fromName as keyof typeof UPLOAD_ALLOWLIST];
+    if (allowed?.[0]) return allowed[0];
+  }
+
+  const rawType = (options.fileType || '').toLowerCase().replace(/^\./, '');
+  if (rawType.includes('/')) return rawType;
+  if (rawType) {
+    const allowed =
+      UPLOAD_ALLOWLIST[`.${rawType}` as keyof typeof UPLOAD_ALLOWLIST];
+    if (allowed?.[0]) return allowed[0];
+  }
+
+  return stored || 'application/octet-stream';
+}

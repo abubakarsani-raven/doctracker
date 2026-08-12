@@ -4,9 +4,13 @@ import { NestExpressApplication } from '@nestjs/platform-express';
 import { AppModule } from './app.module';
 import { CSRFMiddleware } from './auth/csrf.middleware';
 import * as dotenv from 'dotenv';
-import morgan from 'morgan';
 import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
+
+// Prefer require: morgan is CJS `module.exports = function` and default-import
+// interop has broken under Nest's watch compiler (`morgan is not a function`).
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const morgan = require('morgan') as typeof import('morgan');
 
 dotenv.config();
 
@@ -47,6 +51,9 @@ async function bootstrap() {
   app.use(helmet({
     contentSecurityPolicy: false, // Disable CSP for now to avoid conflicts with frontend
     crossOriginEmbedderPolicy: false, // Disable COEP for compatibility
+    // Browser app is on :3000 while API is on :4003 — same-origin CORP
+    // makes credentialed fetch fail with a generic "Failed to fetch".
+    crossOriginResourcePolicy: { policy: 'cross-origin' },
   }));
   
   // Cookie parser middleware (required for reading cookies)
@@ -56,6 +63,8 @@ async function bootstrap() {
   const trustedOrigins = [
     'http://localhost:3000', // Local development
     'http://localhost:3001', // Alternative local port
+    'http://127.0.0.1:3000',
+    'http://127.0.0.1:3001',
   ];
   
   // In production, only allow CORS_ORIGIN domains

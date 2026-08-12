@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -15,104 +15,134 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Badge } from "@/components/ui/badge";
 import { CreateCompanyDialog } from "@/components/features/admin/CreateCompanyDialog";
-import { Plus, Search, MoreVertical, Building2, Users, FileText, Settings, Loader2 } from "lucide-react";
+import { EditCompanyDialog } from "@/components/features/admin/EditCompanyDialog";
+import { TransferOwnershipDialog } from "@/components/features/admin/TransferOwnershipDialog";
+import { ConfirmDialog } from "@/components/common/ConfirmDialog";
+import {
+  Plus,
+  Search,
+  MoreVertical,
+  Building2,
+  Users,
+  FileText,
+  Settings,
+  Loader2,
+  Pencil,
+  ArrowRightLeft,
+  Ban,
+  CheckCircle2,
+} from "lucide-react";
 import { EmptyState, QueryErrorState } from "@/components/common";
 import Link from "next/link";
 import { useRouteProtection } from "@/lib/hooks/useRouteProtection";
-import { useCompanies } from "@/lib/hooks/use-companies";
-import { formatDistanceToNow } from "date-fns";
+import {
+  useActivateCompany,
+  useCompanies,
+  useDeactivateCompany,
+} from "@/lib/hooks/use-companies";
 
 export default function CompaniesPage() {
   useRouteProtection({ requireMaster: true });
   const [searchQuery, setSearchQuery] = useState("");
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
-  
-  const { data: companies = [], isLoading, isError, error, refetch } = useCompanies();
+  const [editCompany, setEditCompany] = useState<any | null>(null);
+  const [transferCompany, setTransferCompany] = useState<any | null>(null);
+  const [deactivateTarget, setDeactivateTarget] = useState<any | null>(null);
+
+  const { data: companies = [], isLoading, isError, error, refetch } =
+    useCompanies();
+  const deactivateCompany = useDeactivateCompany();
+  const activateCompany = useActivateCompany();
+
+  const activeCount = useMemo(
+    () => companies.filter((c: any) => c.isActive !== false).length,
+    [companies],
+  );
 
   const filteredCompanies = companies.filter((company: any) =>
-    company.name?.toLowerCase().includes(searchQuery.toLowerCase())
+    company.name?.toLowerCase().includes(searchQuery.toLowerCase()),
   );
 
   return (
     <div className="space-y-6">
-        {/* Header */}
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-bold tracking-tight">Company Management</h1>
-            <p className="text-muted-foreground">
-              Manage companies, departments, and divisions
-            </p>
-          </div>
-          <Button onClick={() => setCreateDialogOpen(true)}>
-            <Plus className="mr-2 h-4 w-4" />
-            Create Company
-          </Button>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">Company Management</h1>
+          <p className="text-muted-foreground">
+            Manage companies, departments, and document ownership
+          </p>
         </div>
+        <Button onClick={() => setCreateDialogOpen(true)}>
+          <Plus className="mr-2 h-4 w-4" />
+          Create Company
+        </Button>
+      </div>
 
-        {/* Filters */}
-        <div className="flex items-center gap-4">
-          <div className="relative flex-1 max-w-sm">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input
-              placeholder="Search companies..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-10"
-            />
-          </div>
+      <div className="flex items-center gap-4">
+        <div className="relative flex-1 max-w-sm">
+          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input
+            placeholder="Search companies..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="pl-10"
+          />
         </div>
+      </div>
 
-        {/* Loading State */}
-        {isLoading && (
-          <div className="flex items-center justify-center py-12">
-            <Loader2 className="h-8 w-8 animate-spin" />
-          </div>
-        )}
+      {isLoading && (
+        <div className="flex items-center justify-center py-12">
+          <Loader2 className="h-8 w-8 animate-spin" />
+        </div>
+      )}
 
-        {/* Companies Table */}
-        {!isLoading && isError ? (
-          <QueryErrorState
-            title="Failed to load companies"
-            error={error}
-            onRetry={() => refetch()}
-          />
-        ) : !isLoading && filteredCompanies.length === 0 ? (
-          <EmptyState
-            icon={Building2}
-            title="No companies found"
-            description={
-              searchQuery
-                ? "Try adjusting your search"
-                : "Get started by creating your first company"
-            }
-            action={
-              !searchQuery
-                ? {
-                    label: "Create Company",
-                    onClick: () => setCreateDialogOpen(true),
-                  }
-                : undefined
-            }
-          />
-        ) : !isLoading ? (
-          <div className="rounded-md border">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Company</TableHead>
-                  <TableHead>Address</TableHead>
-                  <TableHead>Users</TableHead>
-                  <TableHead>Documents</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredCompanies.map((company) => (
+      {!isLoading && isError ? (
+        <QueryErrorState
+          title="Failed to load companies"
+          error={error}
+          onRetry={() => refetch()}
+        />
+      ) : !isLoading && filteredCompanies.length === 0 ? (
+        <EmptyState
+          icon={Building2}
+          title="No companies found"
+          description={
+            searchQuery
+              ? "Try adjusting your search"
+              : "Get started by creating your first company"
+          }
+          action={
+            !searchQuery
+              ? {
+                  label: "Create Company",
+                  onClick: () => setCreateDialogOpen(true),
+                }
+              : undefined
+          }
+        />
+      ) : !isLoading ? (
+        <div className="rounded-md border">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Company</TableHead>
+                <TableHead>Address</TableHead>
+                <TableHead>Users</TableHead>
+                <TableHead>Documents</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead className="text-right">Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {filteredCompanies.map((company: any) => {
+                const isActive = company.isActive !== false;
+                const isLastActive = isActive && activeCount <= 1;
+                return (
                   <TableRow key={company.id}>
                     <TableCell>
                       <div className="flex items-center gap-3">
@@ -148,8 +178,8 @@ export default function CompaniesPage() {
                       </div>
                     </TableCell>
                     <TableCell>
-                      <Badge variant="default">
-                        Active
+                      <Badge variant={isActive ? "default" : "secondary"}>
+                        {isActive ? "Active" : "Inactive"}
                       </Badge>
                     </TableCell>
                     <TableCell className="text-right">
@@ -170,22 +200,84 @@ export default function CompaniesPage() {
                               Manage
                             </Link>
                           </DropdownMenuItem>
-                          <DropdownMenuItem>Edit</DropdownMenuItem>
-                          <DropdownMenuItem>Deactivate</DropdownMenuItem>
+                          <DropdownMenuItem
+                            onClick={() => setEditCompany(company)}
+                          >
+                            <Pencil className="mr-2 h-4 w-4" />
+                            Edit
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onClick={() => setTransferCompany(company)}
+                          >
+                            <ArrowRightLeft className="mr-2 h-4 w-4" />
+                            Transfer documents
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                          {isActive ? (
+                            <DropdownMenuItem
+                              disabled={isLastActive}
+                              onClick={() => {
+                                if (!isLastActive) setDeactivateTarget(company);
+                              }}
+                            >
+                              <Ban className="mr-2 h-4 w-4" />
+                              {isLastActive
+                                ? "Deactivate (last company)"
+                                : "Deactivate"}
+                            </DropdownMenuItem>
+                          ) : (
+                            <DropdownMenuItem
+                              onClick={() =>
+                                activateCompany.mutate(company.id)
+                              }
+                            >
+                              <CheckCircle2 className="mr-2 h-4 w-4" />
+                              Reactivate
+                            </DropdownMenuItem>
+                          )}
                         </DropdownMenuContent>
                       </DropdownMenu>
                     </TableCell>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
-        ) : null}
+                );
+              })}
+            </TableBody>
+          </Table>
+        </div>
+      ) : null}
 
-        <CreateCompanyDialog
-          open={createDialogOpen}
-          onOpenChange={setCreateDialogOpen}
-        />
-      </div>
+      <CreateCompanyDialog
+        open={createDialogOpen}
+        onOpenChange={setCreateDialogOpen}
+      />
+      <EditCompanyDialog
+        open={!!editCompany}
+        onOpenChange={(open) => !open && setEditCompany(null)}
+        company={editCompany}
+      />
+      <TransferOwnershipDialog
+        open={!!transferCompany}
+        onOpenChange={(open) => !open && setTransferCompany(null)}
+        sourceCompany={transferCompany}
+      />
+      <ConfirmDialog
+        open={!!deactivateTarget}
+        onOpenChange={(open) => !open && setDeactivateTarget(null)}
+        title="Deactivate company?"
+        description={
+          deactivateTarget
+            ? `“${deactivateTarget.name}” will be marked inactive. Documents stay until you transfer ownership to another company. You cannot deactivate the last active company.`
+            : ""
+        }
+        confirmLabel="Deactivate"
+        variant="destructive"
+        loading={deactivateCompany.isPending}
+        onConfirm={async () => {
+          if (!deactivateTarget) return;
+          await deactivateCompany.mutateAsync(deactivateTarget.id);
+          setDeactivateTarget(null);
+        }}
+      />
+    </div>
   );
 }

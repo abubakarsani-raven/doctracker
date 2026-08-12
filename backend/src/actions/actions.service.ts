@@ -1,8 +1,9 @@
-import { HttpException, BadRequestException, Injectable } from '@nestjs/common';
+import { HttpException, BadRequestException, ForbiddenException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { WebSocketGateway } from '../websocket/websocket.gateway';
 import { ActivityService } from '../activity/activity.service';
 import { FilesService } from '../files/files.service';
+import { PermissionsService } from '../permissions/permissions.service';
 
 @Injectable()
 export class ActionsService {
@@ -11,6 +12,7 @@ export class ActionsService {
     private wsGateway: WebSocketGateway,
     private activityService: ActivityService,
     private filesService: FilesService,
+    private permissionsService: PermissionsService,
   ) {}
 
   async findAll(userId?: string, companyId?: string) {
@@ -228,12 +230,17 @@ export class ActionsService {
             read: false,
           },
         });
-      } else if (actionData.assignedToType === 'department' && actionData.assignedToName) {
-        // Get all users in the department
+      } else if (
+        actionData.assignedToType === 'department' &&
+        actionData.assignedToId
+      ) {
+        // Scope by department id + workflow company — never match by name alone
+        // (other companies may share department names like "Legal").
         const departmentUsers = await this.prisma.userDepartment.findMany({
           where: {
+            departmentId: actionData.assignedToId,
             department: {
-              name: actionData.assignedToName,
+              companyId: workflow.companyId,
             },
           },
           include: {
@@ -299,17 +306,27 @@ export class ActionsService {
       throw new Error('Action not found');
     }
     
-    // Check access control
+    // Check access control — every mutation needs assignee/workflow rights
+    // (not only completion). Instance-wide scope (Master) may always mutate.
     if (currentUser) {
-      if (currentUser?.permissions?.dataScope !== 'all' && existingAction.workflow?.companyId !== currentUser.companyId) {
-        throw new Error('Access denied: Cannot update action from different company');
+      if (
+        currentUser?.permissions?.dataScope !== 'all' &&
+        existingAction.workflow?.companyId !== currentUser.companyId
+      ) {
+        throw new ForbiddenException(
+          'Access denied: Cannot update action from different company',
+        );
       }
 
-      // If trying to complete the action, check if user is authorized
-      if (data.status === 'completed') {
-        const isAuthorized = await this.canCompleteAction(existingAction, currentUser);
+      if (currentUser?.permissions?.dataScope !== 'all') {
+        const isAuthorized = await this.canCompleteAction(
+          existingAction,
+          currentUser,
+        );
         if (!isAuthorized) {
-          throw new Error('Access denied: Only workflow members or the assigned user can complete this action');
+          throw new ForbiddenException(
+            'Access denied: Only the assignee or a workflow participant can update this action',
+          );
         }
       }
     }
@@ -472,6 +489,18 @@ export class ActionsService {
               ? data.saveToFolderId.trim()
               : '';
           if (saveToFolderId) {
+            await this.permissionsService.assertPermission(
+              currentUser.id,
+              'file',
+              referencedFileId,
+              'write',
+            );
+            await this.permissionsService.assertPermission(
+              currentUser.id,
+              'folder',
+              saveToFolderId,
+              'write',
+            );
             await this.filesService.moveFile(
               referencedFileId,
               saveToFolderId,

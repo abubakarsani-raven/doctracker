@@ -25,7 +25,9 @@ const PREVIEW_FONT_STEPS = [90, 100, 115, 130, 150] as const;
 function normalizeType(fileType?: string, fileName?: string): string {
   const raw = (fileType || "").toLowerCase().replace(/^\./, "");
   if (raw) {
+    if (raw === "application/pdf" || raw.endsWith("/pdf")) return "pdf";
     if (raw.includes("wordprocessingml") || raw === "msword") return "docx";
+    if (raw.includes("/")) return raw.split("/").pop() || raw;
     return raw;
   }
   const ext = fileName?.split(".").pop()?.toLowerCase();
@@ -114,8 +116,14 @@ export function DocumentPreview({
       if (isDocx) setHtmlPreview(null);
       else setPreviewUrl(null);
       try {
-        const { blob } = await api.getDocumentBlob(documentId);
+        const { blob, contentType } = await api.getDocumentBlob(documentId);
         if (cancelled) return;
+
+        if (blob.size < 5) {
+          throw Object.assign(new Error("Document file is empty"), {
+            code: "NOT_FOUND",
+          });
+        }
 
         if (isDocx) {
           const mammoth = await import("mammoth");
@@ -133,7 +141,31 @@ export function DocumentPreview({
           return;
         }
 
-        objectUrl = URL.createObjectURL(blob);
+        let previewBlob = blob;
+        if (isPdf) {
+          const head = new Uint8Array(await blob.slice(0, 5).arrayBuffer());
+          const magic = String.fromCharCode(...head);
+          if (!magic.startsWith("%PDF")) {
+            throw Object.assign(
+              new Error(
+                "Downloaded file is not a valid PDF. Try Download, or re-upload the document.",
+              ),
+              { code: "NOT_FOUND" },
+            );
+          }
+          // Chrome only paints PDFs in <iframe> when the blob MIME is application/pdf.
+          if (blob.type !== "application/pdf") {
+            previewBlob = new Blob([blob], { type: "application/pdf" });
+          }
+        } else if (
+          isImage &&
+          contentType?.startsWith("image/") &&
+          contentType !== blob.type
+        ) {
+          previewBlob = new Blob([blob], { type: contentType });
+        }
+
+        objectUrl = URL.createObjectURL(previewBlob);
         if (cancelled) {
           URL.revokeObjectURL(objectUrl);
           return;

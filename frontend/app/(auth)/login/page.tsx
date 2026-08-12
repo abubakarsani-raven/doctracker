@@ -38,13 +38,14 @@ export default function LoginPage() {
       router.push(safeNext);
     } catch (err) {
       console.error("Login error:", err);
-      // The API distinguishes a deactivated account from bad credentials;
-      // repeating "wrong password" at someone whose account was switched off
-      // sends them looking for the wrong problem.
-      const message =
-        err instanceof Error && /deactivated/i.test(err.message)
-          ? err.message
-          : "That email and password do not match an account.";
+      const raw = err instanceof Error ? err.message : "";
+      const message = /deactivated/i.test(raw)
+        ? raw
+        : /failed to fetch|network|cors|load failed/i.test(raw)
+          ? "Cannot reach the API. Is the backend running on the configured URL?"
+          : /invalid|credentials|unauthorized|401/i.test(raw)
+            ? "That email and password do not match an account."
+            : raw || "That email and password do not match an account.";
       setError(message);
       setLoading(false);
     }

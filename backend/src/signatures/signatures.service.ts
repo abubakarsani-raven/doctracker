@@ -324,7 +324,7 @@ export class SignaturesService {
     participants: SignatureParticipant[],
   ): Promise<SignatureParticipant[]> {
     const emailsNeedingLookup = participants
-      .filter((p) => !p.userId && p.email)
+      .filter((p) => p.email)
       .map((p) => p.email.toLowerCase());
 
     const byEmail = new Map<string, string>();
@@ -340,12 +340,12 @@ export class SignaturesService {
       }
     }
 
+    // Never trust client-supplied userId — resolve identity from email only.
     return participants.map((p) => ({
       ...p,
-      userId:
-        p.userId ||
-        (p.email ? byEmail.get(p.email.toLowerCase()) : undefined) ||
-        undefined,
+      userId: p.email
+        ? byEmail.get(p.email.toLowerCase()) || undefined
+        : undefined,
     }));
   }
 
@@ -601,6 +601,10 @@ export class SignaturesService {
       throw new NotFoundException('Signature request not found');
     }
 
+    if (request.status === 'cancelled') {
+      throw new ForbiddenException('This signature request was cancelled');
+    }
+
     const participant = request.participants.find((p) => p.id === participantId);
     if (!participant) {
       throw new NotFoundException('Participant not found');
@@ -610,11 +614,23 @@ export class SignaturesService {
       throw new ForbiddenException('You cannot sign for this participant');
     }
 
-    if (!participant.userId && participant.email !== user.email) {
+    if (
+      !participant.userId &&
+      participant.email?.toLowerCase() !== user.email?.toLowerCase()
+    ) {
       throw new ForbiddenException('Email mismatch');
     }
 
     const isResign = participant.status === 'signed';
+
+    if (request.status === 'completed' && !isResign) {
+      throw new ForbiddenException('This signature request is already complete');
+    }
+    if (request.status !== 'pending' && request.status !== 'completed') {
+      throw new ForbiddenException(
+        `Cannot sign a request in status "${request.status}"`,
+      );
+    }
 
     // Later signers may already have stamped on top of this signature — editing
     // would erase their work, so only the latest signer may revise.
@@ -628,6 +644,10 @@ export class SignaturesService {
           'Cannot edit signature after a later participant has already signed',
         );
       }
+    } else if (request.status !== 'pending') {
+      throw new ForbiddenException(
+        'This signature request is not open for signing',
+      );
     }
 
     const previousParticipants = request.participants.filter(
@@ -702,6 +722,23 @@ export class SignaturesService {
     const preSignStoragePath = request.file.storagePath ?? null;
 
     const result = await this.prisma.$transaction(async (tx) => {
+      // Serialize stamps on this file so concurrent signers cannot overwrite
+      // each other's PDF (lost stamp / broken hash chain).
+      const lockedFiles = await tx.$queryRawUnsafe<
+        Array<{ id: string; storage_path: string | null }>
+      >(
+        `SELECT id, storage_path FROM files WHERE id = $1::uuid FOR UPDATE`,
+        request.fileId,
+      );
+      const locked = lockedFiles[0];
+      if (!locked) {
+        throw new BadRequestException('File not found for signing');
+      }
+      // Prefer the locked row's current path (unless resign restored a snapshot).
+      if (!isResign || !request.file.storagePath) {
+        request.file.storagePath = locked.storage_path;
+      }
+
       let contentHash: string;
       const widthPercent = placement.widthPercent ?? 22;
 

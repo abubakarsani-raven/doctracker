@@ -6,6 +6,12 @@ node_modules/
 # Testing
 coverage/
 *.log
+e2e/.auth/
+e2e/.env
+test-results/
+playwright-report/
+blob-report/
+playwright/.cache/
 
 # Production builds
 dist/

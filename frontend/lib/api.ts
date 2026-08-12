@@ -128,9 +128,33 @@ export const api = {
     name?: string;
     description?: string;
     address?: string;
+    isActive?: boolean;
   }) => {
     const client = getClient();
     return await client.updateCompany(id, data);
+  },
+
+  deactivateCompany: async (id: string) => {
+    const client = getClient();
+    return await client.deactivateCompany(id);
+  },
+
+  activateCompany: async (id: string) => {
+    const client = getClient();
+    return await client.activateCompany(id);
+  },
+
+  transferCompanyOwnership: async (
+    sourceCompanyId: string,
+    data: {
+      targetCompanyId: string;
+      transferAll?: boolean;
+      fileIds?: string[];
+      folderIds?: string[];
+    },
+  ) => {
+    const client = getClient();
+    return await client.transferCompanyOwnership(sourceCompanyId, data);
   },
 
   // Documents & Folders

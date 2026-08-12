@@ -454,8 +454,9 @@ export function SignDocumentDialog({
 
       const shouldOfferSave = mode !== "saved";
       if (shouldOfferSave) {
+        // Offer-save lives in this component — close the main dialog UI but
+        // leave the parent mount until the offer / editor finishes.
         setPendingSaveImage(signatureImageData);
-        onOpenChange(false);
         clearSignature();
         setOfferSaveOpen(true);
       } else {
@@ -505,7 +506,10 @@ export function SignDocumentDialog({
 
   return (
     <>
-      <Dialog open={open && confirmStep === null} onOpenChange={handleClose}>
+      <Dialog
+        open={open && confirmStep === null && !offerSaveOpen && !saveAfterSignOpen}
+        onOpenChange={handleClose}
+      >
         <DialogContent className="flex max-h-[92vh] w-[calc(100vw-1rem)] max-w-[min(1100px,calc(100vw-2rem))] flex-col gap-0 overflow-hidden p-0 sm:w-full sm:max-w-[min(1100px,calc(100vw-2rem))]">
           <DialogHeader className="shrink-0 space-y-1.5 border-b px-4 py-4 sm:px-6">
             <DialogTitle className="flex items-center gap-2 text-base sm:text-lg">
@@ -1089,7 +1093,10 @@ export function SignDocumentDialog({
         open={offerSaveOpen}
         onOpenChange={(next) => {
           setOfferSaveOpen(next);
-          if (!next) setPendingSaveImage(null);
+          if (!next) {
+            setPendingSaveImage(null);
+            onOpenChange(false);
+          }
         }}
         title="Save this signature?"
         description="Keep this drawing or photo in Settings so you can select it the next time you sign."
@@ -1105,13 +1112,17 @@ export function SignDocumentDialog({
         open={saveAfterSignOpen}
         onOpenChange={(next) => {
           setSaveAfterSignOpen(next);
-          if (!next) setPendingSaveImage(null);
+          if (!next) {
+            setPendingSaveImage(null);
+            onOpenChange(false);
+          }
         }}
         defaultLabel="My signature"
         initialImageData={pendingSaveImage}
         onSaved={() => {
           setSaveAfterSignOpen(false);
           setPendingSaveImage(null);
+          onOpenChange(false);
         }}
       />
     </>

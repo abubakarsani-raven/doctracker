@@ -298,12 +298,14 @@ export function WorkflowRoutingSheet({
         }
       }
 
-      if (!newAssignedTo) {
-        toast.error("Unable to determine new assignee");
-        return;
+      // Filing does not reassign — only other routing types need an assignee.
+      if (routingType !== "file_documents") {
+        if (!newAssignedTo) {
+          toast.error("Unable to determine new assignee");
+          return;
+        }
+        routingHistoryEntry.to = newAssignedTo;
       }
-
-      routingHistoryEntry.to = newAssignedTo;
       routingHistoryEntry.routedBy = currentUser?.name || currentUser?.email || "Current User";
 
       if (!currentUser) {
@@ -315,9 +317,9 @@ export function WorkflowRoutingSheet({
       const sourceCompanyId = workflow.sourceCompanyId || (await getUserCompanyId(currentUser));
       
       let targetCompanyId: string | null = null;
-      if (newAssignedTo.type === "department") {
+      if (newAssignedTo?.type === "department") {
         targetCompanyId = await getDepartmentCompanyId(newAssignedTo.id);
-      } else if (newAssignedTo.type === "user") {
+      } else if (newAssignedTo?.type === "user") {
         targetCompanyId = await getUserCompanyIdByUserId(newAssignedTo.id);
       }
 
@@ -542,9 +544,9 @@ export function WorkflowRoutingSheet({
               <div className="space-y-2">
                 <Label>Target Company (Optional - for cross-company routing)</Label>
                 <Select
-                  value={selectedCompanyId}
+                  value={selectedCompanyId || "__same__"}
                   onValueChange={(value) => {
-                    setSelectedCompanyId(value);
+                    setSelectedCompanyId(value === "__same__" ? "" : value);
                     setSelectedDepartment("");
                     setSelectedIndividual("");
                   }}
@@ -554,7 +556,7 @@ export function WorkflowRoutingSheet({
                   </SelectTrigger>
                   <SelectContent>
                     <ScrollArea className="max-h-[200px]">
-                      <SelectItem value="">Same Company</SelectItem>
+                      <SelectItem value="__same__">Same Company</SelectItem>
                       {companies.map((company: any) => (
                         <SelectItem key={company.id} value={company.id}>
                           {company.name}

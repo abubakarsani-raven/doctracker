@@ -117,7 +117,18 @@ export async function runSeed(): Promise<void> {
       where: { name: 'System' },
     });
     if (!anchor) {
-      anchor = await prisma.company.create({ data: { name: 'System' } });
+      anchor = await prisma.company.create({
+        data: {
+          name: 'System',
+          description: 'Default organisation for Master role assignment',
+          isActive: true,
+        },
+      });
+    } else if (anchor.isActive === false) {
+      anchor = await prisma.company.update({
+        where: { id: anchor.id },
+        data: { isActive: true },
+      });
     }
 
     await prisma.userRole.deleteMany({ where: { userId: admin.id } });

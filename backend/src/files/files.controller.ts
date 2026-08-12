@@ -10,7 +10,6 @@ import {
   Body,
   UseGuards,
   Request,
-  Response,
   UseInterceptors,
   UploadedFile,
   BadRequestException,
@@ -19,13 +18,12 @@ import {
   StreamableFile,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { Response as ExpressResponse } from 'express';
 import { FilesService } from './files.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PermissionsService } from '../permissions/permissions.service';
 import { RequireCapability, CapabilityGuard } from '../permissions/require-capability.decorator';
 import { ActivityService } from '../activity/activity.service';
-import { assertAllowedUpload } from './upload-allowlist';
+import { assertAllowedUpload, resolveDownloadContentType } from './upload-allowlist';
 import * as multer from 'multer';
 import * as path from 'path';
 import * as crypto from 'crypto';
@@ -394,6 +392,15 @@ export class FilesController {
       );
     }
 
+    if (body.folderId) {
+      await this.permissionsService.assertPermission(
+        user.id,
+        'folder',
+        body.folderId,
+        'write',
+      );
+    }
+
     return this.filesService.createRichTextDocument({
       fileName: body.fileName,
       htmlContent: body.htmlContent,
@@ -508,7 +515,6 @@ export class FilesController {
   async downloadFile(
     @Param('id') id: string,
     @Request() req: any,
-    @Response({ passthrough: true }) res: ExpressResponse,
   ) {
     await this.permissionsService.assertPermission(req.user.id, 'file', id, 'read');
     
@@ -538,15 +544,17 @@ export class FilesController {
     try {
       const fileStream = await this.filesService.getFileStream(file.storagePath);
       const metadata = await this.filesService.getFileMetadata(file.storagePath);
-      
-      // Set headers — sanitize filename to avoid header injection
+
+      // Sanitize filename to avoid header injection. Use `inline` so authenticated
+      // blob-URL previews (PDF iframe / <img>) can render; the UI download button
+      // still forces a save via the anchor `download` attribute.
       const safeName = String(file.fileName || 'download')
         .replace(/[\r\n"]/g, '_')
         .slice(0, 200);
-      res.set({
-        'Content-Type': metadata.contentType || 'application/octet-stream',
-        'Content-Disposition': `attachment; filename="${safeName}"`,
-        'Content-Length': metadata.contentLength?.toString(),
+      const contentType = resolveDownloadContentType({
+        storageContentType: metadata.contentType,
+        fileName: file.fileName,
+        fileType: file.fileType,
       });
 
       // Log download activity
@@ -563,7 +571,13 @@ export class FilesController {
         console.error('Failed to log download activity:', error);
       }
 
-      return new StreamableFile(fileStream);
+      return new StreamableFile(fileStream, {
+        type: contentType,
+        disposition: `inline; filename="${safeName}"`,
+        ...(typeof metadata.contentLength === 'number'
+          ? { length: metadata.contentLength }
+          : {}),
+      });
     } catch (error) {
       console.error('Error downloading file:', error);
       const msg = error instanceof Error ? error.message : 'File could not be downloaded';
@@ -588,7 +602,6 @@ export class FilesController {
     @Param('id') id: string,
     @Param('versionId') versionId: string,
     @Request() req: any,
-    @Response({ passthrough: true }) res: ExpressResponse,
   ) {
     await this.permissionsService.assertPermission(req.user.id, 'file', id, 'read');
     
@@ -607,20 +620,24 @@ export class FilesController {
     try {
       const fileStream = await this.filesService.getFileStream(version.storagePath);
       const metadata = await this.filesService.getFileMetadata(version.storagePath);
-      
+
       const file = await this.filesService.getFile(id, req.user);
       const versionFileName = `${path.parse(file.fileName).name}_v${version.versionNumber}${path.extname(file.fileName)}`
         .replace(/[\r\n"]/g, '_')
         .slice(0, 200);
-      
-      // Set headers
-      res.set({
-        'Content-Type': metadata.contentType || 'application/octet-stream',
-        'Content-Disposition': `attachment; filename="${versionFileName}"`,
-        'Content-Length': metadata.contentLength?.toString(),
+      const contentType = resolveDownloadContentType({
+        storageContentType: metadata.contentType,
+        fileName: file.fileName,
+        fileType: file.fileType,
       });
 
-      return new StreamableFile(fileStream);
+      return new StreamableFile(fileStream, {
+        type: contentType,
+        disposition: `inline; filename="${versionFileName}"`,
+        ...(typeof metadata.contentLength === 'number'
+          ? { length: metadata.contentLength }
+          : {}),
+      });
     } catch (error) {
       console.error('Error downloading file version:', error);
       throw new BadRequestException('File version could not be downloaded');

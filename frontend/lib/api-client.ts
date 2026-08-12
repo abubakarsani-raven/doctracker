@@ -177,7 +177,11 @@ class ApiClient {
         !endpoint.startsWith('/auth/');
 
       if (!canRetry) {
-        this.notifyAuthFailure(error);
+        // Failed login / register / password reset must not clear the session
+        // or mark expiry as handled — those are expected credential errors.
+        if (!endpoint.startsWith('/auth/')) {
+          this.notifyAuthFailure(error);
+        }
         throw error;
       }
 
@@ -563,11 +567,42 @@ class ApiClient {
     name?: string;
     description?: string;
     address?: string;
+    isActive?: boolean;
   }) {
     return this.request<any>(`/companies/${id}`, {
       method: 'PUT',
       body: JSON.stringify(data),
     });
+  }
+
+  async deactivateCompany(id: string) {
+    return this.request<any>(`/companies/${id}/deactivate`, {
+      method: 'PATCH',
+    });
+  }
+
+  async activateCompany(id: string) {
+    return this.request<any>(`/companies/${id}/activate`, {
+      method: 'PATCH',
+    });
+  }
+
+  async transferCompanyOwnership(
+    sourceCompanyId: string,
+    data: {
+      targetCompanyId: string;
+      transferAll?: boolean;
+      fileIds?: string[];
+      folderIds?: string[];
+    },
+  ) {
+    return this.request<any>(
+      `/companies/${sourceCompanyId}/transfer-ownership`,
+      {
+        method: 'POST',
+        body: JSON.stringify(data),
+      },
+    );
   }
 
   // Workflows
@@ -1118,12 +1153,20 @@ class ApiClient {
    * created from the result.
    */
   async getDocumentBlob(fileId: string): Promise<{ blob: Blob; contentType: string; fileName?: string }> {
+    const blobHeaders = (): Record<string, string> => {
+      const headers: Record<string, string> = {
+        'X-CSRF-Token': getCSRFToken() || '',
+      };
+      if (this.token) {
+        headers['Authorization'] = `Bearer ${this.token}`;
+      }
+      return headers;
+    };
+
     const doFetch = () =>
       fetch(`${this.baseURL}/files/${fileId}/download`, {
         credentials: 'include',
-        headers: {
-          'X-CSRF-Token': getCSRFToken() || '',
-        },
+        headers: blobHeaders(),
       });
 
     let response = await doFetch();
@@ -1163,15 +1206,33 @@ class ApiClient {
     }
 
     const blob = await response.blob();
-    const contentType =
-      response.headers.get('content-type') || blob.type || 'application/octet-stream';
+    let contentType =
+      response.headers.get('content-type')?.split(';')[0]?.trim() ||
+      blob.type ||
+      'application/octet-stream';
+    // Cloudinary raw assets often omit a useful Content-Type; sniff PDFs so
+    // iframe previews get a MIME Chrome will render.
+    if (
+      (!contentType || contentType === 'application/octet-stream') &&
+      blob.size >= 5
+    ) {
+      const head = new Uint8Array(await blob.slice(0, 5).arrayBuffer());
+      const magic = String.fromCharCode(...head);
+      if (magic.startsWith('%PDF')) {
+        contentType = 'application/pdf';
+      }
+    }
+    const typedBlob =
+      contentType && contentType !== blob.type
+        ? new Blob([blob], { type: contentType })
+        : blob;
     const contentDisposition = response.headers.get('content-disposition');
     const fileName = contentDisposition
       ?.split('filename=')[1]
       ?.replace(/"/g, '')
       ?.trim();
 
-    return { blob, contentType, fileName };
+    return { blob: typedBlob, contentType, fileName };
   }
 
   async downloadDocument(fileId: string): Promise<void> {
@@ -1192,12 +1253,20 @@ class ApiClient {
   }
 
   async downloadFileVersion(fileId: string, versionId: string): Promise<void> {
+    const blobHeaders = (): Record<string, string> => {
+      const headers: Record<string, string> = {
+        'X-CSRF-Token': getCSRFToken() || '',
+      };
+      if (this.token) {
+        headers['Authorization'] = `Bearer ${this.token}`;
+      }
+      return headers;
+    };
+
     const doFetch = () =>
       fetch(`${this.baseURL}/files/${fileId}/versions/${versionId}/download`, {
         credentials: 'include',
-        headers: {
-          'X-CSRF-Token': getCSRFToken() || '',
-        },
+        headers: blobHeaders(),
       });
 
     let response = await doFetch();
