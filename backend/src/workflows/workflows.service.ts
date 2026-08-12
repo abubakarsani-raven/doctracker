@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, NotFoundException, ForbiddenException 
 import { PrismaService } from '../prisma/prisma.service';
 import { WebSocketGateway } from '../websocket/websocket.gateway';
 import { ActivityService } from '../activity/activity.service';
+import { PermissionsService } from '../permissions/permissions.service';
 
 @Injectable()
 export class WorkflowsService {
@@ -9,7 +10,164 @@ export class WorkflowsService {
     private prisma: PrismaService,
     private wsGateway: WebSocketGateway,
     private activityService: ActivityService,
+    private permissionsService: PermissionsService,
   ) {}
+
+  /**
+   * Company-scope admins see every workflow in their company. Everyone else
+   * only sees workflows they created, are assigned to, have an action on, or
+   * appear in the routing history for.
+   */
+  private seesAllCompanyWorkflows(user: any): boolean {
+    const scope = user?.permissions?.dataScope;
+    return scope === 'all' || scope === 'company';
+  }
+
+  private async userDepartmentIds(userId: string): Promise<string[]> {
+    const rows = await this.prisma.userDepartment.findMany({
+      where: { userId },
+      select: { departmentId: true },
+    });
+    return rows.map((r) => r.departmentId);
+  }
+
+  private userParticipatesInWorkflow(
+    userId: string,
+    deptIds: string[],
+    workflow: {
+      assignedBy?: string | null;
+      assignedToType?: string | null;
+      assignedToId?: string | null;
+      actions?: Array<{
+        assignedToType?: string | null;
+        assignedToId?: string | null;
+        createdBy?: string | null;
+      }>;
+      routingHistory?: Array<{
+        fromType?: string | null;
+        fromId?: string | null;
+        toType?: string | null;
+        toId?: string | null;
+      }>;
+    },
+  ): boolean {
+    if (workflow.assignedBy === userId) return true;
+
+    if (
+      workflow.assignedToType === 'user' &&
+      workflow.assignedToId === userId
+    ) {
+      return true;
+    }
+    if (
+      workflow.assignedToType === 'department' &&
+      workflow.assignedToId &&
+      deptIds.includes(workflow.assignedToId)
+    ) {
+      return true;
+    }
+
+    for (const action of workflow.actions || []) {
+      if (action.createdBy === userId) return true;
+      if (
+        action.assignedToType === 'user' &&
+        action.assignedToId === userId
+      ) {
+        return true;
+      }
+      if (
+        action.assignedToType === 'department' &&
+        action.assignedToId &&
+        deptIds.includes(action.assignedToId)
+      ) {
+        return true;
+      }
+    }
+
+    for (const hop of workflow.routingHistory || []) {
+      if (hop.fromType === 'user' && hop.fromId === userId) return true;
+      if (hop.toType === 'user' && hop.toId === userId) return true;
+      if (
+        hop.fromType === 'department' &&
+        hop.fromId &&
+        deptIds.includes(hop.fromId)
+      ) {
+        return true;
+      }
+      if (
+        hop.toType === 'department' &&
+        hop.toId &&
+        deptIds.includes(hop.toId)
+      ) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  async assertCanAccessWorkflow(workflowId: string, currentUser: any) {
+    if (!currentUser?.id) {
+      throw new ForbiddenException('Authentication required');
+    }
+
+    const workflow = await this.prisma.workflow.findUnique({
+      where: { id: workflowId },
+      select: {
+        id: true,
+        companyId: true,
+        assignedBy: true,
+        assignedToType: true,
+        assignedToId: true,
+        actions: {
+          select: {
+            assignedToType: true,
+            assignedToId: true,
+            createdBy: true,
+          },
+        },
+        routingHistory: {
+          select: {
+            fromType: true,
+            fromId: true,
+            toType: true,
+            toId: true,
+          },
+        },
+      },
+    });
+
+    if (!workflow) {
+      throw new NotFoundException('Workflow not found');
+    }
+
+    if (this.seesAllCompanyWorkflows(currentUser)) {
+      if (
+        currentUser.permissions?.dataScope !== 'all' &&
+        currentUser.companyId &&
+        workflow.companyId !== currentUser.companyId
+      ) {
+        throw new ForbiddenException('Access denied');
+      }
+      return workflow;
+    }
+
+    if (
+      currentUser.companyId &&
+      workflow.companyId !== currentUser.companyId
+    ) {
+      throw new ForbiddenException('Access denied');
+    }
+
+    const deptIds = await this.userDepartmentIds(currentUser.id);
+    if (!this.userParticipatesInWorkflow(currentUser.id, deptIds, workflow)) {
+      throw new ForbiddenException(
+        'You do not have access to this workflow',
+      );
+    }
+
+    return workflow;
+  }
 
   /**
    * Transform workflow data to include assignedTo object and resolve names
@@ -136,7 +294,7 @@ export class WorkflowsService {
     return Promise.all(workflows.map((w) => this.transformWorkflow(w)));
   }
 
-  async findAll(userId?: string, companyId?: string) {
+  async findAll(userId?: string, companyId?: string, currentUser?: any) {
     try {
       const where: any = {};
       
@@ -198,6 +356,9 @@ export class WorkflowsService {
               title: true,
               status: true,
               type: true,
+              assignedToType: true,
+              assignedToId: true,
+              createdBy: true,
             },
           },
           routingHistory: true,
@@ -213,7 +374,17 @@ export class WorkflowsService {
           createdAt: 'desc',
         },
       });
-      return this.transformWorkflows(workflows);
+
+      const actor = currentUser || (userId ? { id: userId, companyId, permissions: currentUser?.permissions } : null);
+      let visible = workflows;
+      if (actor?.id && !this.seesAllCompanyWorkflows(actor)) {
+        const deptIds = await this.userDepartmentIds(actor.id);
+        visible = workflows.filter((w) =>
+          this.userParticipatesInWorkflow(actor.id, deptIds, w),
+        );
+      }
+
+      return this.transformWorkflows(visible);
     } catch (error: any) {
       console.error('[WorkflowsService] Error in findAll:', error);
       throw new Error(`Failed to fetch workflows: ${error.message || 'Unknown error'}`);
@@ -252,6 +423,9 @@ export class WorkflowsService {
             id: true,
             status: true,
             title: true,
+            assignedToType: true,
+            assignedToId: true,
+            createdBy: true,
           },
         },
       },
@@ -259,7 +433,16 @@ export class WorkflowsService {
         createdAt: 'desc',
       },
     });
-    return this.transformWorkflows(workflows);
+
+    let visible = workflows;
+    if (currentUser?.id && !this.seesAllCompanyWorkflows(currentUser)) {
+      const deptIds = await this.userDepartmentIds(currentUser.id);
+      visible = workflows.filter((w) =>
+        this.userParticipatesInWorkflow(currentUser.id, deptIds, w),
+      );
+    }
+
+    return this.transformWorkflows(visible);
   }
 
   async findByDocumentId(documentId: string, currentUser?: any) {
@@ -294,6 +477,9 @@ export class WorkflowsService {
             id: true,
             status: true,
             title: true,
+            assignedToType: true,
+            assignedToId: true,
+            createdBy: true,
           },
         },
       },
@@ -301,7 +487,16 @@ export class WorkflowsService {
         createdAt: 'desc',
       },
     });
-    return this.transformWorkflows(workflows);
+
+    let visible = workflows;
+    if (currentUser?.id && !this.seesAllCompanyWorkflows(currentUser)) {
+      const deptIds = await this.userDepartmentIds(currentUser.id);
+      visible = workflows.filter((w) =>
+        this.userParticipatesInWorkflow(currentUser.id, deptIds, w),
+      );
+    }
+
+    return this.transformWorkflows(visible);
   }
 
   async findOne(id: string, currentUser?: any) {
@@ -332,11 +527,8 @@ export class WorkflowsService {
       return null;
     }
     
-    // Check access control - user must be from same company (unless Master)
     if (currentUser) {
-      if (currentUser?.permissions?.dataScope !== 'all' && workflow.companyId !== currentUser.companyId) {
-        throw new Error('Access denied: Workflow belongs to a different company');
-      }
+      await this.assertCanAccessWorkflow(id, currentUser);
     }
     
     const transformed = await this.transformWorkflow(workflow);
@@ -480,6 +672,10 @@ export class WorkflowsService {
   }
 
   async update(id: string, data: any, currentUser?: any) {
+    if (currentUser) {
+      await this.assertCanAccessWorkflow(id, currentUser);
+    }
+
     // Transform frontend data to match Prisma schema
     const updateData: any = {};
 
@@ -635,10 +831,11 @@ export class WorkflowsService {
 
             return {
               fromType,
-              fromId,
+              fromId: fromId || null,
               fromName,
               toType,
-              toId,
+              // Prisma requires toId; system filing has no user/dept target.
+              toId: toId || (toType === 'system' ? 'system' : 'unknown'),
               toName,
               routingType: entry.routingType || 'manual',
               routingNotes: entry.notes || entry.routingNotes || null,
@@ -1287,6 +1484,8 @@ export class WorkflowsService {
    * Includes the primary workflow document when present, plus explicit attachments.
    */
   async listFiles(workflowId: string, currentUser: any) {
+    await this.assertCanAccessWorkflow(workflowId, currentUser);
+
     const workflow = await this.prisma.workflow.findUnique({
       where: { id: workflowId },
       select: {
@@ -1309,13 +1508,6 @@ export class WorkflowsService {
 
     if (!workflow) {
       throw new NotFoundException('Workflow not found');
-    }
-    if (
-      currentUser?.permissions?.dataScope !== 'all' &&
-      currentUser?.companyId &&
-      workflow.companyId !== currentUser.companyId
-    ) {
-      throw new ForbiddenException('Access denied');
     }
 
     const attachments = await this.prisma.workflowFile.findMany({
@@ -1380,7 +1572,13 @@ export class WorkflowsService {
       });
     }
 
-    return files;
+    // Participants may open/download these via workflow membership; still hide
+    // anything they cannot read (e.g. company admins listing is fine).
+    return this.permissionsService.filterReadable(
+      currentUser.id,
+      'file',
+      files,
+    );
   }
 
   /**
@@ -1395,19 +1593,20 @@ export class WorkflowsService {
       throw new BadRequestException('fileId is required');
     }
 
+    await this.assertCanAccessWorkflow(workflowId, currentUser);
+    await this.permissionsService.assertPermission(
+      currentUser.id,
+      'file',
+      data.fileId,
+      'read',
+    );
+
     const workflow = await this.prisma.workflow.findUnique({
       where: { id: workflowId },
       select: { id: true, companyId: true, title: true },
     });
     if (!workflow) {
       throw new NotFoundException('Workflow not found');
-    }
-    if (
-      currentUser?.permissions?.dataScope !== 'all' &&
-      currentUser?.companyId &&
-      workflow.companyId !== currentUser.companyId
-    ) {
-      throw new ForbiddenException('Access denied');
     }
 
     const file = await this.prisma.file.findUnique({

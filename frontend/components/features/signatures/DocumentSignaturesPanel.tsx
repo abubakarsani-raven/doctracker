@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { PenTool, Loader2, Pencil } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { PenTool, Loader2, Pencil, Trash2, Timer } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { useCurrentUser } from "@/lib/hooks/use-users";
@@ -11,6 +12,16 @@ import { usePermissions } from "@/lib/hooks/use-permissions";
 import { PermissionButton } from "@/components/common/PermissionButton";
 import { RequestSignatureDialog } from "./RequestSignatureDialog";
 import { SignDocumentDialog } from "./SignDocumentDialog";
+
+/** Matches backend SIGNATURE_EDIT_WINDOW_MS */
+const EDIT_WINDOW_MS = 5 * 60 * 1000;
+
+function formatRemaining(ms: number): string {
+  const totalSec = Math.max(0, Math.ceil(ms / 1000));
+  const m = Math.floor(totalSec / 60);
+  const s = totalSec % 60;
+  return `${m}:${s.toString().padStart(2, "0")}`;
+}
 
 interface DocumentSignaturesPanelProps {
   fileId: string;
@@ -34,6 +45,8 @@ export function DocumentSignaturesPanel({
   const { can, permissions } = usePermissions();
   const [requests, setRequests] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [removing, setRemoving] = useState(false);
+  const [now, setNow] = useState(() => Date.now());
   const [requestOpen, setRequestOpen] = useState(false);
   const [signTarget, setSignTarget] = useState<{
     requestId: string;
@@ -58,6 +71,26 @@ export function DocumentSignaturesPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fileId, refreshKey]);
 
+  // Tick while any of my signatures are still inside the edit window.
+  const needsTicker = useMemo(() => {
+    if (!currentUser) return false;
+    return requests.some((r) =>
+      (r.participants || []).some((p: any) => {
+        if (p.status !== "signed" || !p.signedAt) return false;
+        const mine =
+          p.userId === currentUser.id || p.email === currentUser.email;
+        if (!mine) return false;
+        return now - new Date(p.signedAt).getTime() < EDIT_WINDOW_MS;
+      }),
+    );
+  }, [requests, currentUser, now]);
+
+  useEffect(() => {
+    if (!needsTicker) return;
+    const id = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, [needsTicker]);
+
   const isMine = (p: any) =>
     p.userId === currentUser?.id || p.email === currentUser?.email;
 
@@ -66,17 +99,45 @@ export function DocumentSignaturesPanel({
       (p: any) => p.status === "pending" && isMine(p),
     );
 
-  /** Signed participants can revise until a later signer has stamped. */
+  /**
+   * Signed participants can revise/remove within 5 minutes, until a later
+   * signer has stamped.
+   */
   const myEditable = (request: any) => {
     const mine = request.participants?.find(
       (p: any) => p.status === "signed" && isMine(p),
     );
-    if (!mine) return null;
+    if (!mine?.signedAt) return null;
     const laterSigned = (request.participants || []).some(
       (p: any) =>
         p.signingOrder > mine.signingOrder && p.status === "signed",
     );
-    return laterSigned ? null : mine;
+    if (laterSigned) return null;
+    const remaining =
+      EDIT_WINDOW_MS - (now - new Date(mine.signedAt).getTime());
+    if (remaining <= 0) return null;
+    return { participant: mine, remainingMs: remaining };
+  };
+
+  const handleRemove = async (requestId: string, participantId: string) => {
+    if (
+      !window.confirm(
+        "Remove your signature? You can sign again afterward.",
+      )
+    ) {
+      return;
+    }
+    setRemoving(true);
+    try {
+      await api.removeSignature(requestId, participantId);
+      toast.success("Signature removed");
+      await load();
+      onChanged?.();
+    } catch (error: any) {
+      toast.error(error.message || "Could not remove signature");
+    } finally {
+      setRemoving(false);
+    }
   };
 
   return (
@@ -169,27 +230,57 @@ export function DocumentSignaturesPanel({
                     </PermissionButton>
                   )}
                   {editable && (
-                    <PermissionButton
-                      allowed={can("documents.sign")}
-                      reason={
-                        can("documents.sign")
-                          ? null
-                          : `Your role (${permissions.role}) can’t sign — ask an admin.`
-                      }
-                      size="sm"
-                      variant="outline"
-                      className="w-full"
-                      onClick={() =>
-                        setSignTarget({
-                          requestId: request.id,
-                          participantId: editable.id,
-                          isEditing: true,
-                        })
-                      }
-                    >
-                      <Pencil className="mr-1.5 h-3.5 w-3.5" />
-                      Edit my signature
-                    </PermissionButton>
+                    <div className="space-y-2">
+                      <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                        <Timer className="h-3.5 w-3.5" />
+                        Edit window ends in{" "}
+                        <span className="font-medium tabular-nums text-foreground">
+                          {formatRemaining(editable.remainingMs)}
+                        </span>
+                      </p>
+                      <div className="flex gap-2">
+                        <PermissionButton
+                          allowed={can("documents.sign")}
+                          reason={
+                            can("documents.sign")
+                              ? null
+                              : `Your role (${permissions.role}) can’t sign — ask an admin.`
+                          }
+                          size="sm"
+                          variant="outline"
+                          className="flex-1"
+                          onClick={() =>
+                            setSignTarget({
+                              requestId: request.id,
+                              participantId: editable.participant.id,
+                              isEditing: true,
+                            })
+                          }
+                        >
+                          <Pencil className="mr-1.5 h-3.5 w-3.5" />
+                          Edit
+                        </PermissionButton>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="flex-1 text-destructive hover:text-destructive"
+                          disabled={removing || !can("documents.sign")}
+                          onClick={() =>
+                            handleRemove(
+                              request.id,
+                              editable.participant.id,
+                            )
+                          }
+                        >
+                          {removing ? (
+                            <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                          ) : (
+                            <Trash2 className="mr-1.5 h-3.5 w-3.5" />
+                          )}
+                          Remove
+                        </Button>
+                      </div>
+                    </div>
                   )}
                 </div>
               );

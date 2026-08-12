@@ -23,7 +23,11 @@ export class WorkflowsController {
   @UseGuards(JwtAuthGuard, CapabilityGuard)
   async findAll(@Request() req: any) {
     try {
-      return await this.workflowsService.findAll(req.user?.id, req.user?.companyId);
+      return await this.workflowsService.findAll(
+        req.user?.id,
+        req.user?.companyId,
+        req.user,
+      );
     } catch (error: any) {
       console.error('[WorkflowsController] Error getting workflows:', error);
       throw error;

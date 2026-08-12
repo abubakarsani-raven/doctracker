@@ -196,8 +196,8 @@ export function AddFileToWorkflowDialog({
           <DialogTitle>Add to Workflow</DialogTitle>
           <DialogDescription>
             {workflow?.type === "document"
-              ? "Document workflows can attach any company document here. Completing an action can only reference the primary document."
-              : "Reference an existing document, upload a new file, or create rich text. Attached files show under Files Added."}
+              ? "You can only reference documents you already have access to. Completing an action can only use the primary document."
+              : "Reference a document you can access, upload a new file, or create rich text. Attached files show under Files Added."}
           </DialogDescription>
         </DialogHeader>
 

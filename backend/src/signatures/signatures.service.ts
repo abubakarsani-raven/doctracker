@@ -27,6 +27,9 @@ export interface SignaturePlacement {
   widthPercent?: number;
 }
 
+/** How long a signer may edit or remove their own stamp after signing. */
+export const SIGNATURE_EDIT_WINDOW_MS = 5 * 60 * 1000;
+
 @Injectable()
 export class SignaturesService {
   private readonly logger = new Logger(SignaturesService.name);
@@ -635,15 +638,7 @@ export class SignaturesService {
     // Later signers may already have stamped on top of this signature — editing
     // would erase their work, so only the latest signer may revise.
     if (isResign) {
-      const laterSigned = request.participants.some(
-        (p) =>
-          p.signingOrder > participant.signingOrder && p.status === 'signed',
-      );
-      if (laterSigned) {
-        throw new ForbiddenException(
-          'Cannot edit signature after a later participant has already signed',
-        );
-      }
+      this.assertSignatureStillEditable(participant, request.participants);
     } else if (request.status !== 'pending') {
       throw new ForbiddenException(
         'This signature request is not open for signing',
@@ -965,6 +960,235 @@ export class SignaturesService {
     ) {
       throw new BadRequestException('placement.widthPercent must be between 5 and 60');
     }
+  }
+
+  /** Edit/remove only within the grace window and before a later signer stamps. */
+  private assertSignatureStillEditable(
+    participant: { signingOrder: number; signedAt: Date | null },
+    participants: Array<{ signingOrder: number; status: string }>,
+  ) {
+    const laterSigned = participants.some(
+      (p) =>
+        p.signingOrder > participant.signingOrder && p.status === 'signed',
+    );
+    if (laterSigned) {
+      throw new ForbiddenException(
+        'Cannot change signature after a later participant has already signed',
+      );
+    }
+    if (!participant.signedAt) {
+      throw new ForbiddenException('Signature timestamp is missing');
+    }
+    const elapsed = Date.now() - new Date(participant.signedAt).getTime();
+    if (elapsed > SIGNATURE_EDIT_WINDOW_MS) {
+      throw new ForbiddenException(
+        'The 5-minute window to edit or remove this signature has expired',
+      );
+    }
+  }
+
+  /**
+   * Remove the caller's stamp and reopen their participant slot (within the
+   * 5-minute edit window). Restores the pre-sign file so later signers see a
+   * clean document.
+   */
+  async removeSignature(
+    requestId: string,
+    participantId: string,
+    user: any,
+  ) {
+    const request = await this.prisma.signatureRequest.findUnique({
+      where: { id: requestId },
+      include: {
+        file: { include: { richTextDoc: true } },
+        participants: { orderBy: { signingOrder: 'asc' } },
+        events: { orderBy: { createdAt: 'desc' } },
+      },
+    });
+
+    if (!request) {
+      throw new NotFoundException('Signature request not found');
+    }
+
+    const participant = request.participants.find((p) => p.id === participantId);
+    if (!participant) {
+      throw new NotFoundException('Participant not found');
+    }
+
+    if (participant.status !== 'signed') {
+      throw new BadRequestException('This participant has not signed yet');
+    }
+
+    if (participant.userId && participant.userId !== user.id) {
+      throw new ForbiddenException('You cannot remove this signature');
+    }
+    if (
+      !participant.userId &&
+      participant.email?.toLowerCase() !== user.email?.toLowerCase()
+    ) {
+      throw new ForbiddenException('Email mismatch');
+    }
+
+    this.assertSignatureStillEditable(participant, request.participants);
+
+    const priorSignEvent = request.events.find(
+      (e) =>
+        e.participantId === participantId &&
+        (e.eventType === 'signature' || e.eventType === 'signature_revised'),
+    );
+    const priorMeta = (priorSignEvent?.metadata ?? null) as Record<
+      string,
+      unknown
+    > | null;
+
+    const isPdf =
+      request.file.fileType === 'pdf' ||
+      request.file.fileType === 'application/pdf' ||
+      request.file.fileName?.toLowerCase().endsWith('.pdf');
+    const isRichText =
+      !!request.file.richTextDoc ||
+      request.file.fileType === 'html' ||
+      request.file.fileType === 'text/html';
+
+    let restorePath: string | null =
+      typeof priorMeta?.preSignStoragePath === 'string'
+        ? (priorMeta.preSignStoragePath as string)
+        : null;
+    if (!restorePath && isPdf) {
+      const snap = await this.prisma.fileVersion.findFirst({
+        where: {
+          fileId: request.fileId,
+          createdBy: user.id,
+          createdAt: participant.signedAt
+            ? {
+                gte: new Date(
+                  new Date(participant.signedAt).getTime() - 60_000,
+                ),
+                lte: new Date(
+                  new Date(participant.signedAt).getTime() + 60_000,
+                ),
+              }
+            : undefined,
+        },
+        orderBy: { versionNumber: 'desc' },
+      });
+      restorePath = snap?.storagePath ?? null;
+    }
+
+    if (isPdf && !restorePath) {
+      throw new BadRequestException(
+        'Cannot remove this signature because the previous version is unavailable.',
+      );
+    }
+
+    const wasCompleted = request.status === 'completed';
+
+    await this.prisma.$transaction(async (tx) => {
+      if (isPdf && restorePath) {
+        await tx.file.update({
+          where: { id: request.fileId },
+          data: { storagePath: restorePath },
+        });
+      } else if (isRichText && request.file.richTextDoc) {
+        let html = request.file.richTextDoc.htmlContent || '';
+        html = html.replace(
+          new RegExp(
+            `<div\\s+class="dt-signature-stamp"[^>]*data-participant-id="${escapeRegExp(
+              participant.id,
+            )}"[^>]*>[\\s\\S]*?<\\/div>`,
+            'gi',
+          ),
+          '',
+        );
+        if (participant.name) {
+          html = html.replace(
+            new RegExp(
+              `<div\\s+class="dt-signature-stamp"[^>]*data-signer="${escapeRegExp(
+                participant.name,
+              )}"[^>]*>[\\s\\S]*?<\\/div>`,
+              'gi',
+            ),
+            '',
+          );
+        }
+        await tx.richTextDocument.update({
+          where: { fileId: request.fileId },
+          data: { htmlContent: html },
+        });
+      }
+
+      await tx.signatureParticipant.update({
+        where: { id: participantId },
+        data: {
+          status: 'pending',
+          signedAt: null,
+          signatureImageData: null,
+        },
+      });
+
+      if (wasCompleted) {
+        await tx.signatureRequest.update({
+          where: { id: requestId },
+          data: { status: 'pending' },
+        });
+
+        const linkedAction = await tx.action.findFirst({
+          where: { signatureRequestId: requestId },
+          select: { id: true },
+        });
+        if (linkedAction) {
+          await tx.action.update({
+            where: { id: linkedAction.id },
+            data: {
+              status: 'in_progress',
+              completedAt: null,
+              completedBy: null,
+              resolutionNotes: null,
+            },
+          });
+        }
+      }
+
+      await tx.signatureEvent.create({
+        data: {
+          requestId,
+          participantId,
+          eventType: 'signature_removed',
+          contentHash: crypto
+            .createHash('sha256')
+            .update(
+              JSON.stringify({
+                requestId,
+                participantId,
+                removedAt: new Date().toISOString(),
+              }),
+            )
+            .digest('hex'),
+          previousHash: priorSignEvent?.contentHash ?? null,
+          metadata: {
+            participantName: participant.name,
+            participantEmail: participant.email,
+            restoredPath: restorePath,
+          } as any,
+        },
+      });
+    });
+
+    // If completion had revoked temp ACL, restore access for remaining signers.
+    if (wasCompleted) {
+      await this.grantTemporaryAccessForRequest(
+        requestId,
+        request.fileId,
+        request.participants.map((p) => ({
+          userId: p.userId,
+          name: p.name || p.email,
+          email: p.email,
+        })),
+        { id: user.id, name: user.name, email: user.email },
+      );
+    }
+
+    return { success: true, status: 'pending' };
   }
 
   private async stampPdf(args: {

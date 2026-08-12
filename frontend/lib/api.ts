@@ -837,6 +837,11 @@ export const api = {
     );
   },
 
+  removeSignature: async (requestId: string, participantId: string) => {
+    const client = getClient();
+    return await client.removeSignature(requestId, participantId);
+  },
+
   getFileSignatureRequests: async (fileId: string) => {
     const client = getClient();
     return await client.getFileSignatureRequests(fileId);

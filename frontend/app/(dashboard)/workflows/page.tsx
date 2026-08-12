@@ -80,9 +80,25 @@ export default function WorkflowsPage() {
       // Tab filtering
       let matchesTab = true;
       if (activeTab === "assigned") {
-        matchesTab = workflow.assignedTo?.type === "user";
+        const deptIds: string[] = currentUser?.departmentIds ?? [];
+        matchesTab =
+          (workflow.assignedTo?.type === "user" &&
+            workflow.assignedTo?.id === currentUser?.id) ||
+          (workflow.assignedTo?.type === "department" &&
+            !!workflow.assignedTo?.id &&
+            deptIds.includes(workflow.assignedTo.id));
       } else if (activeTab === "my-work") {
-        matchesTab = workflow.status === "in_progress";
+        const deptIds: string[] = currentUser?.departmentIds ?? [];
+        const assignedToMe =
+          (workflow.assignedTo?.type === "user" &&
+            workflow.assignedTo?.id === currentUser?.id) ||
+          (workflow.assignedTo?.type === "department" &&
+            !!workflow.assignedTo?.id &&
+            deptIds.includes(workflow.assignedTo.id));
+        matchesTab =
+          assignedToMe &&
+          workflow.status !== "completed" &&
+          workflow.status !== "filed";
       } else if (activeTab === "completed") {
         matchesTab = workflow.status === "completed";
       }

@@ -11,6 +11,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { LoadingState, EmptyState } from "@/components/common";
 import Link from "next/link";
+import { toast } from "sonner";
 
 interface WorkflowFile {
   id: string;
@@ -163,8 +164,11 @@ export function WorkflowFiles({ workflowId }: WorkflowFilesProps) {
                             a.download = fileName || file.name;
                             a.click();
                             URL.revokeObjectURL(url);
-                          } catch (error) {
-                            console.error("Download failed:", error);
+                          } catch (error: any) {
+                            toast.error(
+                              error?.message ||
+                                "Download failed — you may not have access to this file",
+                            );
                           }
                         }}
                       >

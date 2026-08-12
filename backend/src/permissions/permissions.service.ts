@@ -95,6 +95,7 @@ export interface AccessDecision {
     | 'company_scope'
     | 'explicit_grant'
     | 'signature_invite'
+    | 'workflow_participant'
     | 'creator'
     | 'explicit_deny'
     | 'missing_capability'
@@ -1104,6 +1105,17 @@ export class PermissionsService {
       return { allowed: true, reason: 'signature_invite' };
     }
 
+    // 4c. Workflow participants may read files attached to (or primary on)
+    //     workflows they are on — so assignees can open/download without a
+    //     separate folder ACL. Non-participants still need an explicit grant.
+    if (
+      resourceType === 'file' &&
+      permission === 'read' &&
+      (await this.isActiveWorkflowFileParticipant(userId, resourceId))
+    ) {
+      return { allowed: true, reason: 'workflow_participant' };
+    }
+
     // 5a. A company-wide administrative scope reaches its own company. Someone
     //     has to be able to administer the company's records. Never apply this
     //     across companies — signature invites stay limited to the granted verbs.
@@ -1184,6 +1196,107 @@ export class PermissionsService {
         select: { id: true },
       });
       return !!row;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * True when the user is a participant on a workflow that lists this file
+   * as its primary document or an attached WorkflowFile.
+   */
+  private async isActiveWorkflowFileParticipant(
+    userId: string,
+    fileId: string,
+  ): Promise<boolean> {
+    try {
+      const deptIds = (
+        await this.prisma.userDepartment.findMany({
+          where: { userId },
+          select: { departmentId: true },
+        })
+      ).map((r) => r.departmentId);
+
+      const workflows = await this.prisma.workflow.findMany({
+        where: {
+          OR: [
+            { documentId: fileId },
+            { files: { some: { fileId } } },
+          ],
+        },
+        select: {
+          assignedBy: true,
+          assignedToType: true,
+          assignedToId: true,
+          actions: {
+            select: {
+              assignedToType: true,
+              assignedToId: true,
+              createdBy: true,
+            },
+          },
+          routingHistory: {
+            select: {
+              fromType: true,
+              fromId: true,
+              toType: true,
+              toId: true,
+            },
+          },
+        },
+      });
+
+      for (const workflow of workflows) {
+        if (workflow.assignedBy === userId) return true;
+        if (
+          workflow.assignedToType === 'user' &&
+          workflow.assignedToId === userId
+        ) {
+          return true;
+        }
+        if (
+          workflow.assignedToType === 'department' &&
+          workflow.assignedToId &&
+          deptIds.includes(workflow.assignedToId)
+        ) {
+          return true;
+        }
+        for (const action of workflow.actions) {
+          if (action.createdBy === userId) return true;
+          if (
+            action.assignedToType === 'user' &&
+            action.assignedToId === userId
+          ) {
+            return true;
+          }
+          if (
+            action.assignedToType === 'department' &&
+            action.assignedToId &&
+            deptIds.includes(action.assignedToId)
+          ) {
+            return true;
+          }
+        }
+        for (const hop of workflow.routingHistory) {
+          if (hop.fromType === 'user' && hop.fromId === userId) return true;
+          if (hop.toType === 'user' && hop.toId === userId) return true;
+          if (
+            hop.fromType === 'department' &&
+            hop.fromId &&
+            deptIds.includes(hop.fromId)
+          ) {
+            return true;
+          }
+          if (
+            hop.toType === 'department' &&
+            hop.toId &&
+            deptIds.includes(hop.toId)
+          ) {
+            return true;
+          }
+        }
+      }
+      return false;
     } catch {
       return false;
     }

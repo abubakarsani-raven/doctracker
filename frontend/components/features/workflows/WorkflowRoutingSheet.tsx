@@ -209,6 +209,7 @@ export function WorkflowRoutingSheet({
           routingHistoryEntry.routingType = "filed";
           routingHistoryEntry.to = {
             type: "system",
+            id: "system",
             name: "Filed",
           };
           break;
@@ -447,7 +448,9 @@ export function WorkflowRoutingSheet({
                       File the Documents / Workflow
                     </Label>
                     <p className="text-sm text-muted-foreground">
-                      File the workflow and documents. This ends the workflow and maintains access for participants through goals.
+                      Close the case after completion. Filing records that the
+                      documents are archived; it does not cancel separate
+                      signature requests on the file.
                     </p>
                   </div>
                 </div>

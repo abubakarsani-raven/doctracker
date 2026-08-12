@@ -829,6 +829,13 @@ class ApiClient {
     });
   }
 
+  async removeSignature(requestId: string, participantId: string) {
+    return this.request<{ success: boolean; status: string }>(
+      `/signatures/requests/${requestId}/participants/${participantId}/signature`,
+      { method: 'DELETE' },
+    );
+  }
+
   async getFileSignatureRequests(fileId: string) {
     return this.request<any[]>(`/signatures/requests/file/${fileId}`);
   }

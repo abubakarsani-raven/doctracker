@@ -135,6 +135,21 @@ export class SignaturesController {
     );
   }
 
+  @Delete('requests/:requestId/participants/:participantId/signature')
+  @RequireCapability('documents.sign')
+  @UseGuards(JwtAuthGuard, CapabilityGuard)
+  async removeSignature(
+    @Param('requestId') requestId: string,
+    @Param('participantId') participantId: string,
+    @Request() req: any,
+  ) {
+    return this.signaturesService.removeSignature(
+      requestId,
+      participantId,
+      req.user,
+    );
+  }
+
   @Get('requests/file/:fileId')
   @UseGuards(JwtAuthGuard)
   async getFileSignatureRequests(

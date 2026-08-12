@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { ActionsService } from './actions.service';
 import { ActionsController } from './actions.controller';
 import { PrismaModule } from '../prisma/prisma.module';
@@ -8,6 +8,7 @@ import { ActivityModule } from '../activity/activity.module';
 import { FilesModule } from '../files/files.module';
 import { PermissionsModule } from '../permissions/permissions.module';
 import { SignaturesModule } from '../signatures/signatures.module';
+import { WorkflowsModule } from '../workflows/workflows.module';
 
 @Module({
   imports: [
@@ -18,6 +19,7 @@ import { SignaturesModule } from '../signatures/signatures.module';
     FilesModule,
     PermissionsModule,
     SignaturesModule,
+    forwardRef(() => WorkflowsModule),
   ],
   controllers: [ActionsController],
   providers: [ActionsService],

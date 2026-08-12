@@ -213,36 +213,43 @@ export function CreateActionFromWorkflowDialog({
   );
 
   useEffect(() => {
-    if (!open) {
-      // Reset form when dialog closes
-      setActionTitle("");
-      setActionDescription("");
-      setActionType("regular");
-      setAssignedToType("user");
-      setSelectedUserId("");
-      setSelectedDepartmentId("");
-      setDueDate(undefined);
-      setTargetFolderId("");
-      setRequiredFileType("");
-      setRequestDetails("");
-      setSelectedCompanyId("same-company");
-      setSignatureDocumentId("");
-      setSignatureParticipants([]);
-      setSignerUserId("");
-      setManualSigner({ email: "", name: "" });
-      
-      // Pre-select workflow folder if available
-      if (workflow?.folderId) {
-        setTargetFolderId(workflow.folderId);
-      }
-    } else if (workflow?.folderId && actionType === "document_upload") {
-      // Pre-select workflow folder for document upload actions
+    if (open) return;
+    // Reset only when the dialog closes (do not depend on workflow object identity).
+    setActionTitle("");
+    setActionDescription("");
+    setActionType("regular");
+    setAssignedToType("user");
+    setSelectedUserId("");
+    setSelectedDepartmentId("");
+    setDueDate(undefined);
+    setTargetFolderId("");
+    setRequiredFileType("");
+    setRequestDetails("");
+    setSelectedCompanyId("same-company");
+    setSignatureDocumentId("");
+    setSignatureParticipants([]);
+    setSignerUserId("");
+    setManualSigner({ email: "", name: "" });
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    if (actionType === "document_upload" && workflow?.folderId) {
       setTargetFolderId(workflow.folderId);
-    } else if (open && actionType === "signature" && !signatureDocumentId) {
-      const first = signatureDocuments[0]?.id || workflow?.documentId || "";
+    }
+    if (actionType === "signature" && !signatureDocumentId) {
+      const first =
+        signatureDocuments[0]?.id || workflow?.documentId || "";
       if (first) setSignatureDocumentId(first);
     }
-  }, [open, workflow, actionType, signatureDocuments, signatureDocumentId]);
+  }, [
+    open,
+    actionType,
+    workflow?.folderId,
+    workflow?.documentId,
+    signatureDocuments,
+    signatureDocumentId,
+  ]);
 
   // Auto-generate titles based on action type
   useEffect(() => {

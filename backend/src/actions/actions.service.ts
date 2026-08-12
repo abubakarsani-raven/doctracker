@@ -1,4 +1,4 @@
-import { HttpException, BadRequestException, ForbiddenException, Injectable } from '@nestjs/common';
+import { HttpException, BadRequestException, ForbiddenException, Injectable, Inject, forwardRef } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { WebSocketGateway } from '../websocket/websocket.gateway';
 import { ActivityService } from '../activity/activity.service';
@@ -6,6 +6,7 @@ import { FilesService } from '../files/files.service';
 import { PermissionsService } from '../permissions/permissions.service';
 import { SignaturesService } from '../signatures/signatures.service';
 import { hasCapability } from '../permissions/capabilities';
+import { WorkflowsService } from '../workflows/workflows.service';
 
 @Injectable()
 export class ActionsService {
@@ -16,6 +17,8 @@ export class ActionsService {
     private filesService: FilesService,
     private permissionsService: PermissionsService,
     private signaturesService: SignaturesService,
+    @Inject(forwardRef(() => WorkflowsService))
+    private workflowsService: WorkflowsService,
   ) {}
 
   async findAll(userId?: string, companyId?: string) {
@@ -188,6 +191,11 @@ export class ActionsService {
   }
 
   async create(data: any, currentUser: any) {
+    await this.workflowsService.assertCanAccessWorkflow(
+      data.workflowId,
+      currentUser,
+    );
+
     // Get workflow to determine companyId
     const workflow = await this.prisma.workflow.findUnique({
       where: { id: data.workflowId },

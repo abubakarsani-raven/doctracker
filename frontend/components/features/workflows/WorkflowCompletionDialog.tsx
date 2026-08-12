@@ -102,8 +102,25 @@ export function WorkflowCompletionDialog({
             <CheckCircle2 className="h-5 w-5 text-green-600" />
             Complete workflow?
           </DialogTitle>
-          <DialogDescription>
-            This finalizes the workflow and moves it to Completed.
+          <DialogDescription asChild>
+            <div className="space-y-2 text-sm text-muted-foreground">
+              <p>How a workflow ends:</p>
+              <ol className="list-decimal space-y-1 pl-4">
+                <li>
+                  Finish actions (progress reaches 100% → Ready for review).
+                </li>
+                <li>
+                  Mark as Complete (this step) — work is done.
+                </li>
+                <li>
+                  Optionally Route → File documents to archive the case.
+                </li>
+              </ol>
+              <p>
+                Document signature requests on the file itself are separate from
+                this workflow unless you created a Signature action.
+              </p>
+            </div>
           </DialogDescription>
         </DialogHeader>
 
