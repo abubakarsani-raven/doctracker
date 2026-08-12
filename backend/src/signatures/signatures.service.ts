@@ -727,7 +727,8 @@ export class SignaturesService {
       const lockedFiles = await tx.$queryRawUnsafe<
         Array<{ id: string; storage_path: string | null }>
       >(
-        `SELECT id, storage_path FROM files WHERE id = $1::uuid FOR UPDATE`,
+        // file ids are Prisma string UUIDs stored as TEXT, not Postgres uuid
+        `SELECT id, storage_path FROM files WHERE id = $1 FOR UPDATE`,
         request.fileId,
       );
       const locked = lockedFiles[0];
