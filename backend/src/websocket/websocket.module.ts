@@ -7,7 +7,8 @@ import { PermissionsModule } from '../permissions/permissions.module';
 
 @Module({
   imports: [
-    UsersModule,
+    // UsersModule → NotificationsModule → WebSocketModule → UsersModule
+    forwardRef(() => UsersModule),
     // The gateway authorises document events, and the permissions service
     // notifies over this gateway — a genuine cycle, resolved with forwardRef.
     forwardRef(() => PermissionsModule),

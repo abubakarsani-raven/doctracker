@@ -39,6 +39,7 @@ export class WebSocketGateway implements OnGatewayConnection, OnGatewayDisconnec
   constructor(
     private jwtService: JwtService,
     private configService: ConfigService,
+    @Inject(forwardRef(() => UsersService))
     private usersService: UsersService,
     @Inject(forwardRef(() => PermissionsService))
     private permissionsService: PermissionsService,

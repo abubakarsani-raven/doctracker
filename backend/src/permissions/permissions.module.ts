@@ -8,7 +8,12 @@ import { NotificationsModule } from '../notifications/notifications.module';
 import { ActivityModule } from '../activity/activity.module';
 
 @Module({
-  imports: [PrismaModule, NotificationsModule, ActivityModule],
+  imports: [
+    PrismaModule,
+    // Permissions ↔ Notifications ↔ WebSocket cycle
+    forwardRef(() => NotificationsModule),
+    ActivityModule,
+  ],
   controllers: [PermissionsController, RolesController],
   providers: [PermissionsService, CapabilityGuard],
   exports: [PermissionsService, CapabilityGuard],

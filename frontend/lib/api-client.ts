@@ -329,12 +329,10 @@ class ApiClient {
         if (response.status === 401 || response.status === 403) {
           console.warn('[API Client] Request rejected:', response.status, method, endpoint, message);
         } else {
-          console.error('[API Client] Request failed:', {
-            status: response.status,
-            statusText: response.statusText,
-            url: url,
-            error: error,
-          });
+          // Flatten to primitives so Next.js overlay doesn't render `{}`
+          console.error(
+            `[API Client] Request failed: ${response.status} ${method} ${endpoint} — ${message}`,
+          );
         }
 
         // Do not call authFailureHandler here — `request()` refreshes on 401
