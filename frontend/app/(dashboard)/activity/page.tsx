@@ -4,14 +4,14 @@ import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { EmptyState, LoadingState } from "@/components/common";
+import { EmptyState, LoadingState, QueryErrorState } from "@/components/common";
 import { Activity, Filter } from "lucide-react";
 import { useActivity, useRecentActivity } from "@/lib/hooks/use-activity";
 import { formatDistanceToNow } from "date-fns";
 
 export default function ActivityPage() {
   const [activityTypeFilter, setActivityTypeFilter] = useState<string>("all");
-  const { data: activities = [], isLoading } = useActivity({
+  const { data: activities = [], isLoading, isError, error, refetch } = useActivity({
     activityType: activityTypeFilter !== "all" ? activityTypeFilter : undefined,
     limit: 100,
   });
@@ -58,6 +58,12 @@ export default function ActivityPage() {
 
       {isLoading ? (
         <LoadingState type="card" />
+      ) : isError ? (
+        <QueryErrorState
+          title="Failed to load activity"
+          error={error}
+          onRetry={() => refetch()}
+        />
       ) : displayActivities.length === 0 ? (
         <EmptyState
           icon={Activity}

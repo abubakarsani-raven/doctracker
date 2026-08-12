@@ -10,6 +10,7 @@ import {
 } from "@/lib/api-client";
 
 const AUTH_PAGES = ["/login", "/register", "/forgot-password"];
+const SESSION_DRAFT_KEY = "dt_session_draft";
 
 /**
  * Turns permission failures from the API into something the user can see.
@@ -20,6 +21,7 @@ const AUTH_PAGES = ["/login", "/register", "/forgot-password"];
  *
  * A 401 after refresh has failed means the session is dead — hard-redirect to
  * login so stale React Query cache cannot keep the dashboard looking signed-in.
+ * Before leaving, stash a lightweight draft marker so forms can restore context.
  */
 export function ApiErrorListener() {
   const pathname = usePathname();
@@ -38,11 +40,24 @@ export function ApiErrorListener() {
         if (redirecting) return;
         redirecting = true;
 
-        clearClientSession();
-        toast.error("Your session has expired. Please sign in again.");
+        try {
+          sessionStorage.setItem(
+            SESSION_DRAFT_KEY,
+            JSON.stringify({
+              path,
+              at: Date.now(),
+              note: "Session expired — reopen the action you were working on after signing in.",
+            }),
+          );
+        } catch {
+          // ignore quota / private mode
+        }
 
-        // Hard navigation clears in-memory cache and stops further dashboard
-        // requests. Soft router.push left the page mounted with stale data.
+        clearClientSession();
+        toast.error("Your session has expired. Please sign in again.", {
+          description: "We’ll bring you back to this page after you sign in.",
+        });
+
         const next = `/login?next=${encodeURIComponent(path || "/dashboard")}`;
         window.location.assign(next);
         return;
@@ -64,6 +79,25 @@ export function ApiErrorListener() {
     onAuthFailure(handler);
     return () => onAuthFailure(null);
   }, []);
+
+  useEffect(() => {
+    if (AUTH_PAGES.some((p) => (pathname || "").startsWith(p))) return;
+    try {
+      const raw = sessionStorage.getItem(SESSION_DRAFT_KEY);
+      if (!raw) return;
+      const draft = JSON.parse(raw) as { note?: string; at?: number };
+      sessionStorage.removeItem(SESSION_DRAFT_KEY);
+      if (draft?.at && Date.now() - draft.at < 30 * 60 * 1000) {
+        toast.message("Welcome back", {
+          description:
+            draft.note ||
+            "Continue where you left off — reopen any dialog you were using.",
+        });
+      }
+    } catch {
+      // ignore
+    }
+  }, [pathname]);
 
   return null;
 }

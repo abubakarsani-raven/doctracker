@@ -1,11 +1,10 @@
 "use client";
 
 import { useState, useMemo } from "react";
-import { FolderCard, DocumentCard, EmptyState, LoadingState } from "@/components/common";
+import { FolderCard, DocumentCard, EmptyState, LoadingState, QueryErrorState } from "@/components/common";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Checkbox } from "@/components/ui/checkbox";
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -31,10 +30,7 @@ import { FileUploadDialog } from "@/components/features/documents/FileUploadDial
 import { CreateFolderDialog } from "@/components/features/documents/CreateFolderDialog";
 import { EditFolderDialog } from "@/components/features/documents/EditFolderDialog";
 import { CreateRichTextDocumentDialog } from "@/components/features/documents/CreateRichTextDocumentDialog";
-import { AddToFolderDialog } from "@/components/features/documents/AddToFolderDialog";
-import { BulkOperations } from "@/components/features/documents/BulkOperations";
-import { ExportDialog } from "@/components/features/documents/ExportDialog";
-import { ArchiveDialog } from "@/components/features/documents/ArchiveDialog";
+import { ConfirmDialog } from "@/components/common/ConfirmDialog";
 import { 
   Plus, 
   Upload, 
@@ -45,8 +41,6 @@ import {
   Filter,
   FileText,
   X,
-  CheckSquare,
-  Square,
   RefreshCw,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
@@ -72,6 +66,7 @@ import { useFolders } from "@/lib/hooks/use-documents";
 import { useDocuments } from "@/lib/hooks/use-documents";
 import { countDocumentsInFolderTree } from "@/lib/folder-utils";
 import { useQueryClient } from "@tanstack/react-query";
+import { api } from "@/lib/api";
 
 export default function DocumentsPage() {
   const router = useRouter();
@@ -84,16 +79,22 @@ export default function DocumentsPage() {
     data: allFolders = [],
     isLoading: foldersLoading,
     isFetching: foldersFetching,
+    isError: foldersError,
+    error: foldersErr,
     refetch: refetchFolders,
   } = useFolders();
   const {
     data: allDocuments = [],
     isLoading: documentsLoading,
     isFetching: documentsFetching,
+    isError: documentsError,
+    error: documentsErr,
     refetch: refetchDocuments,
   } = useDocuments();
   
   const loading = foldersLoading || documentsLoading;
+  const isError = foldersError || documentsError;
+  const error = foldersErr || documentsErr;
   const refreshingFolders = foldersFetching && !foldersLoading;
   const refreshingDocuments = documentsFetching && !documentsLoading;
 
@@ -124,11 +125,8 @@ export default function DocumentsPage() {
   const [editFolderDialogOpen, setEditFolderDialogOpen] = useState(false);
   const [editingFolderId, setEditingFolderId] = useState<string | undefined>(undefined);
   const [createRichTextDialogOpen, setCreateRichTextDialogOpen] = useState(false);
-  const [addToFolderDialogOpen, setAddToFolderDialogOpen] = useState(false);
-  const [addingDocumentId, setAddingDocumentId] = useState<string | undefined>(undefined);
-  const [exportDialogOpen, setExportDialogOpen] = useState(false);
-  const [archiveDialogOpen, setArchiveDialogOpen] = useState(false);
-  const [selectedItems, setSelectedItems] = useState<string[]>([]);
+  const [deleteFolderId, setDeleteFolderId] = useState<string | undefined>(undefined);
+  const [deletingFolder, setDeletingFolder] = useState(false);
   
   const [filters, setFilters] = useState<DocumentFilterState>(EMPTY_FILTERS);
 
@@ -297,63 +295,6 @@ export default function DocumentsPage() {
         return sorted;
     }
   }, [filteredDocuments, sortBy]);
-
-  // Combine items for bulk operations
-  const allItems = useMemo(() => {
-    return [
-      ...sortedFolders.map((f: any) => ({ id: f.id, name: f.name, type: "folder" as const })),
-      ...sortedDocuments.map((d: any) => ({ id: d.id, name: d.name, type: "file" as const })),
-    ];
-  }, [sortedFolders, sortedDocuments]);
-
-  const handleSelectAll = () => {
-    if (selectedItems.length === allItems.length) {
-      setSelectedItems([]);
-    } else {
-      setSelectedItems(allItems.map((item) => item.id));
-    }
-  };
-
-  const handleToggleItem = (itemId: string) => {
-    if (selectedItems.includes(itemId)) {
-      setSelectedItems(selectedItems.filter((id) => id !== itemId));
-    } else {
-      setSelectedItems([...selectedItems, itemId]);
-    }
-  };
-
-  const handleBulkExport = () => {
-    if (selectedItems.length === 0) {
-      toast.error("Please select items to export");
-      return;
-    }
-    setExportDialogOpen(true);
-  };
-
-  const handleBulkArchive = () => {
-    if (selectedItems.length === 0) {
-      toast.error("Please select items to archive");
-      return;
-    }
-    setArchiveDialogOpen(true);
-  };
-
-  // Get unique file types for filter
-  const uniqueFileTypes = useMemo(() => {
-    const types = new Set(documents.map((d: any) => d.type));
-    return Array.from(types);
-  }, [documents]);
-
-  // Get unique tags for filter
-  const uniqueTags = useMemo(() => {
-    const tags = new Set<string>();
-    documents.forEach((d: any) => {
-      if (d.tags && Array.isArray(d.tags)) {
-        d.tags.forEach((tag: string) => tags.add(tag));
-      }
-    });
-    return Array.from(tags);
-  }, [documents]);
 
   const activeFiltersCount = countActiveFilters(filters);
 
@@ -561,18 +502,18 @@ export default function DocumentsPage() {
       {/* What is currently filtered, so it is never hidden behind the popover */}
       <ActiveFilterChips value={filters} onChange={setFilters} facets={facets} />
 
-      {/* Bulk Operations */}
-      {allItems.length > 0 && (
-        <BulkOperations
-          selectedItems={selectedItems}
-          onSelectionChange={setSelectedItems}
-          items={allItems}
-        />
-      )}
-
       {/* Content */}
       {loading ? (
         <LoadingState type="card" count={6} />
+      ) : isError ? (
+        <QueryErrorState
+          title="Failed to load documents"
+          error={error}
+          onRetry={() => {
+            refetchFolders();
+            refetchDocuments();
+          }}
+        />
       ) : (
         <div className="space-y-8">
           {/* Folders Section */}
@@ -595,18 +536,6 @@ export default function DocumentsPage() {
                     />
                     Refresh
                   </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={handleSelectAll}
-                  >
-                    {selectedItems.filter((id) => sortedFolders.some((f: any) => f.id === id)).length === sortedFolders.length ? (
-                      <CheckSquare className="h-4 w-4 mr-2" />
-                    ) : (
-                      <Square className="h-4 w-4 mr-2" />
-                    )}
-                    Select All Folders
-                  </Button>
                 </div>
               </div>
               <div
@@ -617,28 +546,31 @@ export default function DocumentsPage() {
                 }
               >
                 {sortedFolders.map((folder) => (
-                  <div key={folder.id} className="relative">
-                    <Checkbox
-                      checked={selectedItems.includes(folder.id)}
-                      onCheckedChange={() => handleToggleItem(folder.id)}
-                      className="absolute top-4 left-4 z-10 bg-background rounded"
-                    />
-                    <FolderCard
-                      folder={folder}
-                      hasAccess={hasAccessToResource(
-                        folder.id,
-                        "folder",
-                        currentUser,
-                        hasFolderPermission(folder)
-                      )}
-                      accessReason={whyNot(folder, "read", "folder")}
-                      onView={(id) => router.push(`/documents/folder/${id}`)}
-                      onEdit={(id) => {
-                        setEditingFolderId(id);
-                        setEditFolderDialogOpen(true);
-                      }}
-                    />
-                  </div>
+                  <FolderCard
+                    key={folder.id}
+                    folder={folder}
+                    hasAccess={hasAccessToResource(
+                      folder.id,
+                      "folder",
+                      currentUser,
+                      hasFolderPermission(folder)
+                    )}
+                    accessReason={whyNot(folder, "read", "folder")}
+                    onView={(id) => router.push(`/documents/folder/${id}`)}
+                    onEdit={
+                      canOn(folder, "write", "folder")
+                        ? (id) => {
+                            setEditingFolderId(id);
+                            setEditFolderDialogOpen(true);
+                          }
+                        : undefined
+                    }
+                    onDelete={
+                      canOn(folder, "delete", "folder")
+                        ? (id) => setDeleteFolderId(id)
+                        : undefined
+                    }
+                  />
                 ))}
               </div>
             </div>
@@ -664,18 +596,6 @@ export default function DocumentsPage() {
                     />
                     Refresh
                   </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={handleSelectAll}
-                  >
-                    {selectedItems.filter((id) => sortedDocuments.some((d: any) => d.id === id)).length === sortedDocuments.length ? (
-                      <CheckSquare className="h-4 w-4 mr-2" />
-                    ) : (
-                      <Square className="h-4 w-4 mr-2" />
-                    )}
-                    Select All Documents
-                  </Button>
                 </div>
               </div>
               <div
@@ -686,28 +606,18 @@ export default function DocumentsPage() {
                 }
               >
                 {sortedDocuments.map((doc) => (
-                  <div key={doc.id} className="relative">
-                    <Checkbox
-                      checked={selectedItems.includes(doc.id)}
-                      onCheckedChange={() => handleToggleItem(doc.id)}
-                      className="absolute top-4 left-4 z-10 bg-background rounded"
-                    />
-                    <DocumentCard
-                      document={doc}
-                      hasAccess={hasAccessToResource(
-                        doc.id,
-                        "document",
-                        currentUser,
-                        hasDocumentPermission(doc)
-                      )}
-                      accessReason={whyNot(doc, "read", "document")}
-                      onView={(id) => router.push(`/documents/${id}`)}
-                      onAddToFolder={(id) => {
-                        setAddingDocumentId(id);
-                        setAddToFolderDialogOpen(true);
-                      }}
-                    />
-                  </div>
+                  <DocumentCard
+                    key={doc.id}
+                    document={doc}
+                    hasAccess={hasAccessToResource(
+                      doc.id,
+                      "document",
+                      currentUser,
+                      hasDocumentPermission(doc)
+                    )}
+                    accessReason={whyNot(doc, "read", "document")}
+                    onView={(id) => router.push(`/documents/${id}`)}
+                  />
                 ))}
               </div>
             </div>
@@ -742,7 +652,6 @@ export default function DocumentsPage() {
         onOpenChange={setUploadDialogOpen}
         onFilesUploaded={() => {
           // Refresh would happen here
-          setSelectedItems([]);
         }}
       />
       <CreateFolderDialog
@@ -758,7 +667,6 @@ export default function DocumentsPage() {
         folderId={editingFolderId}
         onFolderUpdated={() => {
           // Refresh would happen here
-          setSelectedItems([]);
         }}
       />
       <CreateRichTextDocumentDialog
@@ -766,37 +674,33 @@ export default function DocumentsPage() {
         onOpenChange={setCreateRichTextDialogOpen}
         onDocumentCreated={() => {
           // Refresh would happen here
-          setSelectedItems([]);
         }}
       />
-      <AddToFolderDialog
-        open={addToFolderDialogOpen}
+      <ConfirmDialog
+        open={!!deleteFolderId}
         onOpenChange={(open) => {
-          setAddToFolderDialogOpen(open);
-          if (!open) setAddingDocumentId(undefined);
+          if (!open) setDeleteFolderId(undefined);
         }}
-        documentId={addingDocumentId || ""}
-        currentFolderId={sortedDocuments.find((d: any) => d.id === addingDocumentId)?.folderId}
-        onAdded={() => {
-          // Refresh would happen here
-          setSelectedItems([]);
+        title="Delete folder?"
+        description="This soft-deletes the folder. Documents inside may become harder to find until an admin restores it."
+        confirmLabel="Delete folder"
+        variant="destructive"
+        loading={deletingFolder}
+        onConfirm={async () => {
+          if (!deleteFolderId) return;
+          setDeletingFolder(true);
+          try {
+            await api.deleteFolder(deleteFolderId);
+            toast.success("Folder deleted");
+            setDeleteFolderId(undefined);
+            await refreshFolders();
+          } catch (error: any) {
+            toast.error(error?.message || "Failed to delete folder");
+          } finally {
+            setDeletingFolder(false);
+          }
         }}
       />
-      <ExportDialog
-        open={exportDialogOpen}
-        onOpenChange={setExportDialogOpen}
-        documentIds={selectedItems.filter((id) => sortedDocuments.some((d: any) => d.id === id))}
-      />
-      {archiveDialogOpen && selectedItems.length === 1 && (
-        <ArchiveDialog
-          open={archiveDialogOpen}
-          onOpenChange={(open) => {
-            setArchiveDialogOpen(open);
-            if (!open) setSelectedItems([]);
-          }}
-          documentId={selectedItems.filter((id) => sortedDocuments.some((d: any) => d.id === id))[0]}
-        />
-      )}
     </div>
   );
 }

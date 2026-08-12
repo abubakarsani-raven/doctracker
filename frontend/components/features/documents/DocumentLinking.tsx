@@ -101,6 +101,7 @@ export function DocumentLinking({
                   size="icon"
                   className="h-8 w-8"
                   onClick={() => handleUnlinkDocument()}
+                  aria-label="Unlink document"
                 >
                   <X className="h-4 w-4" />
                 </Button>

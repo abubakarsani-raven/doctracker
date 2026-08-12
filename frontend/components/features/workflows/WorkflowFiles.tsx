@@ -141,7 +141,11 @@ export function WorkflowFiles({ workflowId }: WorkflowFilesProps) {
                     </div>
                     <div className="flex items-center gap-1 shrink-0">
                       <Button variant="ghost" size="icon" asChild>
-                        <Link href={`/documents/${file.id}`} title="Open document">
+                        <Link
+                          href={`/documents/${file.id}`}
+                          title="Open document"
+                          aria-label={`Open ${file.name}`}
+                        >
                           <ExternalLink className="h-4 w-4" />
                         </Link>
                       </Button>
@@ -149,6 +153,7 @@ export function WorkflowFiles({ workflowId }: WorkflowFilesProps) {
                         variant="ghost"
                         size="icon"
                         title="Download"
+                        aria-label={`Download ${file.name}`}
                         onClick={async () => {
                           try {
                             const { blob, fileName } = await api.getDocumentBlob(file.id);

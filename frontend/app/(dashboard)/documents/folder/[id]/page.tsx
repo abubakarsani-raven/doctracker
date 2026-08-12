@@ -2,7 +2,7 @@
 
 import React, { useState, useMemo } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { FolderCard, DocumentCard, EmptyState, LoadingState } from "@/components/common";
+import { FolderCard, DocumentCard, EmptyState, LoadingState, QueryErrorState } from "@/components/common";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -23,6 +23,7 @@ import {
 import { FileUploadDialog } from "@/components/features/documents/FileUploadDialog";
 import { CreateFolderDialog } from "@/components/features/documents/CreateFolderDialog";
 import { CreateWorkflowDialog } from "@/components/features/workflows/CreateWorkflowDialog";
+import { ConfirmDialog } from "@/components/common/ConfirmDialog";
 import { Upload, FolderPlus, Grid3x3, List, Search, ArrowLeft, Workflow, RefreshCw } from "lucide-react";
 import { usePermissions } from "@/lib/hooks/use-permissions";
 import { PermissionButton } from "@/components/common/PermissionButton";
@@ -33,6 +34,7 @@ import { WorkflowList } from "@/components/features/workflows/WorkflowList";
 import { countDocumentsInFolderTree } from "@/lib/folder-utils";
 import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
+import { api } from "@/lib/api";
 
 export default function FolderDetailPage() {
   const params = useParams();
@@ -44,6 +46,8 @@ export default function FolderDetailPage() {
   const {
     data: folder,
     isLoading: folderLoading,
+    isError: folderError,
+    error: folderErr,
     refetch: refetchFolder,
   } = useFolder(folderId);
   const {
@@ -87,6 +91,8 @@ export default function FolderDetailPage() {
   const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
   const [createFolderDialogOpen, setCreateFolderDialogOpen] = useState(false);
   const [createWorkflowDialogOpen, setCreateWorkflowDialogOpen] = useState(false);
+  const [deleteFolderId, setDeleteFolderId] = useState<string | undefined>(undefined);
+  const [deletingFolder, setDeletingFolder] = useState(false);
 
   const loading = folderLoading;
 
@@ -226,6 +232,19 @@ export default function FolderDetailPage() {
     return <LoadingState type="card" />;
   }
 
+  if (folderError) {
+    return (
+      <div className="space-y-6">
+        <QueryErrorState
+          title="Failed to load folder"
+          error={folderErr}
+          onRetry={() => refetchFolder()}
+          onBack={() => router.back()}
+        />
+      </div>
+    );
+  }
+
   // Folder payload from the API is enough to render the shell; cards use canOn.
   if (!folder || !canOpenFolder) {
     return (
@@ -248,7 +267,13 @@ export default function FolderDetailPage() {
       {/* Header */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="flex min-w-0 items-start gap-3 sm:gap-4">
-          <Button variant="ghost" size="icon" className="mt-1 shrink-0" onClick={handleBack}>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="mt-1 shrink-0"
+            onClick={handleBack}
+            aria-label="Go back"
+          >
             <ArrowLeft className="h-4 w-4" />
           </Button>
           <div className="min-w-0">
@@ -432,6 +457,11 @@ export default function FolderDetailPage() {
                     folder={subfolder}
                     hasAccess={subfolderPermission}
                     onView={(id) => router.push(`/documents/folder/${id}`)}
+                    onDelete={
+                      canOn(subfolder, "delete", "folder")
+                        ? (id) => setDeleteFolderId(id)
+                        : undefined
+                    }
                   />
                 );
               })}
@@ -545,6 +575,31 @@ export default function FolderDetailPage() {
         onWorkflowCreated={() => {
           setCreateWorkflowDialogOpen(false);
           router.push("/workflows");
+        }}
+      />
+      <ConfirmDialog
+        open={!!deleteFolderId}
+        onOpenChange={(open) => {
+          if (!open) setDeleteFolderId(undefined);
+        }}
+        title="Delete folder?"
+        description="This soft-deletes the folder. Documents inside may become harder to find until an admin restores it."
+        confirmLabel="Delete folder"
+        variant="destructive"
+        loading={deletingFolder}
+        onConfirm={async () => {
+          if (!deleteFolderId) return;
+          setDeletingFolder(true);
+          try {
+            await api.deleteFolder(deleteFolderId);
+            toast.success("Folder deleted");
+            setDeleteFolderId(undefined);
+            await refreshFolders();
+          } catch (error: any) {
+            toast.error(error?.message || "Failed to delete folder");
+          } finally {
+            setDeletingFolder(false);
+          }
         }}
       />
     </div>

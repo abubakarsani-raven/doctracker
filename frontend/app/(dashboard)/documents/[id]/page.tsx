@@ -11,8 +11,8 @@ import {
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
-import { StatusBadge, LoadingState, EmptyState, PresenceIndicator } from "@/components/common";
-import { Download, Share2, MoreVertical, FileText, Clock, User, Workflow, PenTool, AlertTriangle } from "lucide-react";
+import { StatusBadge, LoadingState, EmptyState, PresenceIndicator, QueryErrorState } from "@/components/common";
+import { Download, Share2, MoreVertical, FileText, Clock, User, Workflow, PenTool } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -54,6 +54,7 @@ export default function DocumentDetailPage() {
     isLoading: documentLoading,
     isError,
     error,
+    refetch,
   } = useDocument(documentId);
   const { data: allFolders = [] } = useFolders();
   const { data: workflows = [], isLoading: workflowsLoading } =
@@ -158,20 +159,14 @@ export default function DocumentDetailPage() {
     return <LoadingState type="card" />;
   }
 
-  if (isError) {
+  if (isError && !documentData) {
     return (
       <div className="space-y-6">
-        <EmptyState
-          icon={AlertTriangle}
+        <QueryErrorState
           title="Failed to load document"
-          description={
-            (error as any)?.message ||
-            "Something went wrong while loading this document. Please try again."
-          }
-          action={{
-            label: "Go Back",
-            onClick: () => router.push("/documents"),
-          }}
+          error={error}
+          onRetry={() => refetch()}
+          onBack={() => router.back()}
         />
       </div>
     );
@@ -237,12 +232,12 @@ export default function DocumentDetailPage() {
       </Breadcrumb>
 
       {/* Header */}
-      <div className="flex items-start justify-between">
-        <div className="flex items-start gap-4 flex-1">
-          <FileText className="h-10 w-10 text-blue-500 flex-shrink-0" />
-          <div className="flex-1 min-w-0">
-            <h1 className="text-2xl font-bold truncate">{document.name}</h1>
-            <div className="flex items-center gap-2 mt-2">
+      <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+        <div className="flex min-w-0 flex-1 items-start gap-4">
+          <FileText className="h-10 w-10 shrink-0 text-blue-500" />
+          <div className="min-w-0 flex-1">
+            <h1 className="truncate text-2xl font-bold">{document.name}</h1>
+            <div className="mt-2 flex flex-wrap items-center gap-2">
               {document.scope && (
                 <Badge variant="outline">{scopeLabels[document.scope]}</Badge>
               )}
@@ -256,9 +251,14 @@ export default function DocumentDetailPage() {
             </div>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
           <PermissionButton
             allowed={can("documents.request_signature")}
+            reason={
+              can("documents.request_signature")
+                ? null
+                : `The ${permissions.role} role cannot request signatures.`
+            }
             variant="outline"
             onClick={() => setRequestSignatureOpen(true)}
           >
@@ -292,7 +292,7 @@ export default function DocumentDetailPage() {
           </PermissionButton>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="outline" size="icon">
+              <Button variant="outline" size="icon" aria-label="More document actions">
                 <MoreVertical className="h-4 w-4" />
               </Button>
             </DropdownMenuTrigger>
@@ -391,11 +391,12 @@ export default function DocumentDetailPage() {
             fileName={document.name}
             isRichText={!!document.isRichText}
             pageCount={document.pageCount || 1}
-            onChanged={async () => {
-              await queryClient.refetchQueries({
+            onChanged={() => {
+              // Soft invalidate so a post-sign access race cannot wipe the page.
+              void queryClient.invalidateQueries({
                 queryKey: ["documents", documentId],
               });
-              queryClient.invalidateQueries({ queryKey: ["documents"] });
+              void queryClient.invalidateQueries({ queryKey: ["documents"] });
             }}
           />
 

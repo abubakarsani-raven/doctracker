@@ -27,9 +27,10 @@ import {
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { InviteUserDialog } from "@/components/features/users/InviteUserDialog";
-import { Plus, Search, MoreVertical, Mail, Building2, Loader2 } from "lucide-react";
-import { EmptyState, PermissionButton } from "@/components/common";
-import { useUsers } from "@/lib/hooks/use-users";
+import { ConfirmDialog } from "@/components/common/ConfirmDialog";
+import { Plus, Search, Building2, Loader2, MoreVertical } from "lucide-react";
+import { EmptyState, PermissionButton, QueryErrorState } from "@/components/common";
+import { useUsers, useDeactivateUser, useCurrentUser } from "@/lib/hooks/use-users";
 import { usePermissions } from "@/lib/hooks/use-permissions";
 import { toast } from "sonner";
 
@@ -37,13 +38,12 @@ export default function UsersPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [roleFilter, setRoleFilter] = useState("all");
   const [inviteDialogOpen, setInviteDialogOpen] = useState(false);
+  const [deactivateUserId, setDeactivateUserId] = useState<string | undefined>();
   const { can, permissions } = usePermissions();
+  const { data: currentUser } = useCurrentUser();
+  const deactivateUser = useDeactivateUser();
 
-  const { data: users = [], isLoading, error } = useUsers();
-
-  if (error) {
-    toast.error("Failed to load users");
-  }
+  const { data: users = [], isLoading, isError, error, refetch } = useUsers();
 
   const filteredUsers = users.filter((user: any) => {
     const matchesSearch =
@@ -52,6 +52,9 @@ export default function UsersPage() {
     const matchesRole = roleFilter === "all" || user.role === roleFilter;
     return matchesSearch && matchesRole;
   });
+
+  const canManage = can("users.manage");
+  const userToDeactivate = users.find((u: any) => u.id === deactivateUserId);
 
   return (
     <div className="space-y-6">
@@ -64,9 +67,9 @@ export default function UsersPage() {
             </p>
           </div>
           <PermissionButton
-            allowed={can("users.manage")}
+            allowed={canManage}
             reason={
-              can("users.manage")
+              canManage
                 ? null
                 : `The ${permissions.role} role cannot invite users.`
             }
@@ -109,8 +112,14 @@ export default function UsersPage() {
           </div>
         )}
 
-        {/* Users Table */}
-        {!isLoading && filteredUsers.length === 0 ? (
+        {/* Error State */}
+        {!isLoading && isError ? (
+          <QueryErrorState
+            title="Failed to load users"
+            error={error}
+            onRetry={() => refetch()}
+          />
+        ) : !isLoading && filteredUsers.length === 0 ? (
           <EmptyState
             icon={Building2}
             title="No users found"
@@ -137,11 +146,17 @@ export default function UsersPage() {
                   <TableHead>Role</TableHead>
                   <TableHead>Department</TableHead>
                   <TableHead>Status</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
+                  {canManage ? <TableHead className="w-[60px]" /> : null}
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredUsers.map((user) => (
+                {filteredUsers.map((user: any) => {
+                  const showDeactivate =
+                    canManage &&
+                    user.isActive &&
+                    user.id !== currentUser?.id;
+
+                  return (
                   <TableRow key={user.id}>
                     <TableCell>
                       <div className="flex items-center gap-3">
@@ -177,22 +192,31 @@ export default function UsersPage() {
                         {user.isActive ? "Active" : "Inactive"}
                       </Badge>
                     </TableCell>
-                    <TableCell className="text-right">
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="icon">
-                            <MoreVertical className="h-4 w-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem>Edit</DropdownMenuItem>
-                          <DropdownMenuItem>Change Role</DropdownMenuItem>
-                          <DropdownMenuItem>Deactivate</DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </TableCell>
+                    {canManage ? (
+                      <TableCell className="text-right">
+                        {showDeactivate ? (
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button variant="ghost" size="icon">
+                                <MoreVertical className="h-4 w-4" />
+                                <span className="sr-only">User actions</span>
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                              <DropdownMenuItem
+                                className="text-destructive"
+                                onClick={() => setDeactivateUserId(user.id)}
+                              >
+                                Deactivate
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        ) : null}
+                      </TableCell>
+                    ) : null}
                   </TableRow>
-                ))}
+                  );
+                })}
               </TableBody>
             </Table>
           </div>
@@ -201,6 +225,32 @@ export default function UsersPage() {
         <InviteUserDialog
           open={inviteDialogOpen}
           onOpenChange={setInviteDialogOpen}
+        />
+
+        <ConfirmDialog
+          open={!!deactivateUserId}
+          onOpenChange={(open) => {
+            if (!open) setDeactivateUserId(undefined);
+          }}
+          title="Deactivate user?"
+          description={
+            userToDeactivate
+              ? `${userToDeactivate.name || userToDeactivate.email} will no longer be able to sign in.`
+              : "This user will no longer be able to sign in."
+          }
+          confirmLabel="Deactivate"
+          variant="destructive"
+          loading={deactivateUser.isPending}
+          onConfirm={async () => {
+            if (!deactivateUserId) return;
+            try {
+              await deactivateUser.mutateAsync(deactivateUserId);
+              toast.success("User deactivated");
+              setDeactivateUserId(undefined);
+            } catch (err: any) {
+              toast.error(err?.message || "Failed to deactivate user");
+            }
+          }}
         />
       </div>
   );

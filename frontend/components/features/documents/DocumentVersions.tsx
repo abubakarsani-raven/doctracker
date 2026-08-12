@@ -49,6 +49,7 @@ export function DocumentVersions({
 }: DocumentVersionsProps) {
   const [versions, setVersions] = useState<DocumentVersion[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [restoring, setRestoring] = useState<string | null>(null);
   const [downloading, setDownloading] = useState<string | null>(null);
   const [restoreTarget, setRestoreTarget] = useState<DocumentVersion | null>(
@@ -62,6 +63,7 @@ export function DocumentVersions({
 
   const loadVersions = async () => {
     setLoading(true);
+    setLoadError(null);
     try {
       const versionsData = await api.getFileVersions(documentId);
       const transformedVersions: DocumentVersion[] = versionsData.map((v: any) => ({
@@ -83,8 +85,9 @@ export function DocumentVersions({
       }));
 
       setVersions(transformedVersions);
-    } catch (error) {
+    } catch (error: any) {
       console.error("Failed to load versions:", error);
+      setLoadError(error?.message || "Failed to load versions");
       setVersions([]);
     } finally {
       setLoading(false);
@@ -134,6 +137,13 @@ export function DocumentVersions({
         {loading ? (
           <div className="flex items-center justify-center py-8">
             <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+          </div>
+        ) : loadError ? (
+          <div className="space-y-3 py-8 text-center">
+            <p className="text-sm text-destructive">{loadError}</p>
+            <Button type="button" variant="outline" size="sm" onClick={loadVersions}>
+              Retry
+            </Button>
           </div>
         ) : versions.length === 0 ? (
           <p className="text-sm text-muted-foreground text-center py-8">

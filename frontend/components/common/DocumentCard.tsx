@@ -161,10 +161,12 @@ export function DocumentCard({
                 <Eye className="mr-2 h-4 w-4" />
                 View
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={handleAddToFolder}>
-                <FolderPlus className="mr-2 h-4 w-4" />
-                Add to Folder
-              </DropdownMenuItem>
+              {onAddToFolder && (
+                <DropdownMenuItem onClick={handleAddToFolder}>
+                  <FolderPlus className="mr-2 h-4 w-4" />
+                  Add to Folder
+                </DropdownMenuItem>
+              )}
               {onDownload && (
                 <DropdownMenuItem onClick={handleDownload}>
                   <Download className="mr-2 h-4 w-4" />

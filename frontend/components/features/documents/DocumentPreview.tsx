@@ -39,8 +39,10 @@ export function DocumentPreview({
 }: DocumentPreviewProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [errorCode, setErrorCode] = useState<string | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [fontStep, setFontStep] = useState(1); // index into PREVIEW_FONT_STEPS (100%)
+  const [reloadKey, setReloadKey] = useState(0);
 
   const type = useMemo(
     () =>
@@ -75,6 +77,7 @@ export function DocumentPreview({
     (async () => {
       setLoading(true);
       setError(null);
+      setErrorCode(null);
       try {
         const { blob } = await api.getDocumentBlob(documentId);
         objectUrl = URL.createObjectURL(blob);
@@ -86,6 +89,7 @@ export function DocumentPreview({
       } catch (err: any) {
         if (cancelled) return;
         setError(err?.message || "Could not load document preview");
+        setErrorCode(err?.code || null);
         setPreviewUrl(null);
       } finally {
         if (!cancelled) setLoading(false);
@@ -96,7 +100,7 @@ export function DocumentPreview({
       cancelled = true;
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [documentId, isPdf, isImage, isRichText, revision]);
+  }, [documentId, isPdf, isImage, isRichText, revision, reloadKey]);
 
   const handleDownload = async () => {
     try {
@@ -140,13 +144,32 @@ export function DocumentPreview({
     }
 
     if (error) {
+      const samePathAsDownload =
+        errorCode === "STORAGE_UNAVAILABLE" ||
+        errorCode === "NOT_FOUND" ||
+        errorCode === "CONTENT_PENDING";
       return (
         <div className="w-full p-8 text-center">
           <AlertCircle className="mx-auto mb-4 h-16 w-16 text-destructive" />
-          <p className="text-muted-foreground">{error}</p>
-          <Button variant="outline" className="mt-4" onClick={handleDownload}>
-            Download instead
-          </Button>
+          <p className="font-medium text-foreground">Couldn’t load preview</p>
+          <p className="mt-2 text-sm text-muted-foreground">{error}</p>
+          <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
+            <Button
+              type="button"
+              onClick={() => setReloadKey((k) => k + 1)}
+            >
+              Retry
+            </Button>
+            {!samePathAsDownload ? (
+              <Button variant="outline" onClick={handleDownload}>
+                Download instead
+              </Button>
+            ) : (
+              <p className="w-full text-xs text-muted-foreground">
+                Download uses the same storage path — retry when storage is back.
+              </p>
+            )}
+          </div>
         </div>
       );
     }

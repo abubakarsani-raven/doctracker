@@ -6,13 +6,7 @@ export function useActions() {
   return useQuery({
     queryKey: ["actions"],
     queryFn: async () => {
-      try {
-        return await api.getActions();
-      } catch (error: any) {
-        console.error("Error fetching actions:", error);
-        // Return empty array instead of throwing to prevent panic
-        return [];
-      }
+      return await api.getActions();
     },
   });
 }
@@ -21,12 +15,7 @@ export function useAction(id: string) {
   return useQuery({
     queryKey: ["actions", id],
     queryFn: async () => {
-      try {
-        return await api.getAction(id);
-      } catch (error: any) {
-        console.error("Error fetching action:", error);
-        throw error; // Re-throw for individual action queries
-      }
+      return await api.getAction(id);
     },
     enabled: !!id,
   });
@@ -54,6 +43,9 @@ export function useCreateAction() {
       queryClient.invalidateQueries({ queryKey: ["actions"] });
       toast.success("Action created successfully");
     },
+    onError: (error: any) => {
+      toast.error(error?.message || "Failed to create action");
+    },
   });
 }
 
@@ -74,6 +66,9 @@ export function useUpdateAction() {
         });
       }
       toast.success("Action updated successfully");
+    },
+    onError: (error: any) => {
+      toast.error(error?.message || "Failed to update action");
     },
   });
 }

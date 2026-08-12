@@ -4,10 +4,9 @@ import { useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { DocumentCard } from "@/components/common";
+import { DocumentCard, LoadingState, QueryErrorState } from "@/components/common";
 import { FileText, Workflow, CheckSquare, HardDrive } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import { LoadingState } from "@/components/common";
 import { useDocuments } from "@/lib/hooks/use-documents";
 import { useWorkflows } from "@/lib/hooks/use-workflows";
 import { useActions } from "@/lib/hooks/use-actions";
@@ -21,11 +20,41 @@ import { format } from "date-fns";
 export default function DashboardPage() {
   const router = useRouter();
   const { data: currentUser } = useCurrentUser();
-  const { data: documents = [], isLoading: documentsLoading } = useDocuments();
-  const { data: workflows = [], isLoading: workflowsLoading } = useWorkflows();
-  const { data: actions = [], isLoading: actionsLoading } = useActions();
-  const { data: goals = [], isLoading: goalsLoading } = useMyGoals();
-  const { data: storageData, isLoading: storageLoading } = useQuery({
+  const {
+    data: documents = [],
+    isLoading: documentsLoading,
+    isError: documentsError,
+    error: documentsErr,
+    refetch: refetchDocuments,
+  } = useDocuments();
+  const {
+    data: workflows = [],
+    isLoading: workflowsLoading,
+    isError: workflowsError,
+    error: workflowsErr,
+    refetch: refetchWorkflows,
+  } = useWorkflows();
+  const {
+    data: actions = [],
+    isLoading: actionsLoading,
+    isError: actionsError,
+    error: actionsErr,
+    refetch: refetchActions,
+  } = useActions();
+  const {
+    data: goals = [],
+    isLoading: goalsLoading,
+    isError: goalsError,
+    error: goalsErr,
+    refetch: refetchGoals,
+  } = useMyGoals();
+  const {
+    data: storageData,
+    isLoading: storageLoading,
+    isError: storageError,
+    error: storageErr,
+    refetch: refetchStorage,
+  } = useQuery({
     queryKey: ["userStorage", currentUser?.id],
     queryFn: async () => {
       if (!currentUser?.id) return { bytes: 0, formatted: "0 B" };
@@ -35,6 +64,15 @@ export default function DashboardPage() {
   });
 
   const isLoading = documentsLoading || workflowsLoading || actionsLoading || goalsLoading || storageLoading;
+  const isError = documentsError || workflowsError || actionsError || goalsError || storageError;
+  const error = documentsErr || workflowsErr || actionsErr || goalsErr || storageErr;
+  const refetch = () => {
+    refetchDocuments();
+    refetchWorkflows();
+    refetchActions();
+    refetchGoals();
+    refetchStorage();
+  };
 
   // Filter actions to only show user's assigned actions
   const myActions = useMemo(() => {
@@ -155,6 +193,16 @@ export default function DashboardPage() {
 
   if (isLoading) {
     return <LoadingState type="card" />;
+  }
+
+  if (isError) {
+    return (
+      <QueryErrorState
+        title="Failed to load dashboard"
+        error={error}
+        onRetry={() => refetch()}
+      />
+    );
   }
 
   return (

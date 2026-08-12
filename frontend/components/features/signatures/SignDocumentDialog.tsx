@@ -32,6 +32,12 @@ import {
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { removeSignaturePaperBackground } from "@/lib/signature-image";
+import {
+  PEN_COLORS,
+  penColorValue,
+  penIsForDarkDoc,
+  type PenColorId,
+} from "@/lib/signature-pen-colors";
 import { PdfPageCanvas } from "./PdfPageCanvas";
 import { SaveSignatureEditorDialog } from "./ManageSavedSignatures";
 import { ConfirmDialog } from "@/components/common/ConfirmDialog";
@@ -82,6 +88,9 @@ export function SignDocumentDialog({
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [mode, setMode] = useState<SigMode>("draw");
+  const [penColorId, setPenColorId] = useState<PenColorId>("black");
+  const penColor = penColorValue(penColorId);
+  const penForDarkDoc = penIsForDarkDoc(penColorId);
   const [isDrawing, setIsDrawing] = useState(false);
   const [loading, setLoading] = useState(false);
   const [processingUpload, setProcessingUpload] = useState(false);
@@ -178,6 +187,7 @@ export function SignDocumentDialog({
     setDrawnSigUrl(null);
     setSelectedSavedId(null);
     setMode("draw");
+    setPenColorId("black");
     setSigAspect(0.35);
     setConfirmStep(null);
     setPendingSaveImage(null);
@@ -264,11 +274,11 @@ export function SignDocumentDialog({
       ctx.lineWidth = 2.5;
       ctx.lineCap = "round";
       ctx.lineJoin = "round";
-      ctx.strokeStyle = "#111";
+      ctx.strokeStyle = penColor;
       ctx.lineTo(x, y);
       ctx.stroke();
     },
-    [isDrawing],
+    [isDrawing, penColor],
   );
 
   const stopDrawing = useCallback(() => {
@@ -397,6 +407,14 @@ export function SignDocumentDialog({
   };
 
   const beginConfirm = () => {
+    if (!isRichText && (previewLoading || previewError)) {
+      toast.error(
+        previewError
+          ? "Load the document preview before signing"
+          : "Wait for the document preview to finish loading",
+      );
+      return;
+    }
     if (!hasSignature) {
       toast.error("Select, draw, or upload your signature first");
       return;
@@ -488,7 +506,7 @@ export function SignDocumentDialog({
   return (
     <>
       <Dialog open={open && confirmStep === null} onOpenChange={handleClose}>
-        <DialogContent className="flex max-h-[92vh] w-[calc(100vw-1rem)] max-w-[780px] flex-col gap-0 overflow-hidden p-0 sm:w-full">
+        <DialogContent className="flex max-h-[92vh] w-[calc(100vw-1rem)] max-w-[min(1100px,calc(100vw-2rem))] flex-col gap-0 overflow-hidden p-0 sm:w-full sm:max-w-[min(1100px,calc(100vw-2rem))]">
           <DialogHeader className="shrink-0 space-y-1.5 border-b px-4 py-4 sm:px-6">
             <DialogTitle className="flex items-center gap-2 text-base sm:text-lg">
               <PenTool className="h-5 w-5 shrink-0" />
@@ -516,6 +534,7 @@ export function SignDocumentDialog({
                       className="h-9 w-9"
                       disabled={page <= 1}
                       onClick={() => goToPage(page - 1)}
+                      aria-label="Previous page"
                     >
                       <ChevronLeft className="h-4 w-4" />
                     </Button>
@@ -535,6 +554,7 @@ export function SignDocumentDialog({
                       className="h-9 w-9"
                       disabled={page >= maxPage}
                       onClick={() => goToPage(page + 1)}
+                      aria-label="Next page"
                     >
                       <ChevronRight className="h-4 w-4" />
                     </Button>
@@ -558,7 +578,7 @@ export function SignDocumentDialog({
                 onClick={placeOnPage}
                 onTouchStart={onPreviewTouchStart}
                 onTouchEnd={onPreviewTouchEnd}
-                className="relative mx-auto w-full max-w-lg cursor-crosshair overflow-hidden rounded-md border bg-muted"
+                className="relative mx-auto w-full max-w-4xl cursor-crosshair overflow-hidden rounded-md border bg-muted"
                 title="Click to place signature · swipe or arrows to change page"
               >
                 {previewLoading && (
@@ -567,8 +587,36 @@ export function SignDocumentDialog({
                   </div>
                 )}
                 {previewError && (
-                  <div className="absolute inset-0 z-[1] flex items-center justify-center p-6 text-center text-sm text-muted-foreground">
-                    {previewError}
+                  <div className="absolute inset-0 z-[1] flex flex-col items-center justify-center gap-3 p-6 text-center text-sm text-muted-foreground">
+                    <p>{previewError}</p>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        // remount preview by clearing error and re-fetching via effect deps
+                        setPreviewError(null);
+                        setPreviewUrl(null);
+                        // bump by resetting file fetch — use a key via re-running effect
+                        void (async () => {
+                          setPreviewLoading(true);
+                          try {
+                            const { blob } = await api.getDocumentBlob(fileId);
+                            const objectUrl = URL.createObjectURL(blob);
+                            setPreviewUrl(objectUrl);
+                          } catch (err: any) {
+                            setPreviewError(
+                              err?.message || "Could not load document preview",
+                            );
+                          } finally {
+                            setPreviewLoading(false);
+                          }
+                        })();
+                      }}
+                    >
+                      Retry preview
+                    </Button>
                   </div>
                 )}
                 {previewUrl && !isRichText && (
@@ -674,6 +722,7 @@ export function SignDocumentDialog({
                     className="h-8 w-8"
                     onClick={() => nudgeWidth(-3)}
                     disabled={widthPercent <= 8}
+                    aria-label="Decrease signature size"
                   >
                     <Minus className="h-3.5 w-3.5" />
                   </Button>
@@ -697,6 +746,7 @@ export function SignDocumentDialog({
                     className="h-8 w-8"
                     onClick={() => nudgeWidth(3)}
                     disabled={widthPercent >= 55}
+                    aria-label="Increase signature size"
                   >
                     <Plus className="h-3.5 w-3.5" />
                   </Button>
@@ -803,12 +853,74 @@ export function SignDocumentDialog({
                   )}
                 </TabsContent>
 
-                <TabsContent value="draw" className="mt-0 space-y-2">
+                <TabsContent value="draw" className="mt-0 space-y-3">
+                  <div className="space-y-2">
+                    <p className="text-xs font-medium text-muted-foreground">
+                      Pen color
+                    </p>
+                    <div className="flex flex-wrap gap-3">
+                      <div className="space-y-1.5">
+                        <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                          Light document
+                        </p>
+                        <div className="flex flex-wrap gap-1.5">
+                          {PEN_COLORS.filter((c) => c.forBg === "light").map(
+                            (c) => (
+                              <button
+                                key={c.id}
+                                type="button"
+                                title={c.label}
+                                aria-label={`${c.label} pen for light backgrounds`}
+                                aria-pressed={penColorId === c.id}
+                                onClick={() => setPenColorId(c.id)}
+                                className={cn(
+                                  "flex h-8 w-8 items-center justify-center rounded-full border-2 transition-shadow",
+                                  penColorId === c.id
+                                    ? "border-primary ring-2 ring-primary/30"
+                                    : "border-border",
+                                )}
+                                style={{ backgroundColor: c.value }}
+                              />
+                            ),
+                          )}
+                        </div>
+                      </div>
+                      <div className="space-y-1.5">
+                        <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                          Dark document
+                        </p>
+                        <div className="flex flex-wrap gap-1.5">
+                          {PEN_COLORS.filter((c) => c.forBg === "dark").map(
+                            (c) => (
+                              <button
+                                key={c.id}
+                                type="button"
+                                title={c.label}
+                                aria-label={`${c.label} pen for dark backgrounds`}
+                                aria-pressed={penColorId === c.id}
+                                onClick={() => setPenColorId(c.id)}
+                                className={cn(
+                                  "flex h-8 w-8 items-center justify-center rounded-full border-2 transition-shadow",
+                                  penColorId === c.id
+                                    ? "border-primary ring-2 ring-primary/30"
+                                    : "border-border",
+                                )}
+                                style={{ backgroundColor: c.value }}
+                              />
+                            ),
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
                   <canvas
                     ref={canvasRef}
                     width={480}
                     height={140}
-                    className="w-full cursor-crosshair rounded-md border border-border bg-white"
+                    className={cn(
+                      "w-full cursor-crosshair rounded-md border border-border",
+                      penForDarkDoc ? "bg-zinc-800" : "bg-white",
+                    )}
                     onMouseDown={startDrawing}
                     onMouseMove={draw}
                     onMouseUp={stopDrawing}
@@ -816,7 +928,9 @@ export function SignDocumentDialog({
                     style={{ touchAction: "none" }}
                   />
                   <p className="text-center text-xs text-muted-foreground">
-                    Draw here — it appears live in the placement preview above
+                    {penForDarkDoc
+                      ? "Light ink for dark pages — pad is darkened so you can see strokes"
+                      : "Dark ink for light pages — draw here; it appears live in the preview above"}
                   </p>
                 </TabsContent>
 
@@ -869,7 +983,11 @@ export function SignDocumentDialog({
             </Button>
             <Button
               onClick={beginConfirm}
-              disabled={!hasSignature || loading}
+              disabled={
+                !hasSignature ||
+                loading ||
+                (!isRichText && (previewLoading || Boolean(previewError)))
+              }
               className="w-full sm:w-auto"
             >
               <Check className="mr-2 h-4 w-4" />

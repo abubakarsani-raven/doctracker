@@ -2,6 +2,7 @@ export { CommandDialogComponent as CommandDialog } from "./CommandDialog";
 export { NotificationDropdown } from "./NotificationDropdown";
 export { StatusBadge } from "./StatusBadge";
 export { EmptyState } from "./EmptyState";
+export { QueryErrorState } from "./QueryErrorState";
 export { LoadingState } from "./LoadingState";
 export { DocumentCard } from "./DocumentCard";
 export type { Document } from "./DocumentCard";

@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { PenTool, Loader2, Pencil } from "lucide-react";
@@ -29,7 +28,7 @@ export function DocumentSignaturesPanel({
   onChanged,
 }: DocumentSignaturesPanelProps) {
   const { data: currentUser } = useCurrentUser();
-  const { can } = usePermissions();
+  const { can, permissions } = usePermissions();
   const [requests, setRequests] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [requestOpen, setRequestOpen] = useState(false);
@@ -84,6 +83,11 @@ export function DocumentSignaturesPanel({
           <CardTitle className="text-base">Signatures</CardTitle>
           <PermissionButton
             allowed={can("documents.request_signature")}
+            reason={
+              can("documents.request_signature")
+                ? null
+                : `The ${permissions.role} role cannot request signatures.`
+            }
             size="sm"
             variant="outline"
             onClick={() => setRequestOpen(true)}
@@ -139,8 +143,14 @@ export function DocumentSignaturesPanel({
                       </li>
                     ))}
                   </ul>
-                  {pending && can("documents.sign") && (
-                    <Button
+                  {pending && (
+                    <PermissionButton
+                      allowed={can("documents.sign")}
+                      reason={
+                        can("documents.sign")
+                          ? null
+                          : `Your role (${permissions.role}) can’t sign — ask an admin.`
+                      }
                       size="sm"
                       className="w-full"
                       onClick={() =>
@@ -153,10 +163,16 @@ export function DocumentSignaturesPanel({
                     >
                       <PenTool className="mr-1.5 h-3.5 w-3.5" />
                       Sign now
-                    </Button>
+                    </PermissionButton>
                   )}
-                  {editable && can("documents.sign") && (
-                    <Button
+                  {editable && (
+                    <PermissionButton
+                      allowed={can("documents.sign")}
+                      reason={
+                        can("documents.sign")
+                          ? null
+                          : `Your role (${permissions.role}) can’t sign — ask an admin.`
+                      }
                       size="sm"
                       variant="outline"
                       className="w-full"
@@ -170,7 +186,7 @@ export function DocumentSignaturesPanel({
                     >
                       <Pencil className="mr-1.5 h-3.5 w-3.5" />
                       Edit my signature
-                    </Button>
+                    </PermissionButton>
                   )}
                 </div>
               );

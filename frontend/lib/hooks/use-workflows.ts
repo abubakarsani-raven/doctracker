@@ -6,13 +6,7 @@ export function useWorkflows() {
   return useQuery({
     queryKey: ["workflows"],
     queryFn: async () => {
-      try {
-        return await api.getWorkflows();
-      } catch (error: any) {
-        console.error("Error fetching workflows:", error);
-        // Return empty array instead of throwing to prevent panic
-        return [];
-      }
+      return await api.getWorkflows();
     },
   });
 }
@@ -45,6 +39,9 @@ export function useCreateWorkflow() {
       }
       toast.success("Workflow created successfully");
     },
+    onError: (error: any) => {
+      toast.error(error?.message || "Failed to create workflow");
+    },
   });
 }
 
@@ -68,6 +65,9 @@ export function useUpdateWorkflow() {
       }
       
       toast.success("Workflow updated successfully");
+    },
+    onError: (error: any) => {
+      toast.error(error?.message || "Failed to update workflow");
     },
   });
 }

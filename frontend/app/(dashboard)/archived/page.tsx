@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { DocumentCard, EmptyState } from "@/components/common";
+import { DocumentCard, EmptyState, QueryErrorState } from "@/components/common";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -14,7 +14,6 @@ import {
 import { ArchiveDialog } from "@/components/features/documents/ArchiveDialog";
 import { ArchiveRestore, Search, Archive, Loader2 } from "lucide-react";
 import { useArchivedDocuments } from "@/lib/hooks/use-documents";
-import { toast } from "sonner";
 
 export default function ArchivedDocumentsPage() {
   const [searchQuery, setSearchQuery] = useState("");
@@ -22,11 +21,13 @@ export default function ArchivedDocumentsPage() {
   const [restoreDialogOpen, setRestoreDialogOpen] = useState(false);
   const [selectedDocumentId, setSelectedDocumentId] = useState<string | undefined>();
 
-  const { data: archivedDocuments = [], isLoading, error } = useArchivedDocuments();
-
-  if (error) {
-    toast.error("Failed to load archived documents");
-  }
+  const {
+    data: archivedDocuments = [],
+    isLoading,
+    isError,
+    error,
+    refetch,
+  } = useArchivedDocuments();
 
   const filteredDocuments = archivedDocuments.filter((doc: any) => {
     const matchesSearch = doc.name.toLowerCase().includes(searchQuery.toLowerCase());
@@ -78,8 +79,14 @@ export default function ArchivedDocumentsPage() {
           </div>
         )}
 
-        {/* Documents Grid */}
-        {!isLoading && filteredDocuments.length === 0 ? (
+        {/* Error / Empty / Documents Grid */}
+        {!isLoading && isError ? (
+          <QueryErrorState
+            title="Failed to load archived documents"
+            error={error}
+            onRetry={() => refetch()}
+          />
+        ) : !isLoading && filteredDocuments.length === 0 ? (
           <EmptyState
             icon={Archive}
             title="No archived documents found"

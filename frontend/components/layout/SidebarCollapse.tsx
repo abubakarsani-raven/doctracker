@@ -9,7 +9,8 @@ import {
   type ReactNode,
 } from "react";
 
-const STORAGE_KEY = "dt_sidebar_collapsed";
+export const SIDEBAR_STORAGE_KEY = "dt_sidebar_collapsed";
+export const SIDEBAR_COOKIE_KEY = "dt_sidebar_collapsed";
 
 type SidebarCollapseContextValue = {
   collapsed: boolean;
@@ -21,36 +22,69 @@ type SidebarCollapseContextValue = {
 const SidebarCollapseContext =
   createContext<SidebarCollapseContextValue | null>(null);
 
+function readCookieCollapsed(): boolean | null {
+  if (typeof document === "undefined") return null;
+  const match = document.cookie.match(
+    new RegExp(`(?:^|; )${SIDEBAR_COOKIE_KEY}=([^;]*)`),
+  );
+  if (!match) return null;
+  return match[1] === "1" || match[1] === "true";
+}
+
+function readStoredCollapsed(): boolean {
+  if (typeof document !== "undefined") {
+    const fromDom = document.documentElement.dataset.sidebar;
+    if (fromDom === "collapsed") return true;
+    if (fromDom === "expanded") return false;
+  }
+  const fromCookie = readCookieCollapsed();
+  if (fromCookie !== null) return fromCookie;
+  try {
+    return localStorage.getItem(SIDEBAR_STORAGE_KEY) === "true";
+  } catch {
+    return false;
+  }
+}
+
+/** Keep html[data-sidebar] + cookie + localStorage in sync (font-scale pattern). */
+export function applySidebarCollapsed(collapsed: boolean) {
+  if (typeof document === "undefined") return;
+  document.documentElement.dataset.sidebar = collapsed
+    ? "collapsed"
+    : "expanded";
+  try {
+    localStorage.setItem(SIDEBAR_STORAGE_KEY, String(collapsed));
+  } catch {
+    // ignore
+  }
+  try {
+    const maxAge = 60 * 60 * 24 * 365;
+    document.cookie = `${SIDEBAR_COOKIE_KEY}=${collapsed ? "1" : "0"};path=/;max-age=${maxAge};SameSite=Lax`;
+  } catch {
+    // ignore
+  }
+}
+
 export function SidebarCollapseProvider({ children }: { children: ReactNode }) {
   const [collapsed, setCollapsedState] = useState(false);
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
-    try {
-      setCollapsedState(localStorage.getItem(STORAGE_KEY) === "true");
-    } catch {
-      // ignore
-    }
+    const next = readStoredCollapsed();
+    setCollapsedState(next);
+    applySidebarCollapsed(next);
     setReady(true);
   }, []);
 
   const setCollapsed = useCallback((next: boolean) => {
     setCollapsedState(next);
-    try {
-      localStorage.setItem(STORAGE_KEY, String(next));
-    } catch {
-      // ignore
-    }
+    applySidebarCollapsed(next);
   }, []);
 
   const toggle = useCallback(() => {
     setCollapsedState((prev) => {
       const next = !prev;
-      try {
-        localStorage.setItem(STORAGE_KEY, String(next));
-      } catch {
-        // ignore
-      }
+      applySidebarCollapsed(next);
       return next;
     });
   }, []);

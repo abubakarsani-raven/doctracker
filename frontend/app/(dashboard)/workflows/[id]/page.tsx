@@ -12,7 +12,7 @@ import {
 } from "@/components/ui/breadcrumb";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { StatusBadge, LoadingState, EmptyState, PresenceIndicator } from "@/components/common";
+import { StatusBadge, LoadingState, EmptyState, PresenceIndicator, QueryErrorState } from "@/components/common";
 import { Progress } from "@/components/ui/progress";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
@@ -55,7 +55,7 @@ export default function WorkflowDetailPage() {
   const router = useRouter();
   const workflowId = params.id as string;
 
-  const { data: workflow, isLoading } = useWorkflow(workflowId);
+  const { data: workflow, isLoading, isError, error, refetch } = useWorkflow(workflowId);
   const { data: actions = [] } = useActionsByWorkflow(workflowId);
   const { data: users = [] } = useUsers();
   const { data: currentUser } = useCurrentUser();
@@ -91,8 +91,8 @@ export default function WorkflowDetailPage() {
 
   // Merge progress into workflow data for display
   const workflowWithProgress = useMemo(() => {
-    return workflow ? { ...workflow, progress } : null;
-  }, [workflow, progress]);
+    return workflow ? { ...workflow, progress, actions } : null;
+  }, [workflow, progress, actions]);
 
   // Check if user can complete the workflow (must be before early returns)
   const canCompleteWorkflow = useMemo(() => {
@@ -161,6 +161,17 @@ export default function WorkflowDetailPage() {
     return <LoadingState type="card" />;
   }
 
+  if (isError) {
+    return (
+      <QueryErrorState
+        title="Failed to load workflow"
+        error={error}
+        onRetry={() => refetch()}
+        onBack={() => router.back()}
+      />
+    );
+  }
+
   if (!workflowWithProgress) {
     return (
       <EmptyState
@@ -207,14 +218,20 @@ export default function WorkflowDetailPage() {
       </Breadcrumb>
 
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <Button variant="ghost" size="icon" onClick={() => router.back()}>
+      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+        <div className="flex min-w-0 items-center gap-4">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="shrink-0"
+            onClick={() => router.back()}
+            aria-label="Go back"
+          >
             <ArrowLeft className="h-4 w-4" />
           </Button>
-          <div>
-            <div className="flex items-center gap-2">
-              <h1 className="text-2xl font-bold">{workflowTitle}</h1>
+          <div className="min-w-0">
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
+              <h1 className="truncate text-2xl font-bold">{workflowTitle}</h1>
               {workflowWithProgress.type && (
                 <Badge variant="outline">
                   {workflowWithProgress.type === "folder" ? (
@@ -232,22 +249,12 @@ export default function WorkflowDetailPage() {
               )}
             </div>
             {workflowWithProgress.description && (
-              <p className="text-sm text-muted-foreground mt-1">
+              <p className="mt-1 text-sm text-muted-foreground">
                 {workflowWithProgress.description}
               </p>
             )}
-            <div className="flex items-center gap-2 mt-2">
-              <StatusBadge
-                status={
-                  workflowWithProgress.status === "ready_for_review"
-                    ? "pending"
-                    : workflowWithProgress.status === "completed"
-                    ? "completed"
-                    : workflowWithProgress.status === "in_progress"
-                    ? "in_progress"
-                    : "pending"
-                }
-              />
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <StatusBadge status={workflowWithProgress.status} />
               <PresenceIndicator resourceType="workflow" resourceId={workflowId} />
               {workflowWithProgress.dueDate && (
                 <div className="flex items-center gap-1 text-sm text-muted-foreground">
@@ -265,7 +272,7 @@ export default function WorkflowDetailPage() {
             </div>
           </div>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
           {canSetEndPoint && workflowWithProgress?.status !== "completed" && (
             <Button
               variant="outline"
@@ -575,6 +582,7 @@ export default function WorkflowDetailPage() {
         open={routingSheetOpen}
         onOpenChange={setRoutingSheetOpen}
         workflowId={workflowId}
+        onRequestCreateAction={() => setCreateActionDialogOpen(true)}
       />
 
       {/* Add File Dialog */}

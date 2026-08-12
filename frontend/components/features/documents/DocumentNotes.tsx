@@ -31,6 +31,7 @@ interface DocumentNotesProps {
 export function DocumentNotes({ documentId }: DocumentNotesProps) {
   const [notes, setNotes] = useState<Note[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   // Load notes when component mounts
   useEffect(() => {
@@ -48,6 +49,7 @@ export function DocumentNotes({ documentId }: DocumentNotesProps) {
 
   const loadNotes = async () => {
     setLoading(true);
+    setLoadError(null);
     try {
       const notesData = await api.getDocumentNotes(documentId);
       setNotes(notesData.map((note: any) => ({
@@ -57,8 +59,9 @@ export function DocumentNotes({ documentId }: DocumentNotesProps) {
         createdBy: note.creator?.name || note.createdBy || "Unknown",
         createdAt: new Date(note.createdAt),
       })));
-    } catch (error) {
+    } catch (error: any) {
       console.error("Failed to load notes:", error);
+      setLoadError(error?.message || "Failed to load notes");
       setNotes([]);
     } finally {
       setLoading(false);
@@ -148,6 +151,13 @@ export function DocumentNotes({ documentId }: DocumentNotesProps) {
             <p className="text-sm text-muted-foreground text-center py-8">
               Loading notes...
             </p>
+          ) : loadError ? (
+            <div className="space-y-3 py-8 text-center">
+              <p className="text-sm text-destructive">{loadError}</p>
+              <Button type="button" variant="outline" size="sm" onClick={loadNotes}>
+                Retry
+              </Button>
+            </div>
           ) : notes.length === 0 ? (
             <p className="text-sm text-muted-foreground text-center py-8">
               No notes yet. Add one above.

@@ -123,17 +123,7 @@ export function WorkflowCard({
       </CardHeader>
       <CardContent className="pt-0 space-y-3">
         <div className="flex items-center justify-between">
-          <StatusBadge
-            status={
-              workflow.status === "ready_for_review"
-                ? "pending"
-                : workflow.status === "completed"
-                ? "completed"
-                : workflow.status === "in_progress"
-                ? "in_progress"
-                : "pending"
-            }
-          />
+          <StatusBadge status={workflow.status} />
           {workflow.dueDate && (
             <div className="flex items-center gap-1 text-xs">
               <Clock className="h-3 w-3 text-muted-foreground" />

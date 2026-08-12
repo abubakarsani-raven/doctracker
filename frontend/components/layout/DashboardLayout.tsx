@@ -14,17 +14,23 @@ interface DashboardLayoutProps {
 }
 
 function DashboardShell({ children }: { children: ReactNode }) {
-  const { collapsed } = useSidebarCollapse();
+  const { collapsed, ready } = useSidebarCollapse();
 
   return (
     <div className="min-h-screen bg-background">
       <Header />
       <div className="flex">
-        <Sidebar className="hidden md:flex" />
+        <Sidebar className="dt-sidebar hidden md:flex" />
         <main
           className={cn(
-            "flex-1 p-4 transition-[margin] duration-200 ease-out md:p-6 lg:p-8",
-            collapsed ? "md:ml-16" : "md:ml-64",
+            "dt-dashboard-main flex-1 p-4 transition-[margin] duration-200 ease-out md:p-6 lg:p-8",
+            // Until bootstrap is applied in React, CSS [data-sidebar] owns the margin.
+            // Once ready, keep the same classes so transition still works on toggle.
+            ready
+              ? collapsed
+                ? "md:ml-16"
+                : "md:ml-64"
+              : "md:ml-[var(--dt-sidebar-offset)]",
           )}
         >
           {children}

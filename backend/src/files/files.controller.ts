@@ -14,6 +14,8 @@ import {
   UseInterceptors,
   UploadedFile,
   BadRequestException,
+  HttpException,
+  HttpStatus,
   StreamableFile,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
@@ -514,7 +516,23 @@ export class FilesController {
     
     // Skip download for rich-text-content:// paths
     if (file.storagePath.startsWith('rich-text-content://')) {
-      throw new BadRequestException('Rich text documents cannot be downloaded as files');
+      throw new HttpException(
+        {
+          code: 'CONTENT_PENDING',
+          message: 'Rich text documents cannot be downloaded as files',
+        },
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    if (file.storagePath.startsWith('pending://')) {
+      throw new HttpException(
+        {
+          code: 'CONTENT_PENDING',
+          message: 'This file is still being processed. Try again shortly.',
+        },
+        HttpStatus.BAD_REQUEST,
+      );
     }
 
     try {
@@ -548,10 +566,17 @@ export class FilesController {
       return new StreamableFile(fileStream);
     } catch (error) {
       console.error('Error downloading file:', error);
-      throw new BadRequestException(
-        error instanceof Error
-          ? `File could not be downloaded: ${error.message}`
-          : 'File could not be downloaded',
+      const msg = error instanceof Error ? error.message : 'File could not be downloaded';
+      const isStorage =
+        /cloudinary|storage|retrieve|S3|R2|HTTP 4|HTTP 5/i.test(msg);
+      throw new HttpException(
+        {
+          code: isStorage ? 'STORAGE_UNAVAILABLE' : 'NOT_FOUND',
+          message: isStorage
+            ? 'Document storage is temporarily unavailable. Try again in a moment.'
+            : 'This file could not be found in storage.',
+        },
+        isStorage ? HttpStatus.SERVICE_UNAVAILABLE : HttpStatus.NOT_FOUND,
       );
     }
   }

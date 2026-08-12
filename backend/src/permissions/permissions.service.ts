@@ -1064,6 +1064,17 @@ export class PermissionsService {
       return { allowed: false, reason: 'missing_capability' };
     }
 
+    // 4b. Anyone invited to sign this file may open it (same company or not).
+    //     Temporary ACL grants are best-effort; this covers missed grants and
+    //     files that are not linked to a folder yet.
+    if (
+      resourceType === 'file' &&
+      permission === 'read' &&
+      (await this.isActiveSignatureInvitee(userId, resourceId))
+    ) {
+      return { allowed: true, reason: 'signature_invite' };
+    }
+
     // 5a. A company-wide administrative scope reaches its own company. Someone
     //     has to be able to administer the company's records. Never apply this
     //     across companies — signature invites stay limited to the granted verbs.
@@ -1092,23 +1103,54 @@ export class PermissionsService {
   }
 
   /**
-   * True when this user is still an invitee on an open signature request for
-   * the file. Used so cross-company signers can open the document even if the
-   * temporary ACL grant was missed (e.g. older requests).
+   * True when this user may open a file because of a signature invite:
+   * - pending invitee on an open request, or
+   * - anyone who already signed that file (keeps access after completion
+   *   when temporary ACL grants are revoked).
    */
   private async isActiveSignatureInvitee(
     userId: string,
     fileId: string,
   ): Promise<boolean> {
     try {
+      const user = await this.prisma.user.findUnique({
+        where: { id: userId },
+        select: { email: true },
+      });
+
+      const identityFilter = {
+        OR: [
+          { userId },
+          ...(user?.email
+            ? [
+                {
+                  email: {
+                    equals: user.email,
+                    mode: 'insensitive' as const,
+                  },
+                },
+              ]
+            : []),
+        ],
+      };
+
       const row = await this.prisma.signatureParticipant.findFirst({
         where: {
-          userId,
-          status: { in: ['pending', 'signed'] },
-          request: {
-            fileId,
-            status: 'pending',
-          },
+          AND: [
+            identityFilter,
+            {
+              OR: [
+                {
+                  status: 'pending',
+                  request: { fileId, status: 'pending' },
+                },
+                {
+                  status: 'signed',
+                  request: { fileId },
+                },
+              ],
+            },
+          ],
         },
         select: { id: true },
       });
