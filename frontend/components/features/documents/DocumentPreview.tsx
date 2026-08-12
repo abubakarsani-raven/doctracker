@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { useEffect, useMemo, useState } from "react";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
+import { PdfPageCanvas } from "@/components/features/signatures/PdfPageCanvas";
 
 interface DocumentPreviewProps {
   documentId: string;
@@ -41,6 +42,54 @@ async function sanitizeHtml(html: string): Promise<string> {
   return DOMPurify.sanitize(html);
 }
 
+/** True when native PDF-in-iframe scrolling is reliable (desktop mouse). */
+function useNativePdfViewer(): boolean | null {
+  const [native, setNative] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    const mq = window.matchMedia("(hover: hover) and (pointer: fine)");
+    const sync = () => setNative(mq.matches);
+    sync();
+    mq.addEventListener("change", sync);
+    return () => mq.removeEventListener("change", sync);
+  }, []);
+
+  return native;
+}
+
+/**
+ * Touch/mobile-safe PDF preview: pages are canvases inside a normal scroll
+ * container. Chrome's PDF plugin inside an iframe often ignores touch / device
+ * emulation scrolls.
+ */
+function PdfTouchScrollPreview({
+  src,
+  fileName,
+}: {
+  src: string;
+  fileName?: string;
+}) {
+  const [pageCount, setPageCount] = useState(1);
+
+  return (
+    <div
+      className="h-[min(70dvh,900px)] min-h-[480px] w-full overflow-y-auto overscroll-y-contain touch-pan-y rounded-b-lg bg-muted"
+      role="region"
+      aria-label={fileName ? `${fileName} preview` : "PDF preview"}
+    >
+      {Array.from({ length: pageCount }, (_, i) => (
+        <PdfPageCanvas
+          key={i + 1}
+          src={src}
+          page={i + 1}
+          onPageCount={i === 0 ? setPageCount : undefined}
+          className="relative w-full border-b border-border/60 bg-white last:border-b-0"
+        />
+      ))}
+    </div>
+  );
+}
+
 export function DocumentPreview({
   documentId,
   fileType,
@@ -55,6 +104,7 @@ export function DocumentPreview({
   const [htmlPreview, setHtmlPreview] = useState<string | null>(null);
   const [fontStep, setFontStep] = useState(1); // index into PREVIEW_FONT_STEPS (100%)
   const [reloadKey, setReloadKey] = useState(0);
+  const useNativePdf = useNativePdfViewer();
 
   const type = useMemo(
     () =>
@@ -261,13 +311,26 @@ export function DocumentPreview({
     }
 
     if (isPdf && previewUrl) {
-      // Native PDF chrome already has zoom / download / print — no overlay.
+      if (useNativePdf === null) {
+        return (
+          <div className="relative h-[min(70dvh,900px)] min-h-[480px] w-full">
+            <Skeleton className="h-full w-full rounded-b-lg" />
+          </div>
+        );
+      }
+      if (!useNativePdf) {
+        return <PdfTouchScrollPreview src={previewUrl} fileName={fileName} />;
+      }
+      // Desktop: native PDF chrome (zoom / download / print). Keep the iframe
+      // as the only scroller — a parent overflow-auto steals wheel/touch.
       return (
-        <iframe
-          title={fileName || "PDF preview"}
-          src={`${previewUrl}#toolbar=1&navpanes=0`}
-          className="h-[min(80vh,900px)] min-h-[560px] w-full rounded-b-lg border-0 bg-muted"
-        />
+        <div className="h-[min(70dvh,900px)] min-h-[560px] w-full overflow-hidden overscroll-contain rounded-b-lg bg-muted">
+          <iframe
+            title={fileName || "PDF preview"}
+            src={`${previewUrl}#toolbar=1&navpanes=0`}
+            className="h-full w-full border-0 bg-muted"
+          />
+        </div>
       );
     }
 
@@ -344,9 +407,13 @@ export function DocumentPreview({
         </div>
       ) : null}
       <div
-        className={`${
-          usesHtmlPreview ? "min-h-[600px]" : "min-h-[560px]"
-        } relative flex items-start justify-center overflow-auto rounded-lg border bg-background`}
+        className={
+          isPdf && previewUrl
+            ? "relative w-full overflow-hidden rounded-lg border bg-background"
+            : `${
+                usesHtmlPreview ? "min-h-[600px]" : "min-h-[560px]"
+              } relative flex max-h-[min(70dvh,900px)] items-start justify-center overflow-y-auto overscroll-y-contain touch-pan-y rounded-lg border bg-background`
+        }
       >
         {renderBody()}
       </div>
