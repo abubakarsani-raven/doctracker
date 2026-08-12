@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useMemo } from "react";
+import dynamic from "next/dynamic";
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -22,7 +23,6 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { formatDistanceToNow } from "date-fns";
 import { useParams, useRouter } from "next/navigation";
-import { DocumentPreview } from "@/components/features/documents/DocumentPreview";
 import { DocumentNotes } from "@/components/features/documents/DocumentNotes";
 import { DocumentVersions } from "@/components/features/documents/DocumentVersions";
 import { MoveDocumentDialog } from "@/components/features/documents/MoveDocumentDialog";
@@ -30,7 +30,6 @@ import { EditRichTextDialog } from "@/components/features/documents/EditRichText
 import { UploadNewVersionDialog } from "@/components/features/documents/UploadNewVersionDialog";
 import { CreateWorkflowDialog } from "@/components/features/workflows/CreateWorkflowDialog";
 import { PermissionManagementDialog } from "@/components/features/documents/PermissionManagementDialog";
-import { DocumentSignaturesPanel } from "@/components/features/signatures/DocumentSignaturesPanel";
 import { Edit, Upload } from "lucide-react";
 import { useDocument, useFolders } from "@/lib/hooks/use-documents";
 import { useQueryClient } from "@tanstack/react-query";
@@ -42,6 +41,24 @@ import { RequestSignatureDialog } from "@/components/features/signatures/Request
 import { ConfirmDialog } from "@/components/common/ConfirmDialog";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
+
+// Keep preview / signatures off the SSR document response. Their deps
+// (DOMPurify/jsdom, mammoth, pdf tooling) have caused Vercel hard-loads of
+// /documents/[id] to return HTTP 500 while client navigations still worked.
+const DocumentPreview = dynamic(
+  () =>
+    import("@/components/features/documents/DocumentPreview").then(
+      (m) => m.DocumentPreview,
+    ),
+  { ssr: false, loading: () => <LoadingState type="card" /> },
+);
+const DocumentSignaturesPanel = dynamic(
+  () =>
+    import("@/components/features/signatures/DocumentSignaturesPanel").then(
+      (m) => m.DocumentSignaturesPanel,
+    ),
+  { ssr: false, loading: () => <LoadingState type="card" /> },
+);
 
 export default function DocumentDetailPage() {
   const params = useParams();
@@ -68,6 +85,7 @@ export default function DocumentDetailPage() {
   const [uploadNewVersionDialogOpen, setUploadNewVersionDialogOpen] =
     useState(false);
   const [requestSignatureOpen, setRequestSignatureOpen] = useState(false);
+  const [signaturesRefreshKey, setSignaturesRefreshKey] = useState(0);
   const [permissionsDialogOpen, setPermissionsDialogOpen] = useState(false);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [downloading, setDownloading] = useState(false);
@@ -391,6 +409,7 @@ export default function DocumentDetailPage() {
             fileName={document.name}
             isRichText={!!document.isRichText}
             pageCount={document.pageCount || 1}
+            refreshKey={signaturesRefreshKey}
             onChanged={() => {
               // Soft invalidate so a post-sign access race cannot wipe the page.
               void queryClient.invalidateQueries({
@@ -530,6 +549,7 @@ export default function DocumentDetailPage() {
           await queryClient.refetchQueries({
             queryKey: ["documents", documentId],
           });
+          setSignaturesRefreshKey((k) => k + 1);
         }}
       />
 
@@ -537,6 +557,7 @@ export default function DocumentDetailPage() {
         open={permissionsDialogOpen}
         onOpenChange={setPermissionsDialogOpen}
         documentId={documentId}
+        folderId={document.folderId}
         resourceName={document.name}
       />
 

@@ -17,6 +17,8 @@ interface DocumentSignaturesPanelProps {
   fileName?: string;
   isRichText?: boolean;
   pageCount?: number;
+  /** Bump to force-reload requests (e.g. after header Request signature). */
+  refreshKey?: number;
   onChanged?: () => void;
 }
 
@@ -25,6 +27,7 @@ export function DocumentSignaturesPanel({
   fileName,
   isRichText = false,
   pageCount = 3,
+  refreshKey = 0,
   onChanged,
 }: DocumentSignaturesPanelProps) {
   const { data: currentUser } = useCurrentUser();
@@ -53,7 +56,7 @@ export function DocumentSignaturesPanel({
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fileId]);
+  }, [fileId, refreshKey]);
 
   const isMine = (p: any) =>
     p.userId === currentUser?.id || p.email === currentUser?.email;
@@ -215,7 +218,7 @@ export function DocumentSignaturesPanel({
           pageCount={pageCount}
           isEditing={signTarget.isEditing}
           onSuccess={() => {
-            setSignTarget(null);
+            // Keep the dialog mounted so "Save this signature?" can open.
             load();
             onChanged?.();
           }}

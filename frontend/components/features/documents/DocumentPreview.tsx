@@ -5,7 +5,6 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { FileText, Download, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useEffect, useMemo, useState } from "react";
-import DOMPurify from "isomorphic-dompurify";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
 
@@ -25,9 +24,19 @@ const PREVIEW_FONT_STEPS = [90, 100, 115, 130, 150] as const;
 
 function normalizeType(fileType?: string, fileName?: string): string {
   const raw = (fileType || "").toLowerCase().replace(/^\./, "");
-  if (raw) return raw;
+  if (raw) {
+    if (raw.includes("wordprocessingml") || raw === "msword") return "docx";
+    return raw;
+  }
   const ext = fileName?.split(".").pop()?.toLowerCase();
   return ext || "";
+}
+
+async function sanitizeHtml(html: string): Promise<string> {
+  // Load DOMPurify only in the browser. Top-level isomorphic-dompurify/jsdom
+  // has crashed the /documents/[id] SSR document response on Vercel (HTTP 500).
+  const { default: DOMPurify } = await import("isomorphic-dompurify");
+  return DOMPurify.sanitize(html);
 }
 
 export function DocumentPreview({
@@ -41,6 +50,7 @@ export function DocumentPreview({
   const [error, setError] = useState<string | null>(null);
   const [errorCode, setErrorCode] = useState<string | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [htmlPreview, setHtmlPreview] = useState<string | null>(null);
   const [fontStep, setFontStep] = useState(1); // index into PREVIEW_FONT_STEPS (100%)
   const [reloadKey, setReloadKey] = useState(0);
 
@@ -55,19 +65,42 @@ export function DocumentPreview({
 
   const isImage = /^(jpg|jpeg|png|gif|webp)$/i.test(type);
   const isPdf = type === "pdf";
+  const isDocx = /^(docx|doc)$/i.test(type);
   const isRichText = Boolean(document?.richTextContent) || type === "html";
   const richTextContent = document?.richTextContent;
-  const sanitizedRichText = richTextContent
-    ? DOMPurify.sanitize(richTextContent)
-    : undefined;
+  const usesHtmlPreview = isRichText || isDocx;
   const previewFontPercent = PREVIEW_FONT_STEPS[fontStep];
 
-  // Load binary previews (PDF / images) via authenticated download → blob URL
+  // Sanitize built-in rich-text HTML on the client only.
   useEffect(() => {
-    if (isRichText || (!isPdf && !isImage) || !documentId) {
+    if (!isRichText || !richTextContent) {
+      if (isRichText) setHtmlPreview(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const clean = await sanitizeHtml(richTextContent);
+        if (!cancelled) setHtmlPreview(clean);
+      } catch {
+        if (!cancelled) setHtmlPreview(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isRichText, richTextContent, reloadKey]);
+
+  // Load binary previews (PDF / images / DOCX) via authenticated download.
+  useEffect(() => {
+    const needsBlob = !isRichText && (isPdf || isImage || isDocx) && !!documentId;
+    if (!needsBlob) {
       setPreviewUrl(null);
-      setError(null);
-      setLoading(false);
+      if (!isRichText) {
+        setError(null);
+        setLoading(false);
+        if (!isDocx) setHtmlPreview(null);
+      }
       return;
     }
 
@@ -78,8 +111,28 @@ export function DocumentPreview({
       setLoading(true);
       setError(null);
       setErrorCode(null);
+      if (isDocx) setHtmlPreview(null);
+      else setPreviewUrl(null);
       try {
         const { blob } = await api.getDocumentBlob(documentId);
+        if (cancelled) return;
+
+        if (isDocx) {
+          const mammoth = await import("mammoth");
+          const arrayBuffer = await blob.arrayBuffer();
+          const result = await mammoth.convertToHtml({ arrayBuffer });
+          if (cancelled) return;
+          const clean = await sanitizeHtml(result.value || "");
+          if (cancelled) return;
+          if (!clean.trim()) {
+            setError("This Word document has no previewable text content");
+            setHtmlPreview(null);
+          } else {
+            setHtmlPreview(clean);
+          }
+          return;
+        }
+
         objectUrl = URL.createObjectURL(blob);
         if (cancelled) {
           URL.revokeObjectURL(objectUrl);
@@ -91,6 +144,7 @@ export function DocumentPreview({
         setError(err?.message || "Could not load document preview");
         setErrorCode(err?.code || null);
         setPreviewUrl(null);
+        setHtmlPreview(null);
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -100,7 +154,7 @@ export function DocumentPreview({
       cancelled = true;
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [documentId, isPdf, isImage, isRichText, revision, reloadKey]);
+  }, [documentId, isPdf, isImage, isDocx, isRichText, revision, reloadKey]);
 
   const handleDownload = async () => {
     try {
@@ -122,17 +176,17 @@ export function DocumentPreview({
       );
     }
 
-    if (isRichText && sanitizedRichText) {
+    if (usesHtmlPreview && htmlPreview) {
       return (
         <div
-          className="prose w-full max-w-none p-8"
+          className="prose w-full max-w-none p-8 dark:prose-invert"
           style={{ fontSize: `${previewFontPercent}%` }}
-          dangerouslySetInnerHTML={{ __html: sanitizedRichText }}
+          dangerouslySetInnerHTML={{ __html: htmlPreview }}
         />
       );
     }
 
-    if (isRichText && !sanitizedRichText) {
+    if (isRichText && !htmlPreview) {
       return (
         <div className="w-full p-8 text-center">
           <FileText className="mx-auto mb-4 h-16 w-16 text-muted-foreground" />
@@ -215,9 +269,11 @@ export function DocumentPreview({
 
   return (
     <Card className="w-full overflow-hidden">
-      {isRichText ? (
+      {usesHtmlPreview ? (
         <div className="flex items-center justify-between gap-2 border-b px-3 py-2">
-          <p className="text-xs text-muted-foreground">Preview text size</p>
+          <p className="text-xs text-muted-foreground">
+            {isDocx ? "Word preview text size" : "Preview text size"}
+          </p>
           <div
             className="flex items-center gap-1"
             role="group"
@@ -257,7 +313,7 @@ export function DocumentPreview({
       ) : null}
       <div
         className={`${
-          isRichText ? "min-h-[600px]" : "min-h-[560px]"
+          usesHtmlPreview ? "min-h-[600px]" : "min-h-[560px]"
         } relative flex items-start justify-center overflow-auto rounded-lg border bg-background`}
       >
         {renderBody()}
