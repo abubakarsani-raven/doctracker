@@ -151,9 +151,13 @@ export default function UsersPage() {
               </TableHeader>
               <TableBody>
                 {filteredUsers.map((user: any) => {
+                  const status = String(user.status || "").toLowerCase();
+                  const active =
+                    user.isActive === true || status === "active";
+                  const invited = status === "invited";
                   const showDeactivate =
                     canManage &&
-                    user.isActive &&
+                    active &&
                     user.id !== currentUser?.id;
 
                   return (
@@ -184,12 +188,24 @@ export default function UsersPage() {
                     <TableCell>
                       <div className="flex items-center gap-1 text-sm">
                         <Building2 className="h-3 w-3" />
-                        {user.department?.name || "No Department"}
+                        {user.department || "No Department"}
                       </div>
                     </TableCell>
                     <TableCell>
-                      <Badge variant={user.isActive ? "default" : "secondary"}>
-                        {user.isActive ? "Active" : "Inactive"}
+                      <Badge
+                        variant={
+                          active
+                            ? "default"
+                            : invited
+                              ? "outline"
+                              : "secondary"
+                        }
+                      >
+                        {active
+                          ? "Active"
+                          : invited
+                            ? "Invited"
+                            : "Inactive"}
                       </Badge>
                     </TableCell>
                     {canManage ? (

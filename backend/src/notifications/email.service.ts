@@ -411,6 +411,43 @@ export class EmailService {
     return this.sendEmail(to, subject, html);
   }
 
+  async sendInviteEmail(to: string, inviteUrl: string, name?: string) {
+    const subject = 'You are invited to DocTracker';
+    const greeting = name ? this.escape(name) : 'there';
+    const safeUrl = this.escape(inviteUrl);
+    const html = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <style>
+          body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+          .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+          .header { background-color: #1e293b; color: white; padding: 20px; border-radius: 5px 5px 0 0; }
+          .content { background-color: #f9fafb; padding: 20px; border-radius: 0 0 5px 5px; }
+          .button { display: inline-block; padding: 12px 24px; background-color: #2563eb; color: white; text-decoration: none; border-radius: 5px; margin-top: 16px; }
+          .muted { color: #64748b; font-size: 13px; margin-top: 24px; }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header">
+            <h1>Welcome to DocTracker</h1>
+          </div>
+          <div class="content">
+            <p>Hello ${greeting},</p>
+            <p>You have been invited to join DocTracker. Set your password to activate your account.</p>
+            <p><a href="${safeUrl}" class="button">Set password &amp; sign in</a></p>
+            <p class="muted">This link expires in 7 days. If you were not expecting this invite, you can ignore this email.</p>
+            <p class="muted">Or paste this link into your browser:<br>${safeUrl}</p>
+          </div>
+        </div>
+      </body>
+      </html>
+    `;
+
+    return this.sendEmail(to, subject, html);
+  }
+
   /** Whether outbound SMTP is configured. */
   isConfigured(): boolean {
     return this.transporter != null;

@@ -26,7 +26,18 @@ function buildService(rows: Array<{ id: string; email: string }>) {
     },
   };
 
-  return { service: new UsersService(prisma), prisma };
+  const emailService = {
+    isConfigured: () => false,
+    sendInviteEmail: jest.fn(),
+  };
+  const configService = {
+    get: () => 'http://localhost:3001',
+  };
+
+  return {
+    service: new UsersService(prisma, emailService as any, configService as any),
+    prisma,
+  };
 }
 
 describe('normaliseEmail', () => {

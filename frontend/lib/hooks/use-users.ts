@@ -10,31 +10,61 @@ export function useUsers() {
   });
 }
 
+export function useRoles(enabled = true) {
+  return useQuery({
+    queryKey: ["roles"],
+    queryFn: async () => api.getRoles(),
+    enabled,
+  });
+}
+
 export function useCurrentUser() {
   return useQuery({
     queryKey: ["currentUser"],
     queryFn: async () => {
       return await api.getCurrentUser();
     },
-    retry: false, // Don't retry if user is not logged in
+    retry: false,
   });
 }
 
 export function useInviteUser() {
   const queryClient = useQueryClient();
-  
+
   return useMutation({
     mutationFn: async (data: {
       email: string;
-      role: string;
-      departmentId?: string;
-      divisionId?: string;
+      name: string;
+      roleId?: string;
+      departmentIds?: string[];
+      companyId?: string;
       sendEmail?: boolean;
     }) => {
       return await api.inviteUser(data);
     },
     onSuccess: () => {
-      // Invalidate and refetch users list
+      queryClient.invalidateQueries({ queryKey: ["users"] });
+    },
+  });
+}
+
+export function useCreateUser() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (data: {
+      email: string;
+      name: string;
+      password?: string;
+      roleId?: string;
+      departmentIds?: string[];
+      divisionIds?: string[];
+      companyId?: string;
+      status?: string;
+    }) => {
+      return await api.createUser(data);
+    },
+    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["users"] });
     },
   });
@@ -56,9 +86,12 @@ export function useUpdateOwnProfile() {
 
 export function useUpdateUser() {
   const queryClient = useQueryClient();
-  
+
   return useMutation({
-    mutationFn: async ({ id, data }: {
+    mutationFn: async ({
+      id,
+      data,
+    }: {
       id: string;
       data: {
         name?: string;
@@ -78,7 +111,7 @@ export function useUpdateUser() {
 
 export function useDeactivateUser() {
   const queryClient = useQueryClient();
-  
+
   return useMutation({
     mutationFn: async (id: string) => {
       return await api.deactivateUser(id);

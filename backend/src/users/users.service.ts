@@ -3,14 +3,18 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
+  Logger,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
+import { EmailService } from '../notifications/email.service';
 import {
   DATA_SCOPE_RANK,
   ROLE_DEFINITIONS_BY_NAME,
   DataScope,
 } from '../permissions/capabilities';
 import * as bcrypt from 'bcrypt';
+import * as crypto from 'crypto';
 
 /** Everything the API needs to resolve a user's role, scope and memberships. */
 const USER_INCLUDE = {
@@ -45,7 +49,13 @@ const USER_INCLUDE = {
 
 @Injectable()
 export class UsersService {
-  constructor(private prisma: PrismaService) {}
+  private readonly logger = new Logger(UsersService.name);
+
+  constructor(
+    private prisma: PrismaService,
+    private emailService: EmailService,
+    private configService: ConfigService,
+  ) {}
 
   /**
    * Look a user up by email without regard to case.
@@ -168,13 +178,25 @@ export class UsersService {
     name: string;
     roleId?: string;
     departmentIds?: string[];
+    companyId?: string;
+    sendEmail?: boolean;
   }, currentUser: any) {
-    const companyId = currentUser.companyId as string | undefined;
+    const seesAll = currentUser?.permissions?.dataScope === 'all';
+    const companyId =
+      (seesAll && data.companyId) ||
+      (currentUser.companyId as string | undefined);
     if (!companyId) {
-      throw new BadRequestException('Current user has no company');
+      throw new BadRequestException(
+        'companyId is required (pass it explicitly when inviting as Master)',
+      );
     }
 
-    // Placeholder hash until the invitee sets a password via reset flow
+    const existing = await this.findUserByEmailInsensitive(data.email);
+    if (existing) {
+      throw new BadRequestException('A user with this email already exists');
+    }
+
+    // Placeholder hash until the invitee sets a password via reset/invite link
     const passwordHash = await bcrypt.hash(
       `invite-${Date.now()}-${Math.random().toString(36).slice(2)}`,
       10,
@@ -210,12 +232,63 @@ export class UsersService {
       });
     }
 
+    if (data.sendEmail !== false) {
+      await this.sendInviteSetPasswordEmail(user.id, user.email, user.name);
+    }
+
     return decorateUser(
       await this.prisma.user.findUnique({
         where: { id: user.id },
         include: USER_INCLUDE,
       }),
     );
+  }
+
+  /** One-hour set-password link for invited users (same token table as reset). */
+  private async sendInviteSetPasswordEmail(
+    userId: string,
+    email: string,
+    name?: string | null,
+  ) {
+    await this.prisma.passwordResetToken.updateMany({
+      where: {
+        userId,
+        usedAt: null,
+        expiresAt: { gt: new Date() },
+      },
+      data: { usedAt: new Date() },
+    });
+
+    const rawToken = crypto.randomBytes(32).toString('base64url');
+    const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
+    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
+
+    await this.prisma.passwordResetToken.create({
+      data: { userId, tokenHash, expiresAt },
+    });
+
+    const frontendUrl =
+      this.configService.get<string>('FRONTEND_URL') || 'http://localhost:3001';
+    const inviteUrl = `${frontendUrl.replace(/\/$/, '')}/reset-password?token=${encodeURIComponent(rawToken)}`;
+
+    try {
+      if (this.emailService.isConfigured()) {
+        await this.emailService.sendInviteEmail(
+          email,
+          inviteUrl,
+          name || undefined,
+        );
+      } else {
+        this.logger.warn(
+          `SMTP not configured — invite set-password link for ${email}: ${inviteUrl}`,
+        );
+      }
+    } catch (error) {
+      this.logger.error(
+        `Failed to send invite email to ${email}`,
+        error as Error,
+      );
+    }
   }
 
   async createUser(
@@ -443,6 +516,8 @@ function decorateUser(user: Record<string, any> | null): any {
 
   return {
     ...safe,
+    // Frontend historically read `isActive`; API stores `status`. Keep both.
+    isActive: String(safe.status || '').toLowerCase() === 'active',
     role: safe.userRoles?.[0]?.role?.name || 'Staff',
     roles: (safe.userRoles ?? []).map((ur: any) => ur.role?.name).filter(Boolean),
     // `department`/`division` (singular) are kept for existing callers that

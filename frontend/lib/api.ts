@@ -74,13 +74,33 @@ export const api = {
 
   inviteUser: async (data: {
     email: string;
-    role: string;
-    departmentId?: string;
-    divisionId?: string;
+    name: string;
+    roleId?: string;
+    departmentIds?: string[];
+    companyId?: string;
     sendEmail?: boolean;
   }) => {
     const client = getClient();
     return await client.inviteUser(data);
+  },
+
+  createUser: async (data: {
+    email: string;
+    name: string;
+    password?: string;
+    roleId?: string;
+    departmentIds?: string[];
+    divisionIds?: string[];
+    companyId?: string;
+    status?: string;
+  }) => {
+    const client = getClient();
+    return await client.createUser(data);
+  },
+
+  getRoles: async () => {
+    const client = getClient();
+    return await client.getRoles();
   },
 
   updateOwnProfile: async (data: { name?: string; phone?: string }) => {

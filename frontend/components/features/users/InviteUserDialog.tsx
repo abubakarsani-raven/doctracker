@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Dialog,
   DialogContent,
@@ -22,54 +22,77 @@ import {
 import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
 import { Mail, Loader2 } from "lucide-react";
-import { useInviteUser } from "@/lib/hooks/use-users";
+import { useCurrentUser, useInviteUser, useRoles } from "@/lib/hooks/use-users";
 
 interface InviteUserDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** When set (e.g. from company admin), Master can invite into this company. */
+  companyId?: string;
 }
 
 export function InviteUserDialog({
   open,
   onOpenChange,
+  companyId,
 }: InviteUserDialogProps) {
   const [email, setEmail] = useState("");
-  const [role, setRole] = useState("");
-  const [department, setDepartment] = useState("");
-  const [division, setDivision] = useState("");
+  const [name, setName] = useState("");
+  const [roleId, setRoleId] = useState("");
   const [sendEmail, setSendEmail] = useState(true);
 
+  const { data: currentUser } = useCurrentUser();
+  const { data: roles = [], isLoading: rolesLoading } = useRoles(open);
   const inviteUser = useInviteUser();
 
+  const targetCompanyId = companyId || currentUser?.companyId || undefined;
+
+  const assignableRoles = useMemo(
+    () =>
+      (roles as Array<{ id: string; name: string }>).filter(
+        (r) => r.name !== "Master",
+      ),
+    [roles],
+  );
+
+  useEffect(() => {
+    if (!open) return;
+    setEmail("");
+    setName("");
+    setRoleId("");
+    setSendEmail(true);
+  }, [open]);
+
   const handleInvite = async () => {
-    if (!email.trim()) {
-      toast.error("Please enter an email address");
+    if (!email.trim() || !name.trim()) {
+      toast.error("Name and email are required");
       return;
     }
-
-    if (!role) {
+    if (!roleId) {
       toast.error("Please select a role");
+      return;
+    }
+    if (!targetCompanyId) {
+      toast.error(
+        "Select a company first (open a company and use Add user), or use an account that belongs to a company.",
+      );
       return;
     }
 
     try {
       await inviteUser.mutateAsync({
         email: email.trim(),
-        role,
-        departmentId: department || undefined,
-        divisionId: division || undefined,
+        name: name.trim(),
+        roleId,
+        companyId: targetCompanyId,
         sendEmail,
       });
-
-      toast.success("User invitation sent successfully");
+      toast.success(
+        sendEmail
+          ? "Invitation sent successfully"
+          : "User invited (no email sent)",
+      );
       onOpenChange(false);
-      
-      // Reset form
-      setEmail("");
-      setRole("");
-      setDepartment("");
-      setDivision("");
-      setSendEmail(true);
     } catch (error: any) {
       toast.error(error.message || "Failed to send invitation");
     }
@@ -81,67 +104,53 @@ export function InviteUserDialog({
         <DialogHeader>
           <DialogTitle>Invite User</DialogTitle>
           <DialogDescription>
-            Send an invitation to join your organization
+            Send an invitation to join your organization. They will set a
+            password from the email link.
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="email">Email Address *</Label>
+            <Label htmlFor="invite-name">Full name *</Label>
             <Input
-              id="email"
+              id="invite-name"
+              placeholder="Jane Doe"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="invite-email">Email Address *</Label>
+            <Input
+              id="invite-email"
               type="email"
               placeholder="user@example.com"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              required
             />
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="role">Role *</Label>
-            <Select value={role} onValueChange={setRole}>
-              <SelectTrigger id="role">
-                <SelectValue placeholder="Select role" />
+            <Label>Role *</Label>
+            <Select
+              value={roleId}
+              onValueChange={setRoleId}
+              disabled={rolesLoading}
+            >
+              <SelectTrigger>
+                <SelectValue
+                  placeholder={rolesLoading ? "Loading roles…" : "Select role"}
+                />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="staff">Staff</SelectItem>
-                <SelectItem value="manager">Manager</SelectItem>
-                <SelectItem value="department_head">Department Head</SelectItem>
-                <SelectItem value="department_secretary">Department Secretary</SelectItem>
+                {assignableRoles.map((role) => (
+                  <SelectItem key={role.id} value={role.id}>
+                    {role.name}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="department">Department</Label>
-            <Select value={department} onValueChange={setDepartment}>
-              <SelectTrigger id="department">
-                <SelectValue placeholder="Select department (optional)" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="legal">Legal</SelectItem>
-                <SelectItem value="hr">HR</SelectItem>
-                <SelectItem value="finance">Finance</SelectItem>
-                <SelectItem value="operations">Operations</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
-          {department && (
-            <div className="space-y-2">
-              <Label htmlFor="division">Division</Label>
-              <Select value={division} onValueChange={setDivision}>
-                <SelectTrigger id="division">
-                  <SelectValue placeholder="Select division (optional)" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="div1">Division 1</SelectItem>
-                  <SelectItem value="div2">Division 2</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          )}
 
           <div className="flex items-center space-x-2">
             <Checkbox
@@ -156,15 +165,12 @@ export function InviteUserDialog({
         </div>
 
         <DialogFooter>
-          <Button
-            variant="outline"
-            onClick={() => onOpenChange(false)}
-          >
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
           <Button
             onClick={handleInvite}
-            disabled={!email || !role || inviteUser.isPending}
+            disabled={!email || !name || !roleId || inviteUser.isPending}
           >
             {inviteUser.isPending ? (
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />

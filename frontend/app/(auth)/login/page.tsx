@@ -147,12 +147,10 @@ export default function LoginPage() {
                 {loading ? "Signing in…" : "Sign in"}
               </Button>
 
-              <div className="text-center text-sm text-muted-foreground">
-                Don't have an account?{" "}
-                <Link href="/register" className="text-primary hover:underline">
-                  Sign up
-                </Link>
-              </div>
+              <p className="text-center text-sm text-muted-foreground">
+                Accounts are invite-only. Ask an administrator if you need
+                access.
+              </p>
             </form>
           </CardContent>
         </Card>

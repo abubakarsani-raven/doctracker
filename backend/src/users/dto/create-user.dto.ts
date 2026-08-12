@@ -1,4 +1,4 @@
-import { IsEmail, IsString, IsOptional, IsArray, MinLength } from 'class-validator';
+import { IsEmail, IsString, IsOptional, IsArray, MinLength, IsBoolean } from 'class-validator';
 
 export class CreateUserDto {
   @IsEmail({}, { message: 'Please provide a valid email address' })
@@ -53,4 +53,13 @@ export class InviteUserDto {
   @IsArray()
   @IsString({ each: true })
   departmentIds?: string[];
+
+  /** Target company when the caller is Master (no home company). */
+  @IsOptional()
+  @IsString()
+  companyId?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  sendEmail?: boolean;
 }

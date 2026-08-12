@@ -9,10 +9,11 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
-import { Building2, Users, Loader2, Network, ArrowRightLeft, Ban, CheckCircle2 } from "lucide-react";
+import { Building2, Users, Loader2, Network, ArrowRightLeft, Ban, CheckCircle2, Plus } from "lucide-react";
 import { EmptyState } from "@/components/common";
 import { ConfirmDialog } from "@/components/common/ConfirmDialog";
 import { TransferOwnershipDialog } from "@/components/features/admin/TransferOwnershipDialog";
+import { AddCompanyUserDialog } from "@/components/features/users/AddCompanyUserDialog";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import {
@@ -24,6 +25,15 @@ import {
 } from "@/lib/hooks/use-companies";
 import { useUsers } from "@/lib/hooks/use-users";
 import { format } from "date-fns";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 
 export default function CompanyDetailPage() {
   const params = useParams();
@@ -41,6 +51,7 @@ export default function CompanyDetailPage() {
   const [address, setAddress] = useState("");
   const [transferOpen, setTransferOpen] = useState(false);
   const [deactivateOpen, setDeactivateOpen] = useState(false);
+  const [addUserOpen, setAddUserOpen] = useState(false);
 
   useEffect(() => {
     if (!company) return;
@@ -208,6 +219,7 @@ export default function CompanyDetailPage() {
       <Tabs defaultValue="overview" className="space-y-6">
         <TabsList>
           <TabsTrigger value="overview">Overview</TabsTrigger>
+          <TabsTrigger value="users">Users</TabsTrigger>
           <TabsTrigger value="departments">Departments & Divisions</TabsTrigger>
         </TabsList>
 
@@ -278,6 +290,105 @@ export default function CompanyDetailPage() {
           </Card>
         </TabsContent>
 
+        <TabsContent value="users">
+          <Card>
+            <CardHeader className="flex flex-row items-start justify-between gap-4 space-y-0">
+              <div>
+                <CardTitle>Users</CardTitle>
+                <CardDescription>
+                  People whose home company is {company.name}. Invite by email
+                  or create an account with a password.
+                </CardDescription>
+              </div>
+              <Button onClick={() => setAddUserOpen(true)}>
+                <Plus className="mr-2 h-4 w-4" />
+                Add user
+              </Button>
+            </CardHeader>
+            <CardContent>
+              {companyUsers.length === 0 ? (
+                <EmptyState
+                  icon={Users}
+                  title="No users yet"
+                  description="Invite someone by email or create an account for this company."
+                  action={{
+                    label: "Add user",
+                    onClick: () => setAddUserOpen(true),
+                  }}
+                />
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>User</TableHead>
+                      <TableHead>Role</TableHead>
+                      <TableHead>Department</TableHead>
+                      <TableHead>Status</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {companyUsers.map((user: any) => {
+                      const status = String(user.status || "").toLowerCase();
+                      const active =
+                        user.isActive === true || status === "active";
+                      const invited = status === "invited";
+                      return (
+                        <TableRow key={user.id}>
+                          <TableCell>
+                            <div className="flex items-center gap-3">
+                              <Avatar className="h-8 w-8">
+                                <AvatarFallback>
+                                  {(user.name || user.email || "?")
+                                    .split(" ")
+                                    .map((p: string) => p[0])
+                                    .join("")
+                                    .slice(0, 2)
+                                    .toUpperCase()}
+                                </AvatarFallback>
+                              </Avatar>
+                              <div>
+                                <p className="font-medium">{user.name}</p>
+                                <p className="text-xs text-muted-foreground">
+                                  {user.email}
+                                </p>
+                              </div>
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant="outline">
+                              {user.role || "Staff"}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="text-muted-foreground">
+                            {user.department || "—"}
+                          </TableCell>
+                          <TableCell>
+                            <Badge
+                              variant={
+                                active
+                                  ? "default"
+                                  : invited
+                                    ? "outline"
+                                    : "secondary"
+                              }
+                            >
+                              {active
+                                ? "Active"
+                                : invited
+                                  ? "Invited"
+                                  : "Inactive"}
+                            </Badge>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
         <TabsContent value="departments">
           <Card>
             <CardHeader>
@@ -335,6 +446,16 @@ export default function CompanyDetailPage() {
         </TabsContent>
       </Tabs>
 
+      <AddCompanyUserDialog
+        open={addUserOpen}
+        onOpenChange={setAddUserOpen}
+        companyId={companyId}
+        companyName={company.name}
+        departments={departments.map((d: any) => ({
+          id: d.id,
+          name: d.name,
+        }))}
+      />
       <TransferOwnershipDialog
         open={transferOpen}
         onOpenChange={setTransferOpen}

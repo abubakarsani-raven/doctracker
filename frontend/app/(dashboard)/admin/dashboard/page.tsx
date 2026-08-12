@@ -29,7 +29,15 @@ export default function AdminDashboardPage() {
     },
     {
       label: "Active Users",
-      value: usersLoading ? "..." : users.filter((u: any) => u.isActive).length.toString(),
+      value: usersLoading
+        ? "..."
+        : users
+            .filter(
+              (u: any) =>
+                u.isActive === true ||
+                String(u.status || "").toLowerCase() === "active",
+            )
+            .length.toString(),
       icon: Users,
       isLoading: usersLoading,
     },

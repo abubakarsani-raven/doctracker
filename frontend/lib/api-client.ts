@@ -517,9 +517,10 @@ class ApiClient {
 
   async inviteUser(data: {
     email: string;
-    role: string;
-    departmentId?: string;
-    divisionId?: string;
+    name: string;
+    roleId?: string;
+    departmentIds?: string[];
+    companyId?: string;
     sendEmail?: boolean;
   }) {
     return this.request<any>('/users/invite', {
@@ -531,14 +532,21 @@ class ApiClient {
   async createUser(data: {
     email: string;
     name: string;
-    role: string;
-    departmentId?: string;
-    divisionId?: string;
+    password?: string;
+    roleId?: string;
+    departmentIds?: string[];
+    divisionIds?: string[];
+    companyId?: string;
+    status?: string;
   }) {
     return this.request<any>('/users', {
       method: 'POST',
       body: JSON.stringify(data),
     });
+  }
+
+  async getRoles() {
+    return this.request<any[]>('/roles');
   }
 
   async updateUser(id: string, data: {
