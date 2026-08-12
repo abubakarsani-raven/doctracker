@@ -2,11 +2,11 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
 
-export function useDocuments(folderId?: string) {
+export function useDocuments(folderId?: string, companyId?: string) {
   return useQuery({
-    queryKey: ["documents", folderId || "all"],
+    queryKey: ["documents", folderId || "all", companyId || "home"],
     queryFn: async () => {
-      return await api.getDocuments(folderId);
+      return await api.getDocuments(folderId, companyId);
     },
   });
 }

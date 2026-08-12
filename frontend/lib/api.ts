@@ -287,10 +287,11 @@ export const api = {
     return await client.restoreFileVersion(fileId, versionId);
   },
 
-  getDocuments: async (folderId?: string) => {
+  getDocuments: async (folderId?: string, companyId?: string) => {
     const client = getClient();
     // Exclude archived (and deleted) so the main library only lists live files.
-    const files = await client.getFiles(undefined, false, false);
+    // Optional companyId scopes Masters/Group Secretaries to the workflow company.
+    const files = await client.getFiles(companyId, false, false);
 
     let documents = files.map((file: any) => {
       const folderLink = file.fileFolderLinks?.[0];

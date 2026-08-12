@@ -20,6 +20,7 @@ import { Upload, FileText, FilePlus, Link2 } from "lucide-react";
 import { api } from "@/lib/api";
 import { useDocuments } from "@/lib/hooks/use-documents";
 import { useWorkflow } from "@/lib/hooks/use-workflows";
+import { cn } from "@/lib/utils";
 import {
   Select,
   SelectContent,
@@ -54,10 +55,16 @@ export function AddFileToWorkflowDialog({
   const [creatingRichText, setCreatingRichText] = useState(false);
 
   const { data: workflow } = useWorkflow(workflowId);
-  const { data: documents = [] } = useDocuments();
+  // Backend already applies filterReadable; pass workflow company so Masters
+  // only browse that tenant’s library in this picker.
+  const { data: documents = [], isLoading: docsLoading } = useDocuments(
+    undefined,
+    workflow?.companyId,
+  );
 
   const companyDocs = useMemo(() => {
     return documents.filter((d: any) => {
+      if (d.status && d.status !== "active") return false;
       if (workflow?.companyId && d.companyId && d.companyId !== workflow.companyId) {
         return false;
       }
@@ -218,17 +225,48 @@ export function AddFileToWorkflowDialog({
             <div className="space-y-2">
               <Label>Document</Label>
               <Select value={selectedDocId} onValueChange={setSelectedDocId}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select a document…" />
+                <SelectTrigger
+                  className={cn(
+                    "w-full h-auto min-h-9 items-start py-2 whitespace-normal",
+                    "*:data-[slot=select-value]:line-clamp-none",
+                    "*:data-[slot=select-value]:whitespace-normal",
+                    "*:data-[slot=select-value]:break-words",
+                  )}
+                >
+                  <SelectValue
+                    placeholder={
+                      docsLoading
+                        ? "Loading documents…"
+                        : "Select a document…"
+                    }
+                    className="text-left whitespace-normal break-words"
+                  />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent
+                  className="w-[var(--radix-popover-trigger-width)] max-w-[min(100vw-2rem,40rem)]"
+                  searchPlaceholder="Search documents…"
+                  emptyMessage={
+                    docsLoading
+                      ? "Loading…"
+                      : "No accessible documents found."
+                  }
+                >
                   {companyDocs.map((doc: any) => (
-                    <SelectItem key={doc.id} value={doc.id}>
-                      {doc.name}
+                    <SelectItem
+                      key={doc.id}
+                      value={doc.id}
+                      className="items-start whitespace-normal h-auto py-2"
+                    >
+                      <span className="block whitespace-normal break-words leading-snug pr-2">
+                        {doc.name}
+                      </span>
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
+              <p className="text-xs text-muted-foreground">
+                Only documents you can open are listed.
+              </p>
             </div>
             <div className="space-y-2">
               <Label htmlFor="attach-note">Note (optional)</Label>
