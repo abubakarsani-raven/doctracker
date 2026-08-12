@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { CheckSquare, MoreVertical, Clock, User, Building2, Upload, MessageSquare, Workflow } from "lucide-react";
+import { CheckSquare, MoreVertical, Clock, User, Building2, Upload, MessageSquare, Workflow, PenLine } from "lucide-react";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -19,7 +19,7 @@ export interface ActionData {
   title: string;
   description?: string;
   status: "pending" | "in_progress" | "completed" | "document_uploaded" | "response_received";
-  type?: "regular" | "document_upload" | "request_response";
+  type?: "regular" | "document_upload" | "request_response" | "signature";
   assignedTo?: string | { type: string; id: string; name: string };
   assignedToType?: "user" | "department" | "division";
   documentId?: string;
@@ -74,6 +74,8 @@ export function ActionCard({
         return <Upload className="h-4 w-4" />;
       case "request_response":
         return <MessageSquare className="h-4 w-4" />;
+      case "signature":
+        return <PenLine className="h-4 w-4" />;
       default:
         return <CheckSquare className="h-5 w-5 text-green-500 shrink-0" />;
     }
@@ -85,6 +87,8 @@ export function ActionCard({
         return "Upload Document";
       case "request_response":
         return "Request/Response";
+      case "signature":
+        return "Signature";
       default:
         return "Regular";
     }

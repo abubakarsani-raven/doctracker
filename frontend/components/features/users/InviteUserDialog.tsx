@@ -21,8 +21,20 @@ import {
 } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
-import { Mail, Loader2 } from "lucide-react";
-import { useCurrentUser, useInviteUser, useRoles } from "@/lib/hooks/use-users";
+import { Mail, Loader2, UserPlus } from "lucide-react";
+import {
+  useCreateUser,
+  useCurrentUser,
+  useInviteUser,
+  useRoles,
+} from "@/lib/hooks/use-users";
+import { PasswordInput } from "@/components/ui/password-input";
+import {
+  formatCapability,
+  formatDataScope,
+  parseRoleMeta,
+  type RoleRecord,
+} from "@/lib/role-meta";
 
 interface InviteUserDialogProps {
   open: boolean;
@@ -40,20 +52,27 @@ export function InviteUserDialog({
   const [name, setName] = useState("");
   const [roleId, setRoleId] = useState("");
   const [sendEmail, setSendEmail] = useState(true);
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
 
   const { data: currentUser } = useCurrentUser();
   const { data: roles = [], isLoading: rolesLoading } = useRoles(open);
   const inviteUser = useInviteUser();
+  const createUser = useCreateUser();
 
   const targetCompanyId = companyId || currentUser?.companyId || undefined;
 
   const assignableRoles = useMemo(
     () =>
-      (roles as Array<{ id: string; name: string }>).filter(
-        (r) => r.name !== "Master",
-      ),
+      (roles as RoleRecord[]).filter((r) => r.name !== "Master"),
     [roles],
   );
+
+  const selectedRole = useMemo(
+    () => assignableRoles.find((r) => r.id === roleId),
+    [assignableRoles, roleId],
+  );
+  const roleMeta = parseRoleMeta(selectedRole);
 
   useEffect(() => {
     if (!open) return;
@@ -61,9 +80,13 @@ export function InviteUserDialog({
     setName("");
     setRoleId("");
     setSendEmail(true);
+    setPassword("");
+    setConfirmPassword("");
   }, [open]);
 
-  const handleInvite = async () => {
+  const busy = inviteUser.isPending || createUser.isPending;
+
+  const handleSubmit = async () => {
     if (!email.trim() || !name.trim()) {
       toast.error("Name and email are required");
       return;
@@ -80,32 +103,49 @@ export function InviteUserDialog({
     }
 
     try {
-      await inviteUser.mutateAsync({
-        email: email.trim(),
-        name: name.trim(),
-        roleId,
-        companyId: targetCompanyId,
-        sendEmail,
-      });
-      toast.success(
-        sendEmail
-          ? "Invitation sent successfully"
-          : "User invited (no email sent)",
-      );
+      if (sendEmail) {
+        await inviteUser.mutateAsync({
+          email: email.trim(),
+          name: name.trim(),
+          roleId,
+          companyId: targetCompanyId,
+          sendEmail: true,
+        });
+        toast.success("Invitation sent — they will set a password from the email");
+      } else {
+        if (!password || password.length < 8) {
+          toast.error("Password must be at least 8 characters");
+          return;
+        }
+        if (password !== confirmPassword) {
+          toast.error("Passwords do not match");
+          return;
+        }
+        await createUser.mutateAsync({
+          email: email.trim(),
+          name: name.trim(),
+          roleId,
+          companyId: targetCompanyId,
+          password,
+          status: "active",
+        });
+        toast.success("Account created — they can sign in with this password");
+      }
       onOpenChange(false);
     } catch (error: any) {
-      toast.error(error.message || "Failed to send invitation");
+      toast.error(error.message || "Failed to add user");
     }
   };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+      <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>Invite User</DialogTitle>
+          <DialogTitle>Add user</DialogTitle>
           <DialogDescription>
-            Send an invitation to join your organization. They will set a
-            password from the email link.
+            {sendEmail
+              ? "Send an invitation email. They will set a password from the link."
+              : "Create the account yourself and set their password now."}
           </DialogDescription>
         </DialogHeader>
 
@@ -150,18 +190,79 @@ export function InviteUserDialog({
                 ))}
               </SelectContent>
             </Select>
+            {selectedRole ? (
+              <div className="rounded-md border bg-muted/40 p-3 text-sm space-y-2">
+                <p className="text-muted-foreground">
+                  {roleMeta.description || `${selectedRole.name} role`}
+                </p>
+                {roleMeta.dataScope ? (
+                  <p>
+                    <span className="font-medium">Reach: </span>
+                    {formatDataScope(roleMeta.dataScope)}
+                  </p>
+                ) : null}
+                {roleMeta.capabilities.length > 0 ? (
+                  <div>
+                    <p className="font-medium mb-1">
+                      What they can do ({roleMeta.capabilities.length})
+                    </p>
+                    <ul className="max-h-28 overflow-y-auto space-y-0.5 text-xs text-muted-foreground">
+                      {roleMeta.capabilities.map((cap) => (
+                        <li key={cap}>{formatCapability(cap)}</li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
           </div>
 
           <div className="flex items-center space-x-2">
             <Checkbox
               id="sendEmail"
               checked={sendEmail}
-              onCheckedChange={(checked) => setSendEmail(checked === true)}
+              onCheckedChange={(checked) => {
+                const on = checked === true;
+                setSendEmail(on);
+                if (on) {
+                  setPassword("");
+                  setConfirmPassword("");
+                }
+              }}
             />
             <Label htmlFor="sendEmail" className="cursor-pointer">
               Send invitation email
             </Label>
           </div>
+
+          {!sendEmail ? (
+            <div className="space-y-4 rounded-md border p-3">
+              <p className="text-sm text-muted-foreground">
+                Set a password for them. They can sign in immediately and change
+                it later via Forgot password.
+              </p>
+              <div className="space-y-2">
+                <Label htmlFor="invite-password">Password *</Label>
+                <PasswordInput
+                  id="invite-password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="At least 8 characters"
+                  autoComplete="new-password"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="invite-confirm">Confirm password *</Label>
+                <PasswordInput
+                  id="invite-confirm"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  placeholder="Repeat password"
+                  autoComplete="new-password"
+                />
+              </div>
+            </div>
+          ) : null}
         </div>
 
         <DialogFooter>
@@ -169,15 +270,21 @@ export function InviteUserDialog({
             Cancel
           </Button>
           <Button
-            onClick={handleInvite}
-            disabled={!email || !name || !roleId || inviteUser.isPending}
+            onClick={handleSubmit}
+            disabled={!email || !name || !roleId || busy}
           >
-            {inviteUser.isPending ? (
+            {busy ? (
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            ) : (
+            ) : sendEmail ? (
               <Mail className="mr-2 h-4 w-4" />
+            ) : (
+              <UserPlus className="mr-2 h-4 w-4" />
             )}
-            {inviteUser.isPending ? "Sending..." : "Send Invitation"}
+            {busy
+              ? "Saving…"
+              : sendEmail
+                ? "Send invitation"
+                : "Create account"}
           </Button>
         </DialogFooter>
       </DialogContent>

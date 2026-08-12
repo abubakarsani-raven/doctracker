@@ -24,7 +24,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { CalendarIcon, User, Building2, Upload, MessageSquare, CheckCircle2, Folder } from "lucide-react";
+import { CalendarIcon, User, Building2, Upload, MessageSquare, CheckCircle2, Folder, PenLine, Plus, X, Mail, Loader2 } from "lucide-react";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
@@ -45,6 +45,15 @@ import { useCurrentUser } from "@/lib/hooks/use-users";
 import { useCreateAction } from "@/lib/hooks/use-actions";
 import { useCreateApprovalRequest } from "@/lib/hooks/use-approval-requests";
 import { useWorkflow } from "@/lib/hooks/use-workflows";
+import { useQuery } from "@tanstack/react-query";
+import { api } from "@/lib/api";
+
+interface SignatureParticipantDraft {
+  email: string;
+  name: string;
+  userId?: string;
+  signingOrder: number;
+}
 
 interface CreateActionFromWorkflowDialogProps {
   open: boolean;
@@ -68,11 +77,16 @@ export function CreateActionFromWorkflowDialog({
   const { data: workflowData } = useWorkflow(workflowId);
   const createAction = useCreateAction();
   const createApprovalRequest = useCreateApprovalRequest();
+  const { data: workflowFiles = [] } = useQuery({
+    queryKey: ["workflows", workflowId, "files"],
+    queryFn: async () => (await api.getWorkflowFiles(workflowId)) as any[],
+    enabled: !!workflowId && open,
+  });
   
   const workflow = workflowProp || workflowData;
   
   // Action type selection
-  const [actionType, setActionType] = useState<"regular" | "document_upload" | "request_response">("regular");
+  const [actionType, setActionType] = useState<"regular" | "document_upload" | "request_response" | "signature">("regular");
   
   // Common fields
   const [actionTitle, setActionTitle] = useState("");
@@ -88,6 +102,12 @@ export function CreateActionFromWorkflowDialog({
 
   // Request/response action fields
   const [requestDetails, setRequestDetails] = useState("");
+
+  // Signature action fields
+  const [signatureDocumentId, setSignatureDocumentId] = useState("");
+  const [signatureParticipants, setSignatureParticipants] = useState<SignatureParticipantDraft[]>([]);
+  const [signerUserId, setSignerUserId] = useState("");
+  const [manualSigner, setManualSigner] = useState({ email: "", name: "" });
 
   // Cross-company fields
   const [selectedCompanyId, setSelectedCompanyId] = useState<string>("same-company");
@@ -159,6 +179,39 @@ export function CreateActionFromWorkflowDialog({
     return folder.name;
   };
 
+  // Documents available to request signatures on (workflow primary + files added)
+  const signatureDocuments = useMemo(() => {
+    const docs: { id: string; name: string }[] = [];
+    const seen = new Set<string>();
+    if (workflow?.documentId) {
+      seen.add(workflow.documentId);
+      docs.push({
+        id: workflow.documentId,
+        name: workflow.documentName || "Workflow document",
+      });
+    }
+    for (const f of workflowFiles as any[]) {
+      const id = f.id || f.fileId;
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      docs.push({ id, name: f.name || f.fileName || "Document" });
+    }
+    return docs;
+  }, [workflow, workflowFiles]);
+
+  const availableSigners = useMemo(
+    () =>
+      (users as any[]).filter(
+        (u) =>
+          u?.email &&
+          u.status === "active" &&
+          !signatureParticipants.some(
+            (p) => p.email === u.email || p.userId === u.id,
+          ),
+      ),
+    [users, signatureParticipants],
+  );
+
   useEffect(() => {
     if (!open) {
       // Reset form when dialog closes
@@ -173,6 +226,10 @@ export function CreateActionFromWorkflowDialog({
       setRequiredFileType("");
       setRequestDetails("");
       setSelectedCompanyId("same-company");
+      setSignatureDocumentId("");
+      setSignatureParticipants([]);
+      setSignerUserId("");
+      setManualSigner({ email: "", name: "" });
       
       // Pre-select workflow folder if available
       if (workflow?.folderId) {
@@ -181,8 +238,11 @@ export function CreateActionFromWorkflowDialog({
     } else if (workflow?.folderId && actionType === "document_upload") {
       // Pre-select workflow folder for document upload actions
       setTargetFolderId(workflow.folderId);
+    } else if (open && actionType === "signature" && !signatureDocumentId) {
+      const first = signatureDocuments[0]?.id || workflow?.documentId || "";
+      if (first) setSignatureDocumentId(first);
     }
-  }, [open, workflow, actionType]);
+  }, [open, workflow, actionType, signatureDocuments, signatureDocumentId]);
 
   // Auto-generate titles based on action type
   useEffect(() => {
@@ -190,8 +250,54 @@ export function CreateActionFromWorkflowDialog({
       setActionTitle("Upload revised document");
     } else if (actionType === "request_response" && !actionTitle && !requestDetails) {
       setActionTitle("Request information");
+    } else if (actionType === "signature" && !actionTitle) {
+      setActionTitle("Collect signatures");
     }
   }, [actionType, actionTitle, requestDetails]);
+
+  const addSignerFromDirectory = () => {
+    const user = (users as any[]).find((u) => u.id === signerUserId);
+    if (!user) {
+      toast.error("Pick someone from the directory");
+      return;
+    }
+    setSignatureParticipants((prev) => [
+      ...prev,
+      {
+        email: user.email,
+        name: user.name || user.email,
+        userId: user.id,
+        signingOrder: prev.length + 1,
+      },
+    ]);
+    setSignerUserId("");
+  };
+
+  const addManualSigner = () => {
+    const email = manualSigner.email.trim().toLowerCase();
+    const name = manualSigner.name.trim() || email;
+    if (!email || !email.includes("@")) {
+      toast.error("Enter a valid email");
+      return;
+    }
+    if (signatureParticipants.some((p) => p.email === email)) {
+      toast.error("That email is already a signer");
+      return;
+    }
+    setSignatureParticipants((prev) => [
+      ...prev,
+      { email, name, signingOrder: prev.length + 1 },
+    ]);
+    setManualSigner({ email: "", name: "" });
+  };
+
+  const removeSigner = (email: string) => {
+    setSignatureParticipants((prev) =>
+      prev
+        .filter((p) => p.email !== email)
+        .map((p, i) => ({ ...p, signingOrder: i + 1 })),
+    );
+  };
 
   const handleCreate = async () => {
     if (!actionTitle.trim()) {
@@ -209,14 +315,27 @@ export function CreateActionFromWorkflowDialog({
       return;
     }
 
-    if (assignedToType === "user" && !selectedUserId) {
-      toast.error("Please select a user to assign to");
-      return;
+    if (actionType === "signature") {
+      if (!signatureDocumentId) {
+        toast.error("Select a document to sign");
+        return;
+      }
+      if (signatureParticipants.length === 0) {
+        toast.error("Add at least one signer");
+        return;
+      }
     }
 
-    if (assignedToType === "department" && !selectedDepartmentId) {
-      toast.error("Please select a department to assign to");
-      return;
+    if (actionType !== "signature") {
+      if (assignedToType === "user" && !selectedUserId) {
+        toast.error("Please select a user to assign to");
+        return;
+      }
+
+      if (assignedToType === "department" && !selectedDepartmentId) {
+        toast.error("Please select a department to assign to");
+        return;
+      }
     }
 
     if (!currentUser) {
@@ -231,43 +350,50 @@ export function CreateActionFromWorkflowDialog({
       let targetCompanyId: string | null = null;
       let targetCompanyName: string | null = null;
       
-      if (assignedToType === "department") {
-        targetCompanyId = await getDepartmentCompanyId(selectedDepartmentId);
-        if (targetCompanyId) {
-          targetCompanyName = await getCompanyName(targetCompanyId);
+      if (actionType !== "signature") {
+        if (assignedToType === "department") {
+          targetCompanyId = await getDepartmentCompanyId(selectedDepartmentId);
+          if (targetCompanyId) {
+            targetCompanyName = await getCompanyName(targetCompanyId);
+          }
+        } else if (assignedToType === "user") {
+          targetCompanyId = await getUserCompanyIdByUserId(selectedUserId);
+          if (targetCompanyId) {
+            targetCompanyName = await getCompanyName(targetCompanyId);
+          }
         }
-      } else if (assignedToType === "user") {
-        targetCompanyId = await getUserCompanyIdByUserId(selectedUserId);
-        if (targetCompanyId) {
-          targetCompanyName = await getCompanyName(targetCompanyId);
-        }
-      }
 
-      // Use selected company if admin selected one
-      if (isAdmin && selectedCompanyId && selectedCompanyId !== "same-company") {
-        targetCompanyId = selectedCompanyId;
-        targetCompanyName = await getCompanyName(selectedCompanyId);
+        // Use selected company if admin selected one
+        if (isAdmin && selectedCompanyId && selectedCompanyId !== "same-company") {
+          targetCompanyId = selectedCompanyId;
+          targetCompanyName = await getCompanyName(selectedCompanyId);
+        }
       }
 
       // Check if cross-company
-      const isCrossCompany = isCrossCompanyAssignment(sourceCompanyId, targetCompanyId);
+      const isCrossCompany =
+        actionType !== "signature" &&
+        isCrossCompanyAssignment(sourceCompanyId, targetCompanyId);
 
       // Find user or department name with multiple fallbacks
-      const assignedTo = assignedToType === "user"
-        ? {
-            type: "user" as const,
-            id: selectedUserId,
-            name: accessibleUsers.find((u: any) => u.id === selectedUserId)?.name || 
-                  users.find((u: any) => u.id === selectedUserId)?.name || 
-                  `Someone`,
-          }
-        : {
-            type: "department" as const,
-            id: selectedDepartmentId,
-            name: (selectedCompanyId && selectedCompanyId !== "same-company" ? accessibleDepartments : allDepartments).find((d: any) => d.id === selectedDepartmentId)?.name || 
-                  allDepartments.find((d: any) => d.id === selectedDepartmentId)?.name || 
-                  `A department`,
-          };
+      const assignedTo =
+        actionType === "signature"
+          ? undefined
+          : assignedToType === "user"
+          ? {
+              type: "user" as const,
+              id: selectedUserId,
+              name: accessibleUsers.find((u: any) => u.id === selectedUserId)?.name || 
+                    users.find((u: any) => u.id === selectedUserId)?.name || 
+                    `Someone`,
+            }
+          : {
+              type: "department" as const,
+              id: selectedDepartmentId,
+              name: (selectedCompanyId && selectedCompanyId !== "same-company" ? accessibleDepartments : allDepartments).find((d: any) => d.id === selectedDepartmentId)?.name || 
+                    allDepartments.find((d: any) => d.id === selectedDepartmentId)?.name || 
+                    `A department`,
+            };
 
       const actionData: any = {
         title: actionTitle.trim(),
@@ -276,7 +402,10 @@ export function CreateActionFromWorkflowDialog({
         status: "pending",
         workflowId: workflowId,
         folderId: workflow?.folderId,
-        documentId: workflow?.documentId,
+        documentId:
+          actionType === "signature"
+            ? signatureDocumentId
+            : workflow?.documentId,
         
         // Document upload action specific
         targetFolderId: actionType === "document_upload" ? targetFolderId : undefined,
@@ -284,6 +413,10 @@ export function CreateActionFromWorkflowDialog({
         
         // Request/response action specific
         requestDetails: actionType === "request_response" ? requestDetails : undefined,
+
+        // Signature action specific
+        signatureParticipants:
+          actionType === "signature" ? signatureParticipants : undefined,
         
         assignedTo,
         dueDate: dueDate?.toISOString(),
@@ -299,7 +432,7 @@ export function CreateActionFromWorkflowDialog({
       const createdAction = await createAction.mutateAsync(actionData);
 
       // If cross-company, create approval request
-      if (isCrossCompany && isAdmin && targetCompanyId && sourceCompanyId) {
+      if (isCrossCompany && isAdmin && targetCompanyId && sourceCompanyId && assignedTo) {
         const sourceCompanyName = workflow?.sourceCompanyName || (await getCompanyName(sourceCompanyId)) || "Unknown Company";
 
         await createApprovalRequest.mutateAsync({
@@ -347,18 +480,22 @@ export function CreateActionFromWorkflowDialog({
           <div className="space-y-2">
             <Label>Action Type *</Label>
             <Tabs value={actionType} onValueChange={(v) => setActionType(v as any)} className="w-full">
-              <TabsList className="grid w-full grid-cols-3">
-                <TabsTrigger value="regular">
-                  <CheckCircle2 className="mr-2 h-4 w-4" />
+              <TabsList className="grid w-full grid-cols-2 sm:grid-cols-4 h-auto gap-1">
+                <TabsTrigger value="regular" className="text-xs sm:text-sm">
+                  <CheckCircle2 className="mr-1 h-3.5 w-3.5" />
                   Regular
                 </TabsTrigger>
-                <TabsTrigger value="document_upload">
-                  <Upload className="mr-2 h-4 w-4" />
-                  Upload Document
+                <TabsTrigger value="document_upload" className="text-xs sm:text-sm">
+                  <Upload className="mr-1 h-3.5 w-3.5" />
+                  Upload
                 </TabsTrigger>
-                <TabsTrigger value="request_response">
-                  <MessageSquare className="mr-2 h-4 w-4" />
-                  Request/Response
+                <TabsTrigger value="request_response" className="text-xs sm:text-sm">
+                  <MessageSquare className="mr-1 h-3.5 w-3.5" />
+                  Request
+                </TabsTrigger>
+                <TabsTrigger value="signature" className="text-xs sm:text-sm">
+                  <PenLine className="mr-1 h-3.5 w-3.5" />
+                  Signature
                 </TabsTrigger>
               </TabsList>
             </Tabs>
@@ -366,6 +503,7 @@ export function CreateActionFromWorkflowDialog({
               {actionType === "regular" && "Standard action that requires completion"}
               {actionType === "document_upload" && "Action requires uploading a document (e.g., 'Upload revised contract')"}
               {actionType === "request_response" && "Interactive action to request information from another department"}
+              {actionType === "signature" && "Collect signatures on a workflow document — completes when everyone has signed"}
             </p>
           </div>
 
@@ -379,6 +517,8 @@ export function CreateActionFromWorkflowDialog({
                   ? "e.g., Upload revised contract"
                   : actionType === "request_response"
                   ? "e.g., Request total budget from Accounts department"
+                  : actionType === "signature"
+                  ? "e.g., Board approval signatures"
                   : "e.g., Issue company-wide notice about discount sales"
               }
               value={actionTitle}
@@ -478,8 +618,117 @@ export function CreateActionFromWorkflowDialog({
             </div>
           )}
 
-          {/* Company Selection (for Company Admin) */}
-          {isAdmin && (
+          {/* Signature Action Specific Fields */}
+          {actionType === "signature" && (
+            <div className="space-y-4 p-4 border rounded-md bg-muted/50">
+              <div className="space-y-2">
+                <Label>Document to sign *</Label>
+                <Select
+                  value={signatureDocumentId}
+                  onValueChange={setSignatureDocumentId}
+                  disabled={isCreating}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select a document from this workflow" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {signatureDocuments.length === 0 ? (
+                      <div className="px-2 py-3 text-sm text-muted-foreground">
+                        Add a file to this workflow first
+                      </div>
+                    ) : (
+                      signatureDocuments.map((doc) => (
+                        <SelectItem key={doc.id} value={doc.id}>
+                          {doc.name}
+                        </SelectItem>
+                      ))
+                    )}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Signers *</Label>
+                {signatureParticipants.length > 0 && (
+                  <div className="flex flex-wrap gap-2">
+                    {signatureParticipants.map((p) => (
+                      <Badge key={p.email} variant="secondary" className="gap-1 pr-1">
+                        {p.name}
+                        <button
+                          type="button"
+                          className="ml-1 rounded-sm hover:bg-muted p-0.5"
+                          onClick={() => removeSigner(p.email)}
+                          disabled={isCreating}
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </Badge>
+                    ))}
+                  </div>
+                )}
+                <div className="flex gap-2">
+                  <Select
+                    value={signerUserId}
+                    onValueChange={setSignerUserId}
+                    disabled={isCreating}
+                  >
+                    <SelectTrigger className="flex-1">
+                      <SelectValue placeholder="Add from directory" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <ScrollArea className="max-h-[200px]">
+                        {availableSigners.map((u: any) => (
+                          <SelectItem key={u.id} value={u.id}>
+                            {u.name} ({u.email})
+                          </SelectItem>
+                        ))}
+                      </ScrollArea>
+                    </SelectContent>
+                  </Select>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={addSignerFromDirectory}
+                    disabled={isCreating || !signerUserId}
+                  >
+                    <Plus className="h-4 w-4" />
+                  </Button>
+                </div>
+                <div className="flex gap-2">
+                  <Input
+                    placeholder="Name"
+                    value={manualSigner.name}
+                    onChange={(e) =>
+                      setManualSigner((s) => ({ ...s, name: e.target.value }))
+                    }
+                    disabled={isCreating}
+                  />
+                  <Input
+                    placeholder="email@company.com"
+                    value={manualSigner.email}
+                    onChange={(e) =>
+                      setManualSigner((s) => ({ ...s, email: e.target.value }))
+                    }
+                    disabled={isCreating}
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={addManualSigner}
+                    disabled={isCreating}
+                  >
+                    <Mail className="h-4 w-4" />
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Signers are notified and get temporary access to the document. This action completes automatically when everyone has signed.
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* Company Selection (for Company Admin) — not used for signature actions */}
+          {isAdmin && actionType !== "signature" && (
             <div className="space-y-2">
               <Label>Target Company (Optional - for cross-company actions)</Label>
               <Select
@@ -511,7 +760,8 @@ export function CreateActionFromWorkflowDialog({
             </div>
           )}
 
-          {/* Assignment Type */}
+          {/* Assignment Type — signature actions assign via signers */}
+          {actionType !== "signature" && (
           <div className="space-y-2">
             <Label>Assign To</Label>
             <RadioGroup
@@ -590,6 +840,7 @@ export function CreateActionFromWorkflowDialog({
               </Select>
             )}
           </div>
+          )}
 
           {/* Due Date */}
           <div className="space-y-2">
@@ -625,7 +876,16 @@ export function CreateActionFromWorkflowDialog({
             Cancel
           </Button>
           <Button onClick={handleCreate} disabled={isCreating}>
-            {isCreating ? "Creating..." : "Create Action"}
+            {isCreating ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Creating...
+              </>
+            ) : actionType === "signature" ? (
+              "Create signature action"
+            ) : (
+              "Create Action"
+            )}
           </Button>
         </DialogFooter>
       </DialogContent>

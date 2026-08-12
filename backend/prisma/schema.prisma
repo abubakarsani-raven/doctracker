@@ -338,7 +338,7 @@ model Action {
   companyId     String?  @map("company_id")
   title         String
   description   String?
-  type          String   // regular, document_upload, request_response
+  type          String   // regular, document_upload, request_response, signature
   status        String   @default("pending") // pending, in_progress, document_uploaded, response_received, completed
   assignedToType String  @map("assigned_to_type") // user, department
   assignedToId  String   @map("assigned_to_id")
@@ -360,6 +360,9 @@ model Action {
   responseData      Json?   @map("response_data")
   responseReceivedAt DateTime? @map("response_received_at")
   respondedBy       String? @map("responded_by")
+
+  // Signature action: linked SignatureRequest (completed when all sign)
+  signatureRequestId String? @unique @map("signature_request_id")
   
   // Cross-company fields
   sourceCompanyId   String? @map("source_company_id")
@@ -380,11 +383,12 @@ model Action {
   resolutionNotes String? @map("resolution_notes")
 
   // Relations
-  workflow      Workflow @relation(fields: [workflowId], references: [id], onDelete: Cascade)
-  document      File?    @relation(fields: [documentId], references: [id])
-  creator       User     @relation("ActionCreator", fields: [createdBy], references: [id])
-  company       Company? @relation("ActionCompany", fields: [companyId], references: [id])
-  workflowFiles WorkflowFile[]
+  workflow         Workflow          @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  document         File?             @relation(fields: [documentId], references: [id])
+  creator          User              @relation("ActionCreator", fields: [createdBy], references: [id])
+  company          Company?          @relation("ActionCompany", fields: [companyId], references: [id])
+  workflowFiles    WorkflowFile[]
+  signatureRequest SignatureRequest? @relation(fields: [signatureRequestId], references: [id], onDelete: SetNull)
 
   @@map("actions")
 }
@@ -651,6 +655,7 @@ model SignatureRequest {
   company      Company                @relation(fields: [companyId], references: [id], onDelete: Cascade)
   participants SignatureParticipant[]
   events       SignatureEvent[]
+  action       Action?
 
   @@map("signature_requests")
 }

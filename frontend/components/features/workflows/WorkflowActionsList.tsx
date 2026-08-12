@@ -13,6 +13,7 @@ import {
   Clock,
   User,
   Building2,
+  PenLine,
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { useActionsByWorkflow } from "@/lib/hooks/use-actions";
@@ -20,6 +21,7 @@ import { useCurrentUser } from "@/lib/hooks/use-users";
 import { ActionCompletionDialog } from "./ActionCompletionDialog";
 import { DocumentUploadActionDialog } from "./DocumentUploadActionDialog";
 import { RequestResponseActionDialog } from "./RequestResponseActionDialog";
+import { useRouter } from "next/navigation";
 
 interface WorkflowActionsListProps {
   workflowId: string;
@@ -30,6 +32,7 @@ export function WorkflowActionsList({
   workflowId,
   onCreateAction,
 }: WorkflowActionsListProps) {
+  const router = useRouter();
   const { data: currentUser } = useCurrentUser();
   const { data: actions = [], isLoading } = useActionsByWorkflow(workflowId);
 
@@ -44,6 +47,8 @@ export function WorkflowActionsList({
         return <Upload className="h-4 w-4" />;
       case "request_response":
         return <MessageSquare className="h-4 w-4" />;
+      case "signature":
+        return <PenLine className="h-4 w-4" />;
       default:
         return <CheckCircle2 className="h-4 w-4" />;
     }
@@ -55,6 +60,8 @@ export function WorkflowActionsList({
         return "Upload Document";
       case "request_response":
         return "Request/Response";
+      case "signature":
+        return "Signature";
       default:
         return "Regular";
     }
@@ -76,6 +83,19 @@ export function WorkflowActionsList({
   };
 
   const handleActionClick = (action: any) => {
+    if (action.type === "signature") {
+      const fileId =
+        action.documentId ||
+        action.signatureRequest?.fileId ||
+        action.document?.id;
+      if (fileId) {
+        router.push(`/documents/${fileId}`);
+      } else {
+        router.push(`/actions/${action.id}`);
+      }
+      return;
+    }
+
     setSelectedAction(action);
 
     if (action.type === "document_upload" && action.status === "pending") {
@@ -215,6 +235,28 @@ export function WorkflowActionsList({
                       </p>
                     </div>
                   )}
+                {action.type === "signature" && action.status !== "completed" && (
+                  <div className="mt-2 p-2 bg-violet-50 dark:bg-violet-950 rounded-md">
+                    <p className="text-xs text-violet-800 dark:text-violet-200">
+                      {(() => {
+                        const parts = action.signatureRequest?.participants || [];
+                        const signed = parts.filter(
+                          (p: any) => p.status === "signed",
+                        ).length;
+                        return parts.length
+                          ? `Signatures: ${signed}/${parts.length} — open document to sign`
+                          : "Open document to collect signatures";
+                      })()}
+                    </p>
+                  </div>
+                )}
+                {action.type === "signature" && action.status === "completed" && (
+                  <div className="mt-2 p-2 bg-green-50 dark:bg-green-950 rounded-md">
+                    <p className="text-xs text-green-800 dark:text-green-200">
+                      All signatures collected
+                    </p>
+                  </div>
+                )}
               </CardContent>
             </Card>
           ))}

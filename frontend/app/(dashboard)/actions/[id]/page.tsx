@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/breadcrumb";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import { StatusBadge, LoadingState, EmptyState, QueryErrorState } from "@/components/common";
 import { Separator } from "@/components/ui/separator";
 import {
@@ -22,6 +23,7 @@ import {
   Upload,
   MessageSquare,
   Workflow as WorkflowIcon,
+  PenLine,
 } from "lucide-react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
@@ -52,6 +54,17 @@ export default function ActionDetailPage() {
 
   const handleActionClick = () => {
     if (!action || !currentUser) return;
+
+    if (action.type === "signature") {
+      const fileId =
+        action.documentId ||
+        action.signatureRequest?.fileId ||
+        action.document?.id;
+      if (fileId) {
+        router.push(`/documents/${fileId}`);
+      }
+      return;
+    }
 
     const canRespond = canRespondToAction(action, workflow || null, currentUser);
     const isAssigned = isAssignedToAction(action, currentUser);
@@ -197,7 +210,13 @@ export default function ActionDetailPage() {
             </div>
           </div>
         </div>
-        {canActuallyComplete && canRespond && (
+        {action.type === "signature" ? (
+          <Button onClick={handleActionClick}>
+            <PenLine className="mr-2 h-4 w-4" />
+            {action.status === "completed" ? "View document" : "Open to sign"}
+          </Button>
+        ) : (
+          canActuallyComplete && canRespond && (
           <Button onClick={handleActionClick}>
             {action.type === "document_upload" &&
               action.status === "pending" && (
@@ -225,6 +244,7 @@ export default function ActionDetailPage() {
               </>
             )}
           </Button>
+          )
         )}
       </div>
 
@@ -259,6 +279,71 @@ export default function ActionDetailPage() {
               )}
             </CardContent>
           </Card>
+
+          {/* Signature Action - Show signing progress */}
+          {action.type === "signature" && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Signature progress</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {(action.documentId ||
+                  action.signatureRequest?.fileId ||
+                  action.document?.id) && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      const fileId =
+                        action.documentId ||
+                        action.signatureRequest?.fileId ||
+                        action.document?.id;
+                      router.push(`/documents/${fileId}`);
+                    }}
+                  >
+                    <FileText className="mr-2 h-4 w-4" />
+                    Open document
+                  </Button>
+                )}
+                {(action.signatureRequest?.participants || []).length === 0 ? (
+                  <p className="text-sm text-muted-foreground">
+                    No signers linked yet.
+                  </p>
+                ) : (
+                  <ul className="space-y-2">
+                    {action.signatureRequest.participants.map((p: any) => (
+                      <li
+                        key={p.id}
+                        className="flex items-center justify-between text-sm border rounded-md px-3 py-2"
+                      >
+                        <div>
+                          <p className="font-medium">{p.name || p.email}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {p.email}
+                          </p>
+                        </div>
+                        <Badge
+                          variant={
+                            p.status === "signed" ? "default" : "outline"
+                          }
+                          className={
+                            p.status === "signed" ? "bg-green-600" : undefined
+                          }
+                        >
+                          {p.status === "signed" ? "Signed" : "Pending"}
+                        </Badge>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {action.status === "completed" && (
+                  <p className="text-xs text-muted-foreground">
+                    Completed automatically when all signatures were collected.
+                  </p>
+                )}
+              </CardContent>
+            </Card>
+          )}
 
           {/* Document Upload Action - Show uploaded document info */}
           {action.type === "document_upload" &&
@@ -370,6 +455,8 @@ export default function ActionDetailPage() {
                     ? "Document Upload"
                     : action.type === "request_response"
                     ? "Request/Response"
+                    : action.type === "signature"
+                    ? "Signature"
                     : "Regular Action"}
                 </p>
               </div>

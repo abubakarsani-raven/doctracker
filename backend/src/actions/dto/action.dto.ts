@@ -1,12 +1,18 @@
 import {
+  IsArray,
   IsBoolean,
   IsDateString,
+  IsEmail,
   IsIn,
+  IsInt,
   IsObject,
   IsOptional,
   IsString,
   MaxLength,
+  Min,
+  ValidateNested,
 } from 'class-validator';
+import { Type } from 'class-transformer';
 
 const ACTION_STATUSES = [
   'pending',
@@ -15,6 +21,24 @@ const ACTION_STATUSES = [
   'response_received',
   'completed',
 ];
+
+export class SignatureParticipantDto {
+  @IsEmail()
+  email: string;
+
+  @IsString()
+  @MaxLength(200)
+  name: string;
+
+  @IsOptional()
+  @IsString()
+  userId?: string;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  signingOrder?: number;
+}
 
 export class CreateActionDto {
   @IsString()
@@ -29,7 +53,7 @@ export class CreateActionDto {
   @MaxLength(5000)
   description?: string;
 
-  @IsIn(['regular', 'document_upload', 'request_response'])
+  @IsIn(['regular', 'document_upload', 'request_response', 'signature'])
   type: string;
 
   @IsOptional()
@@ -98,6 +122,13 @@ export class CreateActionDto {
   @IsOptional()
   @IsDateString()
   dueDate?: string;
+
+  /** Required when type = signature — people who must sign the document. */
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => SignatureParticipantDto)
+  signatureParticipants?: SignatureParticipantDto[];
 }
 
 export class UpdateActionDto {
@@ -112,7 +143,7 @@ export class UpdateActionDto {
   description?: string;
 
   @IsOptional()
-  @IsIn(['regular', 'document_upload', 'request_response'])
+  @IsIn(['regular', 'document_upload', 'request_response', 'signature'])
   type?: string;
 
   @IsOptional()

@@ -827,18 +827,55 @@ export class SignaturesService {
         where: { requestId },
       });
       const allSigned = allParticipants.every((p) => p.status === 'signed');
+      let linkedActionWorkflowId: string | undefined;
 
       if (allSigned) {
         await tx.signatureRequest.update({
           where: { id: requestId },
           data: { status: 'completed' },
         });
+
+        // Complete any workflow action linked to this signature request
+        const linkedAction = await tx.action.findFirst({
+          where: { signatureRequestId: requestId },
+          select: { id: true, workflowId: true, status: true },
+        });
+        if (linkedAction) {
+          linkedActionWorkflowId = linkedAction.workflowId;
+          if (linkedAction.status !== 'completed') {
+            await tx.action.update({
+              where: { id: linkedAction.id },
+              data: {
+                status: 'completed',
+                completedAt: new Date(),
+                completedBy: user.id,
+                resolutionNotes: 'All signatures collected',
+              },
+            });
+          }
+        }
       } else if (isResign && request.status === 'completed') {
         // Should not normally happen, but keep request pending if resign broke completion.
         await tx.signatureRequest.update({
           where: { id: requestId },
           data: { status: 'pending' },
         });
+
+        const linkedAction = await tx.action.findFirst({
+          where: { signatureRequestId: requestId },
+          select: { id: true, workflowId: true },
+        });
+        if (linkedAction) {
+          linkedActionWorkflowId = linkedAction.workflowId;
+          await tx.action.update({
+            where: { id: linkedAction.id },
+            data: {
+              status: 'in_progress',
+              completedAt: null,
+              completedBy: null,
+            },
+          });
+        }
       }
 
       try {
@@ -866,6 +903,7 @@ export class SignaturesService {
         allCompleted: allSigned,
         placement,
         fileId: request.fileId,
+        linkedActionWorkflowId,
       };
     });
 
@@ -901,9 +939,12 @@ export class SignaturesService {
         name: user.name,
         email: user.email,
       });
+      if (result.linkedActionWorkflowId) {
+        await this.refreshWorkflowProgress(result.linkedActionWorkflowId);
+      }
     }
 
-    const { fileId: _fileId, ...response } = result;
+    const { fileId: _fileId, linkedActionWorkflowId: _wf, ...response } = result;
     return response;
   }
 
@@ -1127,6 +1168,45 @@ export class SignaturesService {
       stream.on('error', reject);
       stream.on('end', () => resolve(Buffer.concat(chunks)));
     });
+  }
+
+  /** Keep workflow % in sync when a linked signature action completes. */
+  private async refreshWorkflowProgress(workflowId: string) {
+    try {
+      const actions = await this.prisma.action.findMany({
+        where: { workflowId },
+        select: { status: true },
+      });
+      if (actions.length === 0) return;
+
+      const progressed = actions.filter((a) =>
+        ['completed', 'document_uploaded', 'response_received'].includes(
+          a.status,
+        ),
+      );
+      const progress = Math.round((progressed.length / actions.length) * 100);
+      const allCompleted = actions.every((a) => a.status === 'completed');
+
+      const workflow = await this.prisma.workflow.findUnique({
+        where: { id: workflowId },
+        select: { id: true, status: true },
+      });
+      if (!workflow) return;
+
+      let newStatus = workflow.status;
+      if (allCompleted && progress === 100 && workflow.status !== 'completed') {
+        newStatus = 'ready_for_review';
+      }
+
+      await this.prisma.workflow.update({
+        where: { id: workflowId },
+        data: { progress, status: newStatus },
+      });
+    } catch (error) {
+      this.logger.warn(
+        `Failed to refresh workflow progress for ${workflowId}: ${error}`,
+      );
+    }
   }
 }
 

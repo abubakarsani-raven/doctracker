@@ -12,6 +12,7 @@ import {
   User,
   Building2,
   Clock,
+  PenLine,
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -45,6 +46,8 @@ export function ActionResults({ workflowId }: ActionResultsProps) {
         return <Upload className="h-4 w-4" />;
       case "request_response":
         return <MessageSquare className="h-4 w-4" />;
+      case "signature":
+        return <PenLine className="h-4 w-4" />;
       default:
         return <CheckCircle2 className="h-4 w-4" />;
     }
@@ -56,6 +59,8 @@ export function ActionResults({ workflowId }: ActionResultsProps) {
         return "Document Upload";
       case "request_response":
         return "Request/Response";
+      case "signature":
+        return "Signature";
       default:
         return "Regular Action";
     }

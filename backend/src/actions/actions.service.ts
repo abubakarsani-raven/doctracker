@@ -4,6 +4,8 @@ import { WebSocketGateway } from '../websocket/websocket.gateway';
 import { ActivityService } from '../activity/activity.service';
 import { FilesService } from '../files/files.service';
 import { PermissionsService } from '../permissions/permissions.service';
+import { SignaturesService } from '../signatures/signatures.service';
+import { hasCapability } from '../permissions/capabilities';
 
 @Injectable()
 export class ActionsService {
@@ -13,6 +15,7 @@ export class ActionsService {
     private activityService: ActivityService,
     private filesService: FilesService,
     private permissionsService: PermissionsService,
+    private signaturesService: SignaturesService,
   ) {}
 
   async findAll(userId?: string, companyId?: string) {
@@ -78,6 +81,24 @@ export class ActionsService {
               fileType: true,
             },
           },
+          signatureRequest: {
+            select: {
+              id: true,
+              status: true,
+              fileId: true,
+              participants: {
+                select: {
+                  id: true,
+                  email: true,
+                  name: true,
+                  status: true,
+                  signingOrder: true,
+                  signedAt: true,
+                },
+                orderBy: { signingOrder: 'asc' },
+              },
+            },
+          },
           creator: {
             select: {
               id: true,
@@ -121,6 +142,25 @@ export class ActionsService {
         },
         document: true,
         creator: true,
+        signatureRequest: {
+          select: {
+            id: true,
+            status: true,
+            fileId: true,
+            participants: {
+              select: {
+                id: true,
+                email: true,
+                name: true,
+                status: true,
+                signingOrder: true,
+                signedAt: true,
+                userId: true,
+              },
+              orderBy: { signingOrder: 'asc' },
+            },
+          },
+        },
       },
     });
     
@@ -151,12 +191,47 @@ export class ActionsService {
     // Get workflow to determine companyId
     const workflow = await this.prisma.workflow.findUnique({
       where: { id: data.workflowId },
-      select: { companyId: true },
+      select: { companyId: true, documentId: true },
     });
 
     if (!workflow) {
-      throw new Error('Workflow not found');
+      throw new BadRequestException('Workflow not found');
     }
+
+    const isSignature = data.type === 'signature';
+    if (isSignature) {
+      if (!hasCapability(currentUser?.permissions, 'documents.request_signature')) {
+        throw new ForbiddenException(
+          'You do not have permission to request signatures',
+        );
+      }
+      if (!data.documentId && !workflow.documentId) {
+        throw new BadRequestException(
+          'A document is required for signature actions',
+        );
+      }
+      if (!data.signatureParticipants?.length) {
+        throw new BadRequestException(
+          'At least one signature participant is required',
+        );
+      }
+    }
+
+    // For signature actions without explicit assignee, track against the
+    // creator until we can use email-resolved participants below.
+    let assignedToType = data.assignedTo?.type || data.assignedToType || null;
+    let assignedToId = data.assignedTo?.id || data.assignedToId || null;
+    let assignedToName = data.assignedTo?.name || data.assignedToName || null;
+
+    if (isSignature && (!assignedToType || !assignedToId || !assignedToName)) {
+      assignedToType = 'user';
+      assignedToId = currentUser.id;
+      assignedToName =
+        currentUser.name || currentUser.email || 'Action owner';
+    }
+
+    const documentId =
+      data.documentId || (isSignature ? workflow.documentId : null) || null;
 
     // Transform frontend data to match Prisma schema
     const actionData: any = {
@@ -168,13 +243,13 @@ export class ActionsService {
       companyId: workflow.companyId,
       
       // Handle assignedTo transformation
-      assignedToType: data.assignedTo?.type || data.assignedToType || null,
-      assignedToId: data.assignedTo?.id || data.assignedToId || null,
-      assignedToName: data.assignedTo?.name || data.assignedToName || null,
+      assignedToType,
+      assignedToId,
+      assignedToName,
       
       // Handle folder/document relationships
       folderId: data.folderId || null,
-      documentId: data.documentId || null,
+      documentId,
       
       // Document upload specific fields
       targetFolderId: data.targetFolderId || null,
@@ -199,15 +274,87 @@ export class ActionsService {
 
     // Validate required fields
     if (!actionData.assignedToType || !actionData.assignedToId || !actionData.assignedToName) {
-      throw new Error('assignedTo (type, id, name) is required');
+      throw new BadRequestException('assignedTo (type, id, name) is required');
     }
 
-    const createdAction = await this.prisma.action.create({
+    let createdAction = await this.prisma.action.create({
       data: actionData,
       include: {
         workflow: true,
       },
     });
+
+    if (isSignature) {
+      let signatureRequest: any;
+      try {
+        signatureRequest = await this.signaturesService.createRequest(
+          documentId,
+          data.signatureParticipants.map((p: any, index: number) => ({
+            email: p.email,
+            name: p.name || p.email,
+            userId: p.userId,
+            signingOrder: p.signingOrder || index + 1,
+          })),
+          currentUser.id,
+          workflow.companyId,
+        );
+
+        // Prefer email-resolved participant identity over client-supplied userId
+        const resolvedSigner = (signatureRequest.participants || []).find(
+          (p: any) => p.userId,
+        );
+        const linkData: any = {
+          signatureRequestId: signatureRequest.id,
+          status: 'in_progress',
+        };
+        if (resolvedSigner && !data.assignedTo && !data.assignedToId) {
+          linkData.assignedToType = 'user';
+          linkData.assignedToId = resolvedSigner.userId;
+          linkData.assignedToName =
+            resolvedSigner.name || resolvedSigner.email;
+          assignedToType = linkData.assignedToType;
+          assignedToId = linkData.assignedToId;
+          assignedToName = linkData.assignedToName;
+        }
+
+        createdAction = await this.prisma.action.update({
+          where: { id: createdAction.id },
+          data: linkData,
+          include: {
+            workflow: true,
+            signatureRequest: {
+              select: {
+                id: true,
+                status: true,
+                fileId: true,
+                participants: {
+                  select: {
+                    id: true,
+                    email: true,
+                    name: true,
+                    status: true,
+                    signingOrder: true,
+                    signedAt: true,
+                  },
+                  orderBy: { signingOrder: 'asc' },
+                },
+              },
+            },
+          },
+        });
+      } catch (error) {
+        // Roll back orphan action / signature request if linking fails
+        if (signatureRequest?.id) {
+          await this.prisma.signatureRequest
+            .delete({ where: { id: signatureRequest.id } })
+            .catch(() => undefined);
+        }
+        await this.prisma.action
+          .delete({ where: { id: createdAction.id } })
+          .catch(() => undefined);
+        throw error;
+      }
+    }
 
     // Update workflow progress after creating action
     await this.updateWorkflowProgress(data.workflowId);
@@ -224,7 +371,9 @@ export class ActionsService {
             companyId: workflow.companyId,
             type: 'action_assigned',
             title: `New Action: ${createdAction.title}`,
-            message: `You have been assigned a new action: "${createdAction.title}"`,
+            message: isSignature
+              ? `You have a signature action: "${createdAction.title}"`
+              : `You have been assigned a new action: "${createdAction.title}"`,
             resourceType: 'action',
             resourceId: createdAction.id,
             read: false,
@@ -358,6 +507,20 @@ export class ActionsService {
         throw new BadRequestException(
           'Add a result (completion notes) before marking this action complete.',
         );
+      }
+      if (actionType === 'signature') {
+        const linked =
+          existingAction.signatureRequestId
+            ? await this.prisma.signatureRequest.findUnique({
+                where: { id: existingAction.signatureRequestId },
+                select: { status: true },
+              })
+            : null;
+        if (!linked || linked.status !== 'completed') {
+          throw new BadRequestException(
+            'Signature actions complete automatically when all signers have signed.',
+          );
+        }
       }
 
       if (!data.completedAt && !existingAction.completedAt) {

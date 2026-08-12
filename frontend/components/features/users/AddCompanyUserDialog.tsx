@@ -25,6 +25,12 @@ import { toast } from "sonner";
 import { Loader2, Mail, UserPlus } from "lucide-react";
 import { useCreateUser, useInviteUser, useRoles } from "@/lib/hooks/use-users";
 import { PasswordInput } from "@/components/ui/password-input";
+import {
+  formatCapability,
+  formatDataScope,
+  parseRoleMeta,
+  type RoleRecord,
+} from "@/lib/role-meta";
 
 interface AddCompanyUserDialogProps {
   open: boolean;
@@ -54,12 +60,15 @@ export function AddCompanyUserDialog({
   const createUser = useCreateUser();
 
   const assignableRoles = useMemo(
-    () =>
-      (roles as Array<{ id: string; name: string }>).filter(
-        (r) => r.name !== "Master",
-      ),
+    () => (roles as RoleRecord[]).filter((r) => r.name !== "Master"),
     [roles],
   );
+
+  const selectedRole = useMemo(
+    () => assignableRoles.find((r) => r.id === roleId),
+    [assignableRoles, roleId],
+  );
+  const roleMeta = parseRoleMeta(selectedRole);
 
   useEffect(() => {
     if (!open) return;
@@ -87,19 +96,18 @@ export function AddCompanyUserDialog({
     const departmentIds = departmentId ? [departmentId] : undefined;
 
     try {
-      if (mode === "invite") {
+      // Invite tab + email off → create with admin-set password (same as Create).
+      if (mode === "invite" && sendEmail) {
         await inviteUser.mutateAsync({
           email: email.trim(),
           name: name.trim(),
           roleId,
           departmentIds,
           companyId,
-          sendEmail,
+          sendEmail: true,
         });
         toast.success(
-          sendEmail
-            ? "Invitation sent — they will set a password from the email link"
-            : "User invited (no email sent)",
+          "Invitation sent — they will set a password from the email link",
         );
       } else {
         if (!password || password.length < 8) {
@@ -186,6 +194,29 @@ export function AddCompanyUserDialog({
                   ))}
                 </SelectContent>
               </Select>
+              {selectedRole ? (
+                <div className="rounded-md border bg-muted/40 p-3 text-sm space-y-1">
+                  <p className="text-muted-foreground">
+                    {roleMeta.description || `${selectedRole.name} role`}
+                  </p>
+                  {roleMeta.dataScope ? (
+                    <p>
+                      <span className="font-medium">Reach: </span>
+                      {formatDataScope(roleMeta.dataScope)}
+                    </p>
+                  ) : null}
+                  {roleMeta.capabilities.length > 0 ? (
+                    <p className="text-xs text-muted-foreground">
+                      {roleMeta.capabilities.length} capabilities — e.g.{" "}
+                      {roleMeta.capabilities
+                        .slice(0, 3)
+                        .map(formatCapability)
+                        .join("; ")}
+                      {roleMeta.capabilities.length > 3 ? "…" : ""}
+                    </p>
+                  ) : null}
+                </div>
+              ) : null}
             </div>
             {departments.length > 0 ? (
               <div className="space-y-2">
@@ -216,12 +247,30 @@ export function AddCompanyUserDialog({
                 <Checkbox
                   id="send-invite-email"
                   checked={sendEmail}
-                  onCheckedChange={(checked) => setSendEmail(checked === true)}
+                  onCheckedChange={(checked) =>
+                    setSendEmail(checked === true)
+                  }
                 />
                 <Label htmlFor="send-invite-email" className="cursor-pointer">
                   Send invitation email with set-password link
                 </Label>
               </div>
+              {!sendEmail ? (
+                <div className="space-y-2">
+                  <Label htmlFor="company-invite-password">Password *</Label>
+                  <PasswordInput
+                    id="company-invite-password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="At least 8 characters"
+                    autoComplete="new-password"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Without email, you set their password so they can sign in
+                    right away.
+                  </p>
+                </div>
+              ) : null}
             </TabsContent>
 
             <TabsContent value="create" className="mt-0 space-y-4">
@@ -246,14 +295,14 @@ export function AddCompanyUserDialog({
           <Button onClick={handleSubmit} disabled={busy}>
             {busy ? (
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            ) : mode === "invite" ? (
+            ) : mode === "invite" && sendEmail ? (
               <Mail className="mr-2 h-4 w-4" />
             ) : (
               <UserPlus className="mr-2 h-4 w-4" />
             )}
             {busy
               ? "Saving…"
-              : mode === "invite"
+              : mode === "invite" && sendEmail
                 ? "Send invite"
                 : "Create account"}
           </Button>
