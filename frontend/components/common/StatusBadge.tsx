@@ -24,7 +24,7 @@ const statusConfig: Record<
 > = {
   pending: { label: "Pending", variant: "secondary" },
   in_progress: { label: "In Progress", variant: "default" },
-  completed: { label: "Completed", variant: "default" },
+              completed: { label: "Closed", variant: "default" },
   document_uploaded: { label: "Document Uploaded", variant: "default" },
   response_received: { label: "Response Received", variant: "default" },
   approved: { label: "Approved", variant: "default" },

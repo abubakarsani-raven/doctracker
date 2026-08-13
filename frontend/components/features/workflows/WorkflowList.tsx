@@ -21,7 +21,7 @@ export function WorkflowList({ workflows, isLoading, title = "Workflows" }: Work
   const getStatusBadge = (status: string) => {
     switch (status) {
       case "completed":
-        return <Badge className="bg-green-600">Completed</Badge>;
+        return <Badge className="bg-green-600">Closed</Badge>;
       case "in_progress":
         return <Badge className="bg-blue-600">In Progress</Badge>;
       case "ready_for_review":

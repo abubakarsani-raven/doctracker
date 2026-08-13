@@ -40,6 +40,12 @@ interface WorkflowCardProps {
   className?: string;
 }
 
+function assignedToLabel(assignedTo?: string | { name?: string }) {
+  if (!assignedTo) return null;
+  if (typeof assignedTo === "string") return assignedTo;
+  return assignedTo.name?.trim() || "Unassigned";
+}
+
 export function WorkflowCard({
   workflow,
   onView,
@@ -48,30 +54,34 @@ export function WorkflowCard({
   className,
 }: WorkflowCardProps) {
   const isOverdue = workflow.dueDate && new Date(workflow.dueDate) < new Date();
+  const assignee = assignedToLabel(workflow.assignedTo);
+  const showCompanyPath =
+    workflow.isCrossCompany ||
+    (workflow.sourceCompanyName &&
+      workflow.targetCompanyName &&
+      workflow.sourceCompanyName !== workflow.targetCompanyName);
+  const progress = workflow.progress ?? 0;
 
   return (
     <Card className={cn("hover:shadow-md transition-shadow", className)}>
       <CardHeader className="pb-3">
-        <div className="flex items-start justify-between">
+        <div className="flex items-start gap-2">
           <Link
             href={`/workflows/${workflow.id}`}
-            className="flex items-center gap-3 flex-1 min-w-0 group"
+            className="flex min-w-0 flex-1 items-start gap-3 group"
           >
-            <div className="flex-shrink-0">
-              <FileText className="h-8 w-8 text-blue-500" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <h3 className="font-semibold text-sm truncate group-hover:text-primary">
+            <FileText className="mt-0.5 h-5 w-5 shrink-0 text-blue-500" />
+            <div className="min-w-0 flex-1 space-y-1.5">
+              <h3 className="text-sm font-semibold leading-snug group-hover:text-primary">
                 {workflow.documentName}
               </h3>
-              {workflow.assignedTo && (
-                <p className="text-xs text-muted-foreground mt-1">
-                  Assigned to: {typeof workflow.assignedTo === "string" ? workflow.assignedTo : ((workflow.assignedTo as any).name?.trim() || "Unassigned")}
+              {assignee && (
+                <p className="text-xs text-muted-foreground">
+                  Assigned to {assignee}
                 </p>
               )}
-              {/* Cross-company indicators */}
-              {(workflow.isCrossCompany || workflow.sourceCompanyName || workflow.targetCompanyName) && (
-                <div className="flex items-center gap-2 mt-1 flex-wrap">
+              {showCompanyPath && (
+                <div className="flex flex-wrap items-center gap-1.5">
                   {workflow.sourceCompanyName && (
                     <CompanyBadge companyName={workflow.sourceCompanyName} size="sm" />
                   )}
@@ -88,9 +98,11 @@ export function WorkflowCard({
                   )}
                 </div>
               )}
-              {/* Approval status */}
               {workflow.approvalStatus === "pending" && (
-                <Badge variant="outline" className="text-xs mt-1 text-yellow-600 border-yellow-600">
+                <Badge
+                  variant="outline"
+                  className="text-xs text-yellow-600 border-yellow-600"
+                >
                   Pending Approval
                 </Badge>
               )}
@@ -98,7 +110,7 @@ export function WorkflowCard({
           </Link>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon" className="h-8 w-8">
+              <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0">
                 <MoreVertical className="h-4 w-4" />
                 <span className="sr-only">More options</span>
               </Button>
@@ -114,39 +126,41 @@ export function WorkflowCard({
               )}
               {onComplete && (
                 <DropdownMenuItem onClick={() => onComplete(workflow.id)}>
-                  Complete
+                  Close
                 </DropdownMenuItem>
               )}
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
       </CardHeader>
-      <CardContent className="pt-0 space-y-3">
-        <div className="flex items-center justify-between">
+      <CardContent className="pt-0 space-y-2.5">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs text-muted-foreground">
           <StatusBadge status={workflow.status} />
           {workflow.dueDate && (
-            <div className="flex items-center gap-1 text-xs">
-              <Clock className="h-3 w-3 text-muted-foreground" />
-              <span className={cn(isOverdue && "text-destructive")}>
-                {isOverdue
-                  ? "Past end point"
-                  : `Ends ${formatDistanceToNow(workflow.dueDate, { addSuffix: true })}`}
-              </span>
-            </div>
+            <span
+              className={cn(
+                "inline-flex items-center gap-1",
+                isOverdue && "text-destructive",
+              )}
+            >
+              <Clock className="h-3 w-3" />
+              {isOverdue
+                ? "Past end point"
+                : `Ends ${formatDistanceToNow(workflow.dueDate, { addSuffix: true })}`}
+            </span>
           )}
+          <span>
+            Started {formatDistanceToNow(workflow.startedAt, { addSuffix: true })}
+          </span>
         </div>
         {workflow.progress !== undefined && (
-          <div className="space-y-1">
-            <div className="flex items-center justify-between text-xs text-muted-foreground">
-              <span>Progress</span>
-              <span>{workflow.progress}%</span>
-            </div>
-            <Progress value={workflow.progress} />
+          <div className="flex items-center gap-2">
+            <Progress value={progress} className="h-1.5 min-w-0 flex-1" />
+            <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+              {progress}%
+            </span>
           </div>
         )}
-        <p className="text-xs text-muted-foreground">
-          Started {formatDistanceToNow(workflow.startedAt, { addSuffix: true })}
-        </p>
       </CardContent>
     </Card>
   );

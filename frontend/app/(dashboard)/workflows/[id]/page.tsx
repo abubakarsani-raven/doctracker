@@ -46,7 +46,7 @@ import { WorkflowCompletionDialog } from "@/components/features/workflows/Workfl
 import { useWorkflow } from "@/lib/hooks/use-workflows";
 import { useActionsByWorkflow } from "@/lib/hooks/use-actions";
 import { useUsers, useCurrentUser } from "@/lib/hooks/use-users";
-import { calculateProgressFromActions } from "@/lib/workflow-utils";
+import { calculateProgressFromActions, canCloseWorkflow } from "@/lib/workflow-utils";
 import Link from "next/link";
 import { CompanyBadge } from "@/components/features/workflows/CompanyBadge";
 
@@ -94,44 +94,9 @@ export default function WorkflowDetailPage() {
     return workflow ? { ...workflow, progress, actions } : null;
   }, [workflow, progress, actions]);
 
-  // Check if user can complete the workflow (must be before early returns)
   const canCompleteWorkflow = useMemo(() => {
-    if (!currentUser || !workflow) return false;
-    
-    // Check if all actions are completed
-    const allActionsCompleted = actions.length > 0 && actions.every((a: any) => 
-      a.status === "completed" || 
-      a.status === "document_uploaded" || 
-      a.status === "response_received"
-    );
-    
-    // Allow completion if workflow is ready_for_review OR if progress is 100%
-    const canComplete = 
-      workflow.status === "ready_for_review" || 
-      workflow.status === "completed" ||
-      (progress >= 100 && allActionsCompleted);
-    
-    if (!canComplete) return false;
-
-    // Master role can always complete
-    if (seesAllCompanies(currentUser)) return true;
-
-    // Creator can complete
-    const isCreator = 
-      workflow.creator?.id === currentUser.id ||
-      workflow.assignedBy === currentUser.id;
-
-    // Assignee can complete
-    const isAssignee = 
-      (workflow.assignedTo?.type === "user" && 
-       workflow.assignedTo?.id === currentUser.id) ||
-      (workflow.assignedTo?.type === "department" && 
-       currentUser.department &&
-       (workflow.assignedTo?.name === currentUser.department ||
-        workflow.assignedTo?.id === currentUser.department));
-
-    return isCreator || isAssignee;
-  }, [currentUser, workflow, progress, actions]);
+    return canCloseWorkflow(workflow, currentUser);
+  }, [currentUser, workflow]);
 
   const canSetEndPoint = useMemo(() => {
     if (!currentUser || !workflow) return false;
@@ -218,12 +183,12 @@ export default function WorkflowDetailPage() {
       </Breadcrumb>
 
       {/* Header */}
-      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-        <div className="flex min-w-0 items-center gap-4">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+        <div className="flex min-w-0 items-start gap-3">
           <Button
             variant="ghost"
             size="icon"
-            className="shrink-0"
+            className="mt-0.5 shrink-0"
             onClick={() => router.back()}
             aria-label="Go back"
           >
@@ -231,18 +196,18 @@ export default function WorkflowDetailPage() {
           </Button>
           <div className="min-w-0">
             <div className="flex min-w-0 flex-wrap items-center gap-2">
-              <h1 className="truncate text-2xl font-bold">{workflowTitle}</h1>
+              <h1 className="text-2xl font-bold leading-tight">{workflowTitle}</h1>
               {workflowWithProgress.type && (
-                <Badge variant="outline">
+                <Badge variant="outline" className="shrink-0">
                   {workflowWithProgress.type === "folder" ? (
                     <>
                       <Folder className="h-3 w-3 mr-1" />
-                      Folder-Based
+                      Folder
                     </>
                   ) : (
                     <>
                       <FileText className="h-3 w-3 mr-1" />
-                      Document-Based
+                      Document
                     </>
                   )}
                 </Badge>
@@ -272,31 +237,57 @@ export default function WorkflowDetailPage() {
             </div>
           </div>
         </div>
-        <div className="flex min-w-0 flex-wrap items-center gap-2">
+        <div
+          className="flex w-full shrink-0 flex-col gap-2 sm:w-auto sm:flex-row sm:flex-nowrap sm:items-center"
+          role="group"
+          aria-label="Workflow actions"
+        >
+          <Button
+            className="w-full sm:w-auto"
+            onClick={() => setRoutingSheetOpen(true)}
+          >
+            <Send className="h-4 w-4" />
+            Route
+          </Button>
+          {canCompleteWorkflow && (
+            <Button
+              variant="outline"
+              className="w-full sm:w-auto"
+              onClick={() => setCompleteWorkflowDialogOpen(true)}
+            >
+              <CheckCircle2 className="h-4 w-4" />
+              Close
+            </Button>
+          )}
           {canSetEndPoint && workflowWithProgress?.status !== "completed" && (
             <Button
               variant="outline"
+              className="w-full sm:w-auto"
               onClick={() => setEndPointDialogOpen(true)}
             >
-              <CalendarClock className="mr-2 h-4 w-4" />
-              {workflowWithProgress.dueDate ? "Change end point" : "Set end point"}
+              <CalendarClock className="h-4 w-4" />
+              {workflowWithProgress.dueDate ? "End point" : "Set end point"}
             </Button>
           )}
-          {canCompleteWorkflow && workflowWithProgress?.status !== "completed" && (
-            <Button
-              onClick={() => setCompleteWorkflowDialogOpen(true)}
-              className="bg-green-600 hover:bg-green-700"
-            >
-              <CheckCircle2 className="mr-2 h-4 w-4" />
-              Mark as Complete
-            </Button>
-          )}
-          <Button onClick={() => setRoutingSheetOpen(true)}>
-            <Send className="mr-2 h-4 w-4" />
-            Route Workflow
-          </Button>
         </div>
       </div>
+
+      {workflowWithProgress.status === "completed" && (
+        <div className="flex items-start gap-3 rounded-lg border border-green-500/30 bg-green-500/5 p-4">
+          <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-green-600" />
+          <div className="min-w-0">
+            <p className="font-medium">This workflow is closed</p>
+            <p className="text-sm text-muted-foreground">
+              {workflowWithProgress.completedAt
+                ? `Closed ${formatDistanceToNow(new Date(workflowWithProgress.completedAt), { addSuffix: true })}.`
+                : "Work on this workflow is finished."}
+              {workflowWithProgress.filedAt
+                ? " Documents have been filed."
+                : " Use Route to file the documents if you need to archive the case."}
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Folder/Document Context */}
       {isFolderBased && workflowWithProgress.folderId && (
@@ -446,6 +437,24 @@ export default function WorkflowDetailPage() {
                     : "Recently"}
                 </p>
               </div>
+              {workflowWithProgress.status === "completed" && (
+                <>
+                  <Separator />
+                  <div>
+                    <p className="text-sm font-medium text-muted-foreground mb-1">
+                      Closed
+                    </p>
+                    <p className="text-sm">
+                      {workflowWithProgress.completedAt
+                        ? format(
+                            new Date(workflowWithProgress.completedAt),
+                            "PPp",
+                          )
+                        : "Yes"}
+                    </p>
+                  </div>
+                </>
+              )}
               {creatorName && (
                 <>
                   <Separator />
@@ -554,15 +563,17 @@ export default function WorkflowDetailPage() {
                 <Plus className="mr-2 h-4 w-4" />
                 Add File
               </Button>
-              <Button
-                variant="outline"
-                className="w-full"
-                size="sm"
-                onClick={() => setCreateActionDialogOpen(true)}
-              >
-                <Plus className="mr-2 h-4 w-4" />
-                Create Action
-              </Button>
+              {workflowWithProgress.status !== "completed" && (
+                <Button
+                  variant="outline"
+                  className="w-full"
+                  size="sm"
+                  onClick={() => setCreateActionDialogOpen(true)}
+                >
+                  <Plus className="mr-2 h-4 w-4" />
+                  Create Action
+                </Button>
+              )}
               {(workflowWithProgress.status === "ready_for_review" || 
                 workflowWithProgress.status === "completed") && (
                 <Button

@@ -28,6 +28,52 @@ export function calculateProgressFromActions(actions: any[]): number {
   return Math.round((completedActions.length / actions.length) * 100);
 }
 
+/** Workflow end point as a Date, or undefined if none is set. */
+export function workflowEndDate(
+  workflow?: { dueDate?: string | Date | null } | null,
+): Date | undefined {
+  if (!workflow?.dueDate) return undefined;
+  const parsed = new Date(workflow.dueDate);
+  return Number.isNaN(parsed.getTime()) ? undefined : parsed;
+}
+
+/** True when `date` is after the workflow end point. */
+export function isAfterWorkflowEnd(date: Date, workflowEnd?: Date): boolean {
+  if (!workflowEnd) return false;
+  return date.getTime() > workflowEnd.getTime();
+}
+
+/** Cap a picked date so it never lands after the workflow end point. */
+export function clampDateToWorkflowEnd(date: Date, workflowEnd?: Date): Date {
+  if (!workflowEnd || date.getTime() <= workflowEnd.getTime()) return date;
+  return workflowEnd;
+}
+
+/**
+ * Creator, current assignee, or instance-wide admin can close a workflow.
+ * Actions are optional — the close dialog warns if any are still open.
+ */
+export function canCloseWorkflow(workflow: any, currentUser: any): boolean {
+  if (!currentUser || !workflow) return false;
+  if (workflow.status === "completed") return false;
+
+  if (seesAllCompanies(currentUser)) return true;
+
+  const isCreator =
+    workflow.creator?.id === currentUser.id ||
+    workflow.assignedBy === currentUser.id;
+
+  const isAssignee =
+    (workflow.assignedTo?.type === "user" &&
+      workflow.assignedTo?.id === currentUser.id) ||
+    (workflow.assignedTo?.type === "department" &&
+      currentUser.department &&
+      (workflow.assignedTo?.name === currentUser.department ||
+        workflow.assignedTo?.id === currentUser.department));
+
+  return isCreator || isAssignee;
+}
+
 /**
  * Calculate new workflow status based on progress and actions
  */

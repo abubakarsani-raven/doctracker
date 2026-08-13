@@ -139,7 +139,7 @@ export default function WorkflowsPage() {
             <TabsTrigger value="all">All</TabsTrigger>
             <TabsTrigger value="assigned">Assigned to Me</TabsTrigger>
             <TabsTrigger value="my-work">My Work</TabsTrigger>
-            <TabsTrigger value="completed">Completed</TabsTrigger>
+            <TabsTrigger value="completed">Closed</TabsTrigger>
           </TabsList>
 
           <div className="flex items-center gap-2">
@@ -164,7 +164,7 @@ export default function WorkflowsPage() {
                 <SelectItem value="assigned">Assigned</SelectItem>
                 <SelectItem value="in_progress">In Progress</SelectItem>
                 <SelectItem value="ready_for_review">Ready for Review</SelectItem>
-                <SelectItem value="completed">Completed</SelectItem>
+                <SelectItem value="completed">Closed</SelectItem>
               </SelectContent>
             </Select>
           </div>

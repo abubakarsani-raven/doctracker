@@ -199,12 +199,17 @@ export class ActionsService {
     // Get workflow to determine companyId
     const workflow = await this.prisma.workflow.findUnique({
       where: { id: data.workflowId },
-      select: { companyId: true, documentId: true },
+      select: { companyId: true, documentId: true, dueDate: true },
     });
 
     if (!workflow) {
       throw new BadRequestException('Workflow not found');
     }
+
+    this.assertDueDateWithinWorkflowEnd(
+      data.dueDate ? new Date(data.dueDate) : null,
+      workflow.dueDate,
+    );
 
     const isSignature = data.type === 'signature';
     if (isSignature) {
@@ -446,6 +451,7 @@ export class ActionsService {
             assignedBy: true,
             assignedToType: true,
             assignedToId: true,
+            dueDate: true,
             routingHistory: {
               select: {
                 fromType: true,
@@ -566,6 +572,14 @@ export class ActionsService {
     if (data.status !== undefined) updateData.status = data.status;
     if (data.title !== undefined) updateData.title = data.title;
     if (data.description !== undefined) updateData.description = data.description;
+    if (data.dueDate !== undefined) {
+      const nextDue = data.dueDate ? new Date(data.dueDate) : null;
+      this.assertDueDateWithinWorkflowEnd(
+        nextDue,
+        existingAction.workflow?.dueDate ?? null,
+      );
+      updateData.dueDate = nextDue;
+    }
     if (data.completedAt !== undefined) {
       updateData.completedAt = data.completedAt ? new Date(data.completedAt) : null;
     }
@@ -887,6 +901,21 @@ export class ActionsService {
     } catch (error) {
       console.error(`Failed to update workflow progress for workflow ${workflowId}:`, error);
       // Don't throw - workflow update failure shouldn't break action update
+    }
+  }
+
+  private assertDueDateWithinWorkflowEnd(
+    actionDue: Date | null,
+    workflowDue: Date | null | undefined,
+  ) {
+    if (!actionDue || !workflowDue) return;
+    if (Number.isNaN(actionDue.getTime())) {
+      throw new BadRequestException('Action due date is not valid.');
+    }
+    if (actionDue.getTime() > workflowDue.getTime()) {
+      throw new BadRequestException(
+        `Action due date cannot be after the workflow end point (${workflowDue.toLocaleString()}).`,
+      );
     }
   }
 }

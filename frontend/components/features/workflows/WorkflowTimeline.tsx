@@ -130,7 +130,7 @@ export function WorkflowTimeline({ workflowId }: WorkflowTimelineProps) {
         assigned: "Assigned",
         in_progress: "In Progress",
         ready_for_review: "Ready for Review",
-        completed: "Completed",
+        completed: "Closed",
       };
 
       const statusLabel = statusLabels[workflow.status] || workflow.status;

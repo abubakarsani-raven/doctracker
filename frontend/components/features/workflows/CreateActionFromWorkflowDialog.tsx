@@ -46,6 +46,11 @@ import { useCreateApprovalRequest } from "@/lib/hooks/use-approval-requests";
 import { useWorkflow } from "@/lib/hooks/use-workflows";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
+import {
+  clampDateToWorkflowEnd,
+  isAfterWorkflowEnd,
+  workflowEndDate,
+} from "@/lib/workflow-utils";
 
 interface SignatureParticipantDraft {
   email: string;
@@ -94,6 +99,7 @@ export function CreateActionFromWorkflowDialog({
   const [selectedUserId, setSelectedUserId] = useState("");
   const [selectedDepartmentId, setSelectedDepartmentId] = useState("");
   const [dueDate, setDueDate] = useState<Date | undefined>(undefined);
+  const workflowEnd = workflowEndDate(workflow);
 
   // Document upload action fields
   const [targetFolderId, setTargetFolderId] = useState<string>("");
@@ -351,6 +357,15 @@ export function CreateActionFromWorkflowDialog({
 
     if (!currentUser) {
       toast.error("You must be logged in to create an action");
+      return;
+    }
+
+    if (dueDate && isAfterWorkflowEnd(dueDate, workflowEnd)) {
+      toast.error(
+        workflowEnd
+          ? `Action due date cannot be after the workflow end point (${format(workflowEnd, "PPp")})`
+          : "Action due date cannot be after the workflow end point",
+      );
       return;
     }
 
@@ -866,11 +881,27 @@ export function CreateActionFromWorkflowDialog({
                 <Calendar
                   mode="single"
                   selected={dueDate}
-                  onSelect={setDueDate}
+                  onSelect={(next) =>
+                    setDueDate(
+                      next ? clampDateToWorkflowEnd(next, workflowEnd) : undefined,
+                    )
+                  }
+                  disabled={workflowEnd ? { after: workflowEnd } : undefined}
+                  endMonth={workflowEnd}
                   initialFocus
                 />
               </PopoverContent>
             </Popover>
+            {workflowEnd ? (
+              <p className="text-xs text-muted-foreground">
+                Must be on or before the workflow end point (
+                {format(workflowEnd, "PPp")}).
+              </p>
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                No workflow end point is set, so any date is allowed.
+              </p>
+            )}
           </div>
         </div>
 

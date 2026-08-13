@@ -975,6 +975,23 @@ export class WorkflowsService {
   ) {
     await this.assertCanSetEndPoint(id, currentUser);
 
+    if (dueDate) {
+      const latestAction = await this.prisma.action.findFirst({
+        where: { workflowId: id, dueDate: { not: null } },
+        orderBy: { dueDate: 'desc' },
+        select: { dueDate: true, title: true },
+      });
+      const nextEnd = new Date(dueDate);
+      if (
+        latestAction?.dueDate &&
+        latestAction.dueDate.getTime() > nextEnd.getTime()
+      ) {
+        throw new BadRequestException(
+          `End point cannot be before an action due date. "${latestAction.title}" is due ${latestAction.dueDate.toLocaleString()}.`,
+        );
+      }
+    }
+
     const workflow = await this.prisma.workflow.update({
       where: { id },
       data: {

@@ -34,6 +34,11 @@ import { useCreateAction } from "@/lib/hooks/use-actions";
 import { useWorkflows } from "@/lib/hooks/use-workflows";
 import { useUsers } from "@/lib/hooks/use-users";
 import { useCompanies } from "@/lib/hooks/use-companies";
+import {
+  clampDateToWorkflowEnd,
+  isAfterWorkflowEnd,
+  workflowEndDate,
+} from "@/lib/workflow-utils";
 
 interface CreateActionDialogProps {
   open: boolean;
@@ -64,6 +69,12 @@ export function CreateActionDialog({
     () => workflows.filter((w: any) => w.status !== "completed"),
     [workflows],
   );
+
+  const selectedWorkflow = useMemo(
+    () => openWorkflows.find((w: any) => w.id === workflowId),
+    [openWorkflows, workflowId],
+  );
+  const workflowEnd = workflowEndDate(selectedWorkflow);
 
   const activeUsers = useMemo(
     () => users.filter((u: any) => u.status === "active"),
@@ -119,6 +130,15 @@ export function CreateActionDialog({
       return;
     }
 
+    if (dueDate && isAfterWorkflowEnd(dueDate, workflowEnd)) {
+      sonnerToast.error(
+        workflowEnd
+          ? `Action due date cannot be after the workflow end point (${format(workflowEnd, "PPp")})`
+          : "Action due date cannot be after the workflow end point",
+      );
+      return;
+    }
+
     try {
       await createAction.mutateAsync({
         workflowId,
@@ -157,7 +177,15 @@ export function CreateActionDialog({
             <Label htmlFor="workflow">Workflow *</Label>
             <Select
               value={workflowId}
-              onValueChange={setWorkflowId}
+              onValueChange={(next) => {
+                setWorkflowId(next);
+                const nextEnd = workflowEndDate(
+                  openWorkflows.find((w: any) => w.id === next),
+                );
+                if (dueDate && nextEnd && isAfterWorkflowEnd(dueDate, nextEnd)) {
+                  setDueDate(clampDateToWorkflowEnd(dueDate, nextEnd));
+                }
+              }}
               disabled={creating}
             >
               <SelectTrigger id="workflow">
@@ -260,11 +288,23 @@ export function CreateActionDialog({
                 <Calendar
                   mode="single"
                   selected={dueDate}
-                  onSelect={setDueDate}
+                  onSelect={(next) =>
+                    setDueDate(
+                      next ? clampDateToWorkflowEnd(next, workflowEnd) : undefined,
+                    )
+                  }
+                  disabled={workflowEnd ? { after: workflowEnd } : undefined}
+                  endMonth={workflowEnd}
                   initialFocus
                 />
               </PopoverContent>
             </Popover>
+            {workflowEnd && (
+              <p className="text-xs text-muted-foreground">
+                Must be on or before the workflow end point (
+                {format(workflowEnd, "PPp")}).
+              </p>
+            )}
           </div>
 
           <DialogFooter>

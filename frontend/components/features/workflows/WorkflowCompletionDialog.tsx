@@ -57,7 +57,7 @@ export function WorkflowCompletionDialog({
       return;
     }
     if (!canComplete) {
-      toast.error("Resolve open actions or choose “Complete anyway”");
+      toast.error("Resolve open actions or choose “Close anyway”");
       return;
     }
 
@@ -70,14 +70,14 @@ export function WorkflowCompletionDialog({
         },
       });
 
-      toast.success("Workflow marked as completed");
+      toast.success("Workflow closed");
       setForceComplete(false);
       onWorkflowCompleted?.();
       onOpenChange(false);
     } catch (error: any) {
       console.error("Failed to complete workflow:", error);
       toast.error(
-        error.message || "Failed to complete workflow. Please try again.",
+        error.message || "Failed to close workflow. Please try again.",
       );
     }
   };
@@ -100,25 +100,23 @@ export function WorkflowCompletionDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <CheckCircle2 className="h-5 w-5 text-green-600" />
-            Complete workflow?
+            Close this workflow?
           </DialogTitle>
           <DialogDescription asChild>
             <div className="space-y-2 text-sm text-muted-foreground">
-              <p>How a workflow ends:</p>
+              <p>
+                Closing marks the case as finished. You do not need actions
+                first — the progress bar only tracks actions if you created
+                them.
+              </p>
               <ol className="list-decimal space-y-1 pl-4">
-                <li>
-                  Finish actions (progress reaches 100% → Ready for review).
-                </li>
-                <li>
-                  Mark as Complete (this step) — work is done.
-                </li>
+                <li>Close the workflow (this step) — status becomes Closed.</li>
                 <li>
                   Optionally Route → File documents to archive the case.
                 </li>
               </ol>
               <p>
-                Document signature requests on the file itself are separate from
-                this workflow unless you created a Signature action.
+                The end point date is a deadline, not a close button.
               </p>
             </div>
           </DialogDescription>
@@ -165,7 +163,7 @@ export function WorkflowCompletionDialog({
                   onChange={(e) => setForceComplete(e.target.checked)}
                 />
                 <span>
-                  Complete anyway — leave open actions as they are
+                  Close anyway — leave open actions as they are
                 </span>
               </label>
             </div>
@@ -173,8 +171,7 @@ export function WorkflowCompletionDialog({
             <div className="flex gap-2 rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 text-sm text-muted-foreground">
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
               <p>
-                Completing cannot be undone from this screen. Only reopen the
-                workflow if your organization allows status changes later.
+                Closing cannot be undone from this screen.
               </p>
             </div>
           )}
@@ -199,14 +196,14 @@ export function WorkflowCompletionDialog({
             {updateWorkflow.isPending ? (
               <>
                 <CheckCircle2 className="mr-2 h-4 w-4 animate-spin" />
-                Completing…
+                Closing…
               </>
             ) : (
               <>
                 <CheckCircle2 className="mr-2 h-4 w-4" />
                 {hasOpenActions && forceComplete
-                  ? "Complete anyway"
-                  : "Yes, mark complete"}
+                  ? "Close anyway"
+                  : "Yes, close workflow"}
               </>
             )}
           </Button>
