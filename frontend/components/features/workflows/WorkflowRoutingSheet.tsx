@@ -20,7 +20,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { toast } from "sonner";
 import { Send, ArrowRight, ArrowLeft, Plus, User, Building2, Crown, FileText } from "lucide-react";
 import { Separator } from "@/components/ui/separator";
@@ -557,15 +556,13 @@ export function WorkflowRoutingSheet({
                   <SelectTrigger>
                     <SelectValue placeholder="Select company (leave empty for same company)" />
                   </SelectTrigger>
-                  <SelectContent>
-                    <ScrollArea className="max-h-[200px]">
-                      <SelectItem value="__same__">Same Company</SelectItem>
-                      {companies.map((company: any) => (
-                        <SelectItem key={company.id} value={company.id}>
-                          {company.name}
-                        </SelectItem>
-                      ))}
-                    </ScrollArea>
+                  <SelectContent searchPlaceholder="Search companies...">
+                    <SelectItem value="__same__">Same Company</SelectItem>
+                    {companies.map((company: any) => (
+                      <SelectItem key={company.id} value={company.id}>
+                        {company.name}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
                 <p className="text-xs text-muted-foreground">
@@ -584,30 +581,28 @@ export function WorkflowRoutingSheet({
                   <SelectTrigger>
                     <SelectValue placeholder="Choose department..." />
                   </SelectTrigger>
-                  <SelectContent>
-                    <ScrollArea className="max-h-[200px]">
-                      {(selectedCompanyId
-                        ? departments.filter((d: any) => {
-                            const deptCompany = companies.find((c: any) => 
-                              c.departments?.some((dept: any) => dept.id === d.id)
-                            );
-                            return deptCompany?.id === selectedCompanyId;
-                          })
-                        : departments
-                      ).map((dept: any) => (
-                        <SelectItem key={dept.id} value={dept.id}>
-                          <div className="flex items-center gap-2">
-                            <Building2 className="h-3 w-3" />
-                            <span>{dept.name}</span>
-                            {dept.companyName && (
-                              <span className="text-xs text-muted-foreground">
-                                ({dept.companyName})
-                              </span>
-                            )}
-                          </div>
-                        </SelectItem>
-                      ))}
-                    </ScrollArea>
+                  <SelectContent searchPlaceholder="Search departments...">
+                    {(selectedCompanyId
+                      ? departments.filter((d: any) => {
+                          const deptCompany = companies.find((c: any) => 
+                            c.departments?.some((dept: any) => dept.id === d.id)
+                          );
+                          return deptCompany?.id === selectedCompanyId;
+                        })
+                      : departments
+                    ).map((dept: any) => (
+                      <SelectItem key={dept.id} value={dept.id}>
+                        <div className="flex items-center gap-2 min-w-0">
+                          <Building2 className="h-3 w-3 shrink-0" />
+                          <span className="truncate">{dept.name}</span>
+                          {dept.companyName && (
+                            <span className="text-xs text-muted-foreground truncate">
+                              ({dept.companyName})
+                            </span>
+                          )}
+                        </div>
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
@@ -620,34 +615,32 @@ export function WorkflowRoutingSheet({
                   <SelectTrigger>
                     <SelectValue placeholder="Choose person..." />
                   </SelectTrigger>
-                  <SelectContent>
-                    <ScrollArea className="max-h-[200px]">
-                      {(selectedCompanyId
-                        ? users.filter((u: any) => {
-                            // Filter users by selected company
-                            const userCompany = companies.find((c: any) => {
-                              if (!c.departments) return false;
-                              return c.departments.some((d: any) => 
-                                u.department === d.id || u.department === d.name
-                              );
-                            });
-                            return userCompany?.id === selectedCompanyId;
-                          })
-                        : currentDeptUsers
-                      ).map((user: any) => (
-                        <SelectItem key={user.id} value={user.id}>
-                          <div className="flex items-center gap-2">
-                            <User className="h-3 w-3" />
-                            <span>{user.name}</span>
-                            {user.role && (
-                              <span className="text-xs text-muted-foreground">
-                                ({user.role})
-                              </span>
-                            )}
-                          </div>
-                        </SelectItem>
-                      ))}
-                    </ScrollArea>
+                  <SelectContent searchPlaceholder="Search people...">
+                    {(selectedCompanyId
+                      ? users.filter((u: any) => {
+                          // Filter users by selected company
+                          const userCompany = companies.find((c: any) => {
+                            if (!c.departments) return false;
+                            return c.departments.some((d: any) => 
+                              u.department === d.id || u.department === d.name
+                            );
+                          });
+                          return userCompany?.id === selectedCompanyId;
+                        })
+                      : currentDeptUsers
+                    ).map((user: any) => (
+                      <SelectItem key={user.id} value={user.id}>
+                        <div className="flex items-center gap-2 min-w-0">
+                          <User className="h-3 w-3 shrink-0" />
+                          <span className="truncate">{user.name}</span>
+                          {user.role && (
+                            <span className="text-xs text-muted-foreground truncate">
+                              ({user.role})
+                            </span>
+                          )}
+                        </div>
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>

@@ -25,7 +25,6 @@ import { DateTimePicker } from "@/components/ui/date-time-picker";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Folder, FileText, FolderOpen } from "lucide-react";
 import { toast } from "sonner";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import {
   isCompanyAdmin,
@@ -490,22 +489,20 @@ export function CreateWorkflowDialog({
                     <SelectTrigger>
                       <SelectValue placeholder="Select a folder" />
                     </SelectTrigger>
-                    <SelectContent>
-                      <ScrollArea className="max-h-[300px]">
-                        {accessibleFolders.map((folder: any) => (
-                          <SelectItem key={folder.id} value={folder.id}>
-                            <div className="flex items-center gap-2">
-                              <Folder className="h-4 w-4 text-yellow-500" />
-                              <span>{folder.name}</span>
-                              {folder.scope && (
-                                <Badge variant="outline" className="text-xs">
-                                  {folder.scope === "company" ? "Company" : folder.scope === "department" ? "Dept" : "Division"}
-                                </Badge>
-                              )}
-                            </div>
-                          </SelectItem>
-                        ))}
-                      </ScrollArea>
+                    <SelectContent searchPlaceholder="Search folders...">
+                      {accessibleFolders.map((folder: any) => (
+                        <SelectItem key={folder.id} value={folder.id}>
+                          <div className="flex items-center gap-2 min-w-0">
+                            <Folder className="h-4 w-4 text-yellow-500 shrink-0" />
+                            <span className="truncate">{folder.name}</span>
+                            {folder.scope && (
+                              <Badge variant="outline" className="text-xs shrink-0">
+                                {folder.scope === "company" ? "Company" : folder.scope === "department" ? "Dept" : "Division"}
+                              </Badge>
+                            )}
+                          </div>
+                        </SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                   {selectedFolderId && selectedFolder && (
@@ -570,22 +567,20 @@ export function CreateWorkflowDialog({
                 <SelectTrigger>
                   <SelectValue placeholder="Select a document" />
                 </SelectTrigger>
-                <SelectContent>
-                  <ScrollArea className="max-h-[300px]">
-                    {documents.map((doc: any) => (
-                      <SelectItem key={doc.id} value={doc.id}>
-                        <div className="flex items-center gap-2">
-                          <FileText className="h-4 w-4 text-blue-500" />
-                          <span>{doc.name}</span>
-                          {doc.folderId && (
-                            <span className="text-xs text-muted-foreground">
-                              ({folders.find((f: any) => f.id === doc.folderId)?.name || "Unknown folder"})
-                            </span>
-                          )}
-                        </div>
-                      </SelectItem>
-                    ))}
-                  </ScrollArea>
+                <SelectContent searchPlaceholder="Search documents...">
+                  {documents.map((doc: any) => (
+                    <SelectItem key={doc.id} value={doc.id}>
+                      <div className="flex items-center gap-2 min-w-0">
+                        <FileText className="h-4 w-4 text-blue-500 shrink-0" />
+                        <span className="truncate">{doc.name}</span>
+                        {doc.folderId && (
+                          <span className="text-xs text-muted-foreground truncate">
+                            ({folders.find((f: any) => f.id === doc.folderId)?.name || "Unknown folder"})
+                          </span>
+                        )}
+                      </div>
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
               {selectedDocument && (
@@ -630,15 +625,13 @@ export function CreateWorkflowDialog({
                 <SelectTrigger>
                   <SelectValue placeholder="Select company (leave empty for same company)" />
                 </SelectTrigger>
-                <SelectContent>
-                  <ScrollArea className="max-h-[200px]">
-                    <SelectItem value="same-company">Same Company</SelectItem>
-                    {companies.map((company: any) => (
-                      <SelectItem key={company.id} value={company.id}>
-                        {company.name}
-                      </SelectItem>
-                    ))}
-                  </ScrollArea>
+                <SelectContent searchPlaceholder="Search companies...">
+                  <SelectItem value="same-company">Same Company</SelectItem>
+                  {companies.map((company: any) => (
+                    <SelectItem key={company.id} value={company.id}>
+                      {company.name}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
               <p className="text-xs text-muted-foreground">
@@ -678,22 +671,22 @@ export function CreateWorkflowDialog({
                 <SelectTrigger>
                   <SelectValue placeholder="Select a user" />
                 </SelectTrigger>
-                <SelectContent>
-                  <ScrollArea className="max-h-[200px]">
-                    {accessibleUsers.map((user: any) => (
-                      <SelectItem key={user.id} value={user.id}>
-                        <div className="flex items-center gap-2">
-                          <span>{user.name}</span>
+                <SelectContent searchPlaceholder="Search users...">
+                  {accessibleUsers.map((user: any) => (
+                    <SelectItem key={user.id} value={user.id}>
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="truncate">
+                          {user.name}{" "}
                           <span className="text-muted-foreground">({user.email})</span>
-                          {user.department && (
-                            <Badge variant="outline" className="text-xs">
-                              {user.department}
-                            </Badge>
-                          )}
-                        </div>
-                      </SelectItem>
-                    ))}
-                  </ScrollArea>
+                        </span>
+                        {user.department && (
+                          <Badge variant="outline" className="text-xs shrink-0">
+                            {user.department}
+                          </Badge>
+                        )}
+                      </div>
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             )}
@@ -707,21 +700,19 @@ export function CreateWorkflowDialog({
                 <SelectTrigger>
                   <SelectValue placeholder="Select a department" />
                 </SelectTrigger>
-                <SelectContent>
-                  <ScrollArea className="max-h-[200px]">
-                    {(selectedCompanyId && selectedCompanyId !== "same-company" ? accessibleDepartments : allDepartments).map((dept: any) => (
-                      <SelectItem key={dept.id} value={dept.id}>
-                        <div className="flex items-center gap-2">
-                          <span>{dept.name}</span>
-                          {dept.companyName && (
-                            <Badge variant="outline" className="text-xs">
-                              {dept.companyName}
-                            </Badge>
-                          )}
-                        </div>
-                      </SelectItem>
-                    ))}
-                  </ScrollArea>
+                <SelectContent searchPlaceholder="Search departments...">
+                  {(selectedCompanyId && selectedCompanyId !== "same-company" ? accessibleDepartments : allDepartments).map((dept: any) => (
+                    <SelectItem key={dept.id} value={dept.id}>
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="truncate">{dept.name}</span>
+                        {dept.companyName && (
+                          <Badge variant="outline" className="text-xs shrink-0">
+                            {dept.companyName}
+                          </Badge>
+                        )}
+                      </div>
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             )}

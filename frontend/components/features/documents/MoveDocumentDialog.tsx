@@ -19,7 +19,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { toast } from "sonner";
 import { Folder } from "lucide-react";
 import { useFolders } from "@/lib/hooks/use-documents";
@@ -141,17 +140,15 @@ export function MoveDocumentDialog({
                 <SelectTrigger>
                   <SelectValue placeholder="Select a folder" />
                 </SelectTrigger>
-                <SelectContent>
-                  <ScrollArea className="max-h-[300px]">
-                    {folderOptions.map((option) => (
-                      <SelectItem key={option.id} value={option.id}>
-                        <div className="flex items-center gap-2">
-                          <Folder className="h-4 w-4 text-yellow-500" />
-                          <span>{option.path}</span>
-                        </div>
-                      </SelectItem>
-                    ))}
-                  </ScrollArea>
+                <SelectContent searchPlaceholder="Search folders...">
+                  {folderOptions.map((option) => (
+                    <SelectItem key={option.id} value={option.id}>
+                      <div className="flex items-center gap-2 min-w-0">
+                        <Folder className="h-4 w-4 text-yellow-500 shrink-0" />
+                        <span className="truncate">{option.path}</span>
+                      </div>
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>

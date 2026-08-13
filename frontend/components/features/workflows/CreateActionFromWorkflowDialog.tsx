@@ -28,7 +28,6 @@ import { CalendarIcon, User, Building2, Upload, MessageSquare, CheckCircle2, Fol
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import {
   isCompanyAdmin,
@@ -479,15 +478,15 @@ export function CreateActionFromWorkflowDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[700px] max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
+      <DialogContent className="sm:max-w-[700px] max-h-[90vh] overflow-hidden flex flex-col">
+        <DialogHeader className="shrink-0">
           <DialogTitle>Create Action from Workflow</DialogTitle>
           <DialogDescription>
             Create an action item linked to this workflow. Choose the action type based on what needs to be done.
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4 py-4">
+        <div className="space-y-4 py-4 overflow-y-auto min-h-0">
           {/* Action Type Selection */}
           <div className="space-y-2">
             <Label>Action Type *</Label>
@@ -578,17 +577,15 @@ export function CreateActionFromWorkflowDialog({
                   <SelectTrigger id="target-folder">
                     <SelectValue placeholder="Select folder to save uploaded document" />
                   </SelectTrigger>
-                  <SelectContent>
-                    <ScrollArea className="max-h-[200px]">
-                      {accessibleFolders.map((folder: any) => (
-                        <SelectItem key={folder.id} value={folder.id}>
-                          <div className="flex items-center gap-2">
-                            <Folder className="h-4 w-4 text-yellow-500" />
-                            <span>{folder.name}</span>
-                          </div>
-                        </SelectItem>
-                      ))}
-                    </ScrollArea>
+                  <SelectContent searchPlaceholder="Search folders...">
+                    {accessibleFolders.map((folder: any) => (
+                      <SelectItem key={folder.id} value={folder.id}>
+                        <div className="flex items-center gap-2 min-w-0">
+                          <Folder className="h-4 w-4 text-yellow-500 shrink-0" />
+                          <span className="truncate">{folder.name}</span>
+                        </div>
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
                 {selectedFolder && (
@@ -687,14 +684,12 @@ export function CreateActionFromWorkflowDialog({
                     <SelectTrigger className="flex-1">
                       <SelectValue placeholder="Add from directory" />
                     </SelectTrigger>
-                    <SelectContent>
-                      <ScrollArea className="max-h-[200px]">
-                        {availableSigners.map((u: any) => (
-                          <SelectItem key={u.id} value={u.id}>
-                            {u.name} ({u.email})
-                          </SelectItem>
-                        ))}
-                      </ScrollArea>
+                    <SelectContent searchPlaceholder="Search people...">
+                      {availableSigners.map((u: any) => (
+                        <SelectItem key={u.id} value={u.id}>
+                          {u.name} ({u.email})
+                        </SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                   <Button
@@ -755,15 +750,13 @@ export function CreateActionFromWorkflowDialog({
                 <SelectTrigger>
                   <SelectValue placeholder="Select company" />
                 </SelectTrigger>
-                <SelectContent>
-                  <ScrollArea className="max-h-[200px]">
-                    <SelectItem value="same-company">Same Company</SelectItem>
-                    {companies.map((company: any) => (
-                      <SelectItem key={company.id} value={company.id}>
-                        {company.name}
-                      </SelectItem>
-                    ))}
-                  </ScrollArea>
+                <SelectContent searchPlaceholder="Search companies...">
+                  <SelectItem value="same-company">Same Company</SelectItem>
+                  {companies.map((company: any) => (
+                    <SelectItem key={company.id} value={company.id}>
+                      {company.name}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
               <p className="text-xs text-muted-foreground">
@@ -804,22 +797,22 @@ export function CreateActionFromWorkflowDialog({
                 <SelectTrigger>
                   <SelectValue placeholder="Select a user" />
                 </SelectTrigger>
-                <SelectContent>
-                  <ScrollArea className="max-h-[200px]">
-                    {accessibleUsers.map((user: any) => (
-                      <SelectItem key={user.id} value={user.id}>
-                        <div className="flex items-center gap-2">
-                          <span>{user.name}</span>
+                <SelectContent searchPlaceholder="Search users...">
+                  {accessibleUsers.map((user: any) => (
+                    <SelectItem key={user.id} value={user.id}>
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="truncate">
+                          {user.name}{" "}
                           <span className="text-muted-foreground">({user.email})</span>
-                          {user.department && (
-                            <Badge variant="outline" className="text-xs">
-                              {user.department}
-                            </Badge>
-                          )}
-                        </div>
-                      </SelectItem>
-                    ))}
-                  </ScrollArea>
+                        </span>
+                        {user.department && (
+                          <Badge variant="outline" className="text-xs shrink-0">
+                            {user.department}
+                          </Badge>
+                        )}
+                      </div>
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             )}
@@ -833,21 +826,19 @@ export function CreateActionFromWorkflowDialog({
                 <SelectTrigger>
                   <SelectValue placeholder="Select a department" />
                 </SelectTrigger>
-                <SelectContent>
-                  <ScrollArea className="max-h-[200px]">
-                    {(selectedCompanyId && selectedCompanyId !== "same-company" ? accessibleDepartments : allDepartments).map((dept: any) => (
-                      <SelectItem key={dept.id} value={dept.id}>
-                        <div className="flex items-center gap-2">
-                          <span>{dept.name}</span>
-                          {dept.companyName && (
-                            <Badge variant="outline" className="text-xs">
-                              {dept.companyName}
-                            </Badge>
-                          )}
-                        </div>
-                      </SelectItem>
-                    ))}
-                  </ScrollArea>
+                <SelectContent searchPlaceholder="Search departments...">
+                  {(selectedCompanyId && selectedCompanyId !== "same-company" ? accessibleDepartments : allDepartments).map((dept: any) => (
+                    <SelectItem key={dept.id} value={dept.id}>
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="truncate">{dept.name}</span>
+                        {dept.companyName && (
+                          <Badge variant="outline" className="text-xs shrink-0">
+                            {dept.companyName}
+                          </Badge>
+                        )}
+                      </div>
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             )}
@@ -883,7 +874,7 @@ export function CreateActionFromWorkflowDialog({
           </div>
         </div>
 
-        <DialogFooter>
+        <DialogFooter className="shrink-0">
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isCreating}>
             Cancel
           </Button>
