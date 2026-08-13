@@ -47,6 +47,7 @@ import {
 import { useUsers } from "@/lib/hooks/use-users";
 import { useCompanies } from "@/lib/hooks/use-companies";
 import { usePermissions } from "@/lib/hooks/use-permissions";
+import { cn } from "@/lib/utils";
 import { api } from "@/lib/api";
 import { ApiError } from "@/lib/api-client";
 import type { AclEntry, ResourcePermission, SubjectType } from "@/lib/permissions";
