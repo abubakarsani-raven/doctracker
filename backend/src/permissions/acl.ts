@@ -1,17 +1,16 @@
 /**
  * Access-control lists.
  *
- * The system is need-to-know: reaching a folder or document requires an entry
- * that names you, or names a department or division you belong to. Publishing
- * a folder at "department" scope is a label, not a grant — it records where the
- * folder belongs, but it does not by itself let anyone in.
+ * Reaching a folder or document requires one of:
+ *   - Master (`dataScope: 'all'`) — instance-wide recovery
+ *   - Company Admin / Company Secretary (`dataScope: 'company'`) — own company
+ *   - Department / Division roles whose domain matches the resource filing
+ *     (`departmentId` / `divisionId`)
+ *   - An ACL entry naming the user, their department, or their division
+ *   - Creator access to their own records
  *
- * Three exceptions exist, and only three:
- *   - Master (`dataScope: 'all'`) reaches everything, so a resource can always
- *     be recovered.
- *   - Company Admin (`dataScope: 'company'`) reaches their own company, because
- *     someone has to be able to administer it.
- *   - The person who created a record keeps access to it.
+ * Publishing a folder at "department" or "division" scope also writes opening
+ * ACL grants for that subject (and the parent department for division scope).
  */
 
 export type ResourcePermission = 'read' | 'write' | 'delete' | 'share' | 'manage';

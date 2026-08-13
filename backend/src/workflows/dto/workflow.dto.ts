@@ -196,6 +196,11 @@ export class SetWorkflowEndPointDto {
   dueDate?: string | null;
 }
 
+export class GrantWorkflowFileAccessDto {
+  @IsString()
+  userId: string;
+}
+
 export class AttachWorkflowFileDto {
   @IsString()
   fileId: string;

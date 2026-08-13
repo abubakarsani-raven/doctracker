@@ -13,6 +13,7 @@ import {
   UseInterceptors,
   UploadedFile,
   BadRequestException,
+  ForbiddenException,
   HttpException,
   HttpStatus,
   StreamableFile,
@@ -22,6 +23,7 @@ import { FilesService } from './files.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PermissionsService } from '../permissions/permissions.service';
 import { RequireCapability, CapabilityGuard } from '../permissions/require-capability.decorator';
+import { hasCapability } from '../permissions/capabilities';
 import { ActivityService } from '../activity/activity.service';
 import { assertAllowedUpload, resolveDownloadContentType } from './upload-allowlist';
 import * as multer from 'multer';
@@ -179,8 +181,13 @@ export class FilesController {
         includeArchived === 'true',
       );
       
-      // Filter files by permissions
-      return await this.permissionsService.filterReadable(req.user.id, 'file', files);
+      // Annotate rather than filter. Documents the user cannot open still need
+      // to appear so they can request access — same pattern as folders.
+      return await this.permissionsService.annotateAccess(
+        req.user.id,
+        'file',
+        files,
+      );
     } catch (error: any) {
       console.error('[FilesController] Error getting files:', error);
       throw error;
@@ -514,10 +521,13 @@ export class FilesController {
   @UseGuards(JwtAuthGuard, CapabilityGuard)
   async downloadFile(
     @Param('id') id: string,
+    @Query('intent') intent: string | undefined,
     @Request() req: any,
   ) {
     await this.permissionsService.assertPermission(req.user.id, 'file', id, 'read');
-    
+    const saving = intent === 'save';
+    if (saving) this.assertCanDownloadCopy(req);
+
     const file = await this.filesService.getFile(id, req.user);
     
     // Skip download for rich-text-content:// paths
@@ -573,7 +583,7 @@ export class FilesController {
 
       return new StreamableFile(fileStream, {
         type: contentType,
-        disposition: `inline; filename="${safeName}"`,
+        disposition: `${saving ? 'attachment' : 'inline'}; filename="${safeName}"`,
         ...(typeof metadata.contentLength === 'number'
           ? { length: metadata.contentLength }
           : {}),
@@ -601,9 +611,12 @@ export class FilesController {
   async downloadFileVersion(
     @Param('id') id: string,
     @Param('versionId') versionId: string,
+    @Query('intent') intent: string | undefined,
     @Request() req: any,
   ) {
     await this.permissionsService.assertPermission(req.user.id, 'file', id, 'read');
+    const saving = intent === 'save';
+    if (saving) this.assertCanDownloadCopy(req);
     
     const versions = await this.filesService.getFileVersions(id);
     const version = versions.find(v => v.id === versionId);
@@ -633,7 +646,7 @@ export class FilesController {
 
       return new StreamableFile(fileStream, {
         type: contentType,
-        disposition: `inline; filename="${versionFileName}"`,
+        disposition: `${saving ? 'attachment' : 'inline'}; filename="${versionFileName}"`,
         ...(typeof metadata.contentLength === 'number'
           ? { length: metadata.contentLength }
           : {}),
@@ -752,6 +765,14 @@ export class FilesController {
   async deleteFolder(@Param('id') id: string, @Request() req: any) {
     await this.permissionsService.assertPermission(req.user.id, 'folder', id, 'delete');
     return this.filesService.softDeleteFolder(id, req.user.id);
+  }
+
+  private assertCanDownloadCopy(req: any) {
+    if (!hasCapability(req.user?.permissions, 'documents.download')) {
+      throw new ForbiddenException(
+        'Your role cannot download documents. You can view them in the app instead.',
+      );
+    }
   }
 }
 

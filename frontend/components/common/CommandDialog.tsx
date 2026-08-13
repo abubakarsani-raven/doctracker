@@ -15,7 +15,7 @@ import {
   BookTemplate,
   Building2,
   ShieldCheck,
-  FileCheck,
+  KeyRound,
   BarChart3,
   HardDrive,
   Upload,
@@ -155,6 +155,13 @@ export function CommandDialogComponent({
         href: "/actions",
       },
       {
+        id: "nav-access-requests",
+        label: "Go to Request access",
+        icon: KeyRound,
+        href: "/access-requests",
+        requires: "access_requests.create",
+      },
+      {
         id: "nav-goals",
         label: "Go to My Goals",
         icon: Target,
@@ -206,13 +213,6 @@ export function CommandDialogComponent({
         icon: ShieldCheck,
         href: "/approvals",
         requires: "approvals.review",
-      },
-      {
-        id: "nav-access-requests",
-        label: "Go to Access Requests",
-        icon: FileCheck,
-        href: "/access-requests",
-        requires: "access_requests.review",
       },
       {
         id: "nav-reports",

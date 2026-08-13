@@ -30,7 +30,8 @@ const GROUPS: Array<{
   {
     title: "Documents",
     items: [
-      { capability: "documents.view", label: "Open and download" },
+      { capability: "documents.view", label: "Open and preview" },
+      { capability: "documents.download", label: "Download a copy" },
       { capability: "documents.create", label: "Upload and create" },
       { capability: "documents.edit", label: "Edit content" },
       { capability: "documents.delete", label: "Delete" },
@@ -38,6 +39,10 @@ const GROUPS: Array<{
       {
         capability: "documents.manage_permissions",
         label: "Change who has access",
+      },
+      {
+        capability: "documents.inherit_domain",
+        label: "Open documents published in your department or division",
       },
     ],
   },
@@ -153,8 +158,10 @@ export function PermissionsPanel() {
             </div>
 
             <p className="text-sm text-muted-foreground">
-              Access to any individual folder or document also depends on it
-              being shared with you, your department or your division.
+              Department and division leaders reach documents published in their
+              domain. Staff and managers must be named on the ACL or request
+              access — membership alone is not enough. Company-wide files stay
+              with company admins unless shared.
             </p>
 
             {grouped.map((section) => (

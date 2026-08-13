@@ -14,7 +14,6 @@ export class AccessRequestsService {
   ) {}
 
   async findAll(userId: string) {
-    // Get user's company and departments
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
       include: {
@@ -31,21 +30,27 @@ export class AccessRequestsService {
       throw new Error('User not found');
     }
 
+    const permissions =
+      await this.permissionsService.getEffectivePermissions(userId);
+    const canReview = permissions.capabilities.includes(
+      'access_requests.review',
+    );
+
     const userCompanyId = user.companyId;
     const userDepartmentIds = user.userDepartments.map((ud) => ud.departmentId);
 
-    // Get all access requests that the user can see:
-    // 1. Requests they created
-    // 2. Requests in their company (if they can approve)
-    // 3. Requests for their departments
+    // Reviewers see company/department queues. Everyone else only sees
+    // requests they raised — otherwise Staff would read the whole company list.
     const requests = await this.prisma.accessRequest.findMany({
-      where: {
-        OR: [
-          { requestedBy: userId },
-          { companyId: userCompanyId },
-          { departmentId: { in: userDepartmentIds } },
-        ],
-      },
+      where: canReview
+        ? {
+            OR: [
+              { requestedBy: userId },
+              { companyId: userCompanyId },
+              { departmentId: { in: userDepartmentIds } },
+            ],
+          }
+        : { requestedBy: userId },
       include: {
         company: {
           select: {
@@ -59,7 +64,12 @@ export class AccessRequestsService {
       },
     });
 
-    return requests;
+    return Promise.all(
+      requests.map(async (request) => ({
+        ...request,
+        canReview: await this.canReviewRequest(userId, request, permissions),
+      })),
+    );
   }
 
   async findOne(id: string, currentUser: any) {
@@ -113,6 +123,29 @@ export class AccessRequestsService {
 
     if (!user) {
       throw new Error('User not found');
+    }
+
+    const resourceType =
+      data.resourceType === 'folder' ? 'folder' : 'file';
+    const alreadyAllowed = await this.permissionsService.checkPermission(
+      currentUser.id,
+      resourceType,
+      data.resourceId,
+      'read',
+    );
+    if (alreadyAllowed) {
+      throw new BadRequestException(
+        'You already have access to this resource — no request needed.',
+      );
+    }
+
+    if (
+      resourceType === 'file' &&
+      (await this.permissionsService.isFileAccessRevoked(data.resourceId))
+    ) {
+      throw new ForbiddenException(
+        'Access to this file has been revoked by a group administrator.',
+      );
     }
 
     // Determine companyId and departmentId based on resource
@@ -189,6 +222,12 @@ export class AccessRequestsService {
       );
     }
 
+    if (existingRequest.requestedBy === currentUser.id) {
+      throw new ForbiddenException(
+        'You cannot approve or reject your own access request.',
+      );
+    }
+
     // A reviewer only decides requests inside their own company; only an
     // instance-wide scope reaches across companies.
     if (
@@ -198,6 +237,30 @@ export class AccessRequestsService {
     ) {
       throw new ForbiddenException(
         'That access request belongs to another company.',
+      );
+    }
+
+    const canReadResource = await this.permissionsService.checkPermission(
+      currentUser.id,
+      existingRequest.resourceType === 'folder' ? 'folder' : 'file',
+      existingRequest.resourceId,
+      'read',
+    );
+    if (!canReadResource) {
+      throw new ForbiddenException(
+        'You can only review access requests for resources you can open.',
+      );
+    }
+
+    if (
+      data.status === 'approved' &&
+      existingRequest.resourceType !== 'folder' &&
+      (await this.permissionsService.isFileAccessRevoked(
+        existingRequest.resourceId,
+      ))
+    ) {
+      throw new ForbiddenException(
+        'Access to this file has been revoked by a group administrator. Restore access before approving requests.',
       );
     }
 
@@ -359,6 +422,44 @@ export class AccessRequestsService {
     }
 
     return this.prisma.accessRequest.delete({ where: { id } });
+  }
+
+  /**
+   * A reviewer may decide a request only when they can already open the
+   * resource — otherwise a Division Head could approve a board paper they
+   * cannot read.
+   */
+  private async canReviewRequest(
+    userId: string,
+    request: {
+      requestedBy: string;
+      companyId: string | null;
+      resourceType: string;
+      resourceId: string;
+    },
+    permissions: {
+      capabilities: string[];
+      dataScope: string;
+      companyId: string | null;
+    },
+  ): Promise<boolean> {
+    if (request.requestedBy === userId) return false;
+    if (!permissions.capabilities.includes('access_requests.review')) {
+      return false;
+    }
+    if (
+      permissions.dataScope !== 'all' &&
+      request.companyId &&
+      request.companyId !== permissions.companyId
+    ) {
+      return false;
+    }
+    return this.permissionsService.checkPermission(
+      userId,
+      request.resourceType === 'folder' ? 'folder' : 'file',
+      request.resourceId,
+      'read',
+    );
   }
 }
 

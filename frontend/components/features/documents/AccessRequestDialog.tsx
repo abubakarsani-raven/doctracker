@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Dialog,
   DialogContent,
@@ -32,6 +32,8 @@ interface AccessRequestDialogProps {
   resourceType: "folder" | "document";
   resourceName: string;
   scope?: "company" | "department" | "division";
+  /** Prefills the reason, e.g. when requesting from a workflow. */
+  defaultReason?: string;
 }
 
 export function AccessRequestDialog({
@@ -41,11 +43,16 @@ export function AccessRequestDialog({
   resourceType,
   resourceName,
   scope,
+  defaultReason,
 }: AccessRequestDialogProps) {
   const [reason, setReason] = useState("");
   const { data: currentUser } = useCurrentUser();
-  const { data: existingRequests = [] } = useAccessRequests();
+  const { data: existingRequests = [] } = useAccessRequests({ enabled: open });
   const createRequest = useCreateAccessRequest();
+
+  useEffect(() => {
+    if (open) setReason(defaultReason ?? "");
+  }, [open, defaultReason]);
 
   const scopeLabels: Record<string, string> = {
     company: "Company-wide",

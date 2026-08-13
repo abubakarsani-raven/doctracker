@@ -17,6 +17,7 @@ describe('Capabilities', () => {
       expect(masterRole?.capabilities).toContain('documents.sign');
       expect(masterRole?.capabilities).toContain('documents.request_signature');
       expect(masterRole?.capabilities).toContain('manage_permissions');
+      expect(masterRole?.capabilities).toContain('documents.download');
       expect(masterRole?.dataScope).toBe('all');
     });
 
@@ -29,6 +30,7 @@ describe('Capabilities', () => {
       expect(groupSecretaryRole?.capabilities).toContain('documents.sign');
       expect(groupSecretaryRole?.capabilities).toContain('documents.request_signature');
       expect(groupSecretaryRole?.capabilities).toContain('activity.view_all');
+      expect(groupSecretaryRole?.capabilities).toContain('documents.download');
       expect(groupSecretaryRole?.capabilities).toContain('manage_permissions');
       expect(groupSecretaryRole?.dataScope).toBe('all');
     });
@@ -41,6 +43,7 @@ describe('Capabilities', () => {
       expect(companyAdminRole?.capabilities).toContain('documents.sign');
       expect(companyAdminRole?.capabilities).toContain('documents.request_signature');
       expect(companyAdminRole?.capabilities).toContain('manage_permissions');
+      expect(companyAdminRole?.capabilities).not.toContain('documents.download');
       expect(companyAdminRole?.dataScope).toBe('company');
     });
 
@@ -52,6 +55,7 @@ describe('Capabilities', () => {
       expect(deptHeadRole?.capabilities).toContain('documents.request_signature');
       expect(deptHeadRole?.capabilities).toContain('users.view');
       expect(deptHeadRole?.capabilities).not.toContain('users.manage');
+      expect(deptHeadRole?.capabilities).toContain('documents.inherit_domain');
       expect(deptHeadRole?.dataScope).toBe('department');
     });
 
@@ -72,6 +76,7 @@ describe('Capabilities', () => {
       expect(deptSecretaryRole?.capabilities).toContain('users.view');
       expect(deptSecretaryRole?.capabilities).not.toContain('users.manage');
       expect(deptSecretaryRole?.capabilities).not.toContain('documents.delete');
+      expect(deptSecretaryRole?.capabilities).toContain('documents.inherit_domain');
       expect(deptSecretaryRole?.dataScope).toBe('department');
     });
 
@@ -82,6 +87,7 @@ describe('Capabilities', () => {
       expect(divisionHeadRole?.capabilities).toContain('documents.sign');
       expect(divisionHeadRole?.capabilities).not.toContain('documents.request_signature');
       expect(divisionHeadRole?.capabilities).toContain('users.view');
+      expect(divisionHeadRole?.capabilities).toContain('documents.inherit_domain');
       expect(divisionHeadRole?.capabilities).not.toContain('users.manage');
       expect(divisionHeadRole?.dataScope).toBe('division');
     });
@@ -94,8 +100,9 @@ describe('Capabilities', () => {
       expect(managerRole?.capabilities).toContain('documents.sign');
       expect(managerRole?.capabilities).toContain('documents.share');
       expect(managerRole?.capabilities).not.toContain('documents.delete');
+      expect(managerRole?.capabilities).not.toContain('documents.inherit_domain');
       expect(managerRole?.capabilities).not.toContain('users.manage');
-      expect(managerRole?.dataScope).toBe('division');
+      expect(managerRole?.dataScope).toBe('own');
     });
 
     test('Staff has contributor capabilities', () => {
@@ -107,6 +114,8 @@ describe('Capabilities', () => {
       expect(staffRole?.capabilities).toContain('documents.view');
       expect(staffRole?.capabilities).toContain('workflows.create');
       expect(staffRole?.capabilities).not.toContain('documents.delete');
+      expect(staffRole?.capabilities).not.toContain('documents.inherit_domain');
+      expect(staffRole?.capabilities).not.toContain('documents.download');
       expect(staffRole?.capabilities).not.toContain('users.manage');
       expect(staffRole?.dataScope).toBe('division');
     });

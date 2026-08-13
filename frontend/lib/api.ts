@@ -328,6 +328,7 @@ export const api = {
           file.permissionsJson ??
           null,
         access: file.access ?? null,
+        accessRevokedAt: file.accessRevokedAt ?? null,
       };
     });
 
@@ -413,6 +414,7 @@ export const api = {
         folderLink?.folder?.permissionsJson ??
         null,
       access: file.access ?? null,
+      accessRevokedAt: file.accessRevokedAt ?? null,
     };
   },
 
@@ -476,6 +478,20 @@ export const api = {
   getWorkflowFiles: async (workflowId: string) => {
     const client = getClient();
     return await client.getWorkflowFiles(workflowId);
+  },
+
+  getWorkflowFileAccessCandidates: async (workflowId: string) => {
+    const client = getClient();
+    return await client.getWorkflowFileAccessCandidates(workflowId);
+  },
+
+  grantWorkflowFileAccess: async (
+    workflowId: string,
+    fileId: string,
+    userId: string,
+  ) => {
+    const client = getClient();
+    return await client.grantWorkflowFileAccess(workflowId, fileId, userId);
   },
 
   attachFileToWorkflow: async (
@@ -604,6 +620,16 @@ export const api = {
   ) => {
     const client = getClient();
     return await client.updateFilePermissions(fileId, folderId, permissions, onRevoke);
+  },
+
+  revokeAllFileAccess: async (fileId: string) => {
+    const client = getClient();
+    return await client.revokeAllFileAccess(fileId);
+  },
+
+  restoreFileAccess: async (fileId: string) => {
+    const client = getClient();
+    return await client.restoreFileAccess(fileId);
   },
 
   updateFolderPermissions: async (

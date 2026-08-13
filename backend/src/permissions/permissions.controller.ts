@@ -2,6 +2,7 @@ import {
   Controller,
   Get,
   Put,
+  Post,
   Param,
   Body,
   Query,
@@ -128,6 +129,84 @@ export class PermissionsController {
       // Don't fail the operation if activity logging fails
     }
 
+    return result;
+  }
+
+  @Post('file/:fileId/revoke-all')
+  @RequireCapability('documents.manage_permissions')
+  @UseGuards(JwtAuthGuard, CapabilityGuard)
+  async revokeAllFileAccess(
+    @Param('fileId') fileId: string,
+    @Request() req: any,
+  ) {
+    if (req.user?.permissions?.dataScope !== 'all') {
+      throw new ForbiddenException(
+        'Only Master and Group Secretary can revoke all access to a file.',
+      );
+    }
+    await this.permissionsService.assertPermission(
+      req.user.id,
+      'file',
+      fileId,
+      'manage',
+    );
+    const result = await this.permissionsService.setFileAccessRevoked(
+      fileId,
+      true,
+      { id: req.user.id, name: req.user.name },
+    );
+    try {
+      await this.activityService.createActivity({
+        userId: req.user.id,
+        companyId: req.user.companyId,
+        activityType: 'permissions_update',
+        resourceType: 'file',
+        resourceId: fileId,
+        description: `Revoked all access to file`,
+        metadata: { action: 'revoke_all' },
+      });
+    } catch {
+      // Don't fail the lock if activity logging fails.
+    }
+    return result;
+  }
+
+  @Post('file/:fileId/restore-access')
+  @RequireCapability('documents.manage_permissions')
+  @UseGuards(JwtAuthGuard, CapabilityGuard)
+  async restoreFileAccess(
+    @Param('fileId') fileId: string,
+    @Request() req: any,
+  ) {
+    if (req.user?.permissions?.dataScope !== 'all') {
+      throw new ForbiddenException(
+        'Only Master and Group Secretary can restore access to a file.',
+      );
+    }
+    await this.permissionsService.assertPermission(
+      req.user.id,
+      'file',
+      fileId,
+      'manage',
+    );
+    const result = await this.permissionsService.setFileAccessRevoked(
+      fileId,
+      false,
+      { id: req.user.id, name: req.user.name },
+    );
+    try {
+      await this.activityService.createActivity({
+        userId: req.user.id,
+        companyId: req.user.companyId,
+        activityType: 'permissions_update',
+        resourceType: 'file',
+        resourceId: fileId,
+        description: `Restored access to file`,
+        metadata: { action: 'restore_access' },
+      });
+    } catch {
+      // Don't fail restore if activity logging fails.
+    }
     return result;
   }
 

@@ -166,10 +166,11 @@ class ApiClient {
    */
   private async request<T>(
     endpoint: string,
-    options: RequestInit = {},
+    options: RequestInit & { silentForbidden?: boolean } = {},
   ): Promise<T> {
+    const { silentForbidden, ...init } = options;
     try {
-      return await this.rawRequest<T>(endpoint, options);
+      return await this.rawRequest<T>(endpoint, init);
     } catch (error) {
       const canRetry =
         error instanceof ApiError &&
@@ -180,7 +181,13 @@ class ApiClient {
         // Failed login / register / password reset must not clear the session
         // or mark expiry as handled — those are expected credential errors.
         if (!endpoint.startsWith('/auth/')) {
-          this.notifyAuthFailure(error);
+          const skipForbiddenToast =
+            silentForbidden &&
+            error instanceof ApiError &&
+            error.isForbidden;
+          if (!skipForbiddenToast) {
+            this.notifyAuthFailure(error);
+          }
         }
         throw error;
       }
@@ -197,9 +204,15 @@ class ApiClient {
       }
 
       try {
-        return await this.rawRequest<T>(endpoint, options);
+        return await this.rawRequest<T>(endpoint, init);
       } catch (retryError) {
-        this.notifyAuthFailure(retryError);
+        const skipForbiddenToast =
+          silentForbidden &&
+          retryError instanceof ApiError &&
+          retryError.isForbidden;
+        if (!skipForbiddenToast) {
+          this.notifyAuthFailure(retryError);
+        }
         throw retryError;
       }
     }
@@ -713,6 +726,26 @@ class ApiClient {
     return this.request<any[]>(`/workflows/${workflowId}/files`);
   }
 
+  async getWorkflowFileAccessCandidates(workflowId: string) {
+    return this.request<Array<{ id: string; name: string | null; email: string | null }>>(
+      `/workflows/${workflowId}/file-access-candidates`,
+    );
+  }
+
+  async grantWorkflowFileAccess(
+    workflowId: string,
+    fileId: string,
+    userId: string,
+  ) {
+    return this.request<{ granted: boolean; userId: string }>(
+      `/workflows/${workflowId}/files/${fileId}/grant`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ userId }),
+      },
+    );
+  }
+
   async attachFileToWorkflow(
     workflowId: string,
     data: { fileId: string; actionId?: string; note?: string },
@@ -993,7 +1026,10 @@ class ApiClient {
 
   // Access Requests
   async getAccessRequests() {
-    return this.request<any[]>('/access-requests');
+    // Listing is used by the request-access dialog to see if one is already
+    // pending. A 403 here is expected for roles that cannot review — do not
+    // toast it on every document card.
+    return this.request<any[]>('/access-requests', { silentForbidden: true });
   }
 
   async getAccessRequest(id: string) {
@@ -1070,6 +1106,18 @@ class ApiClient {
     return this.request<any>(`/permissions/file/${fileId}?folderId=${folderId}`, {
       method: 'PUT',
       body: JSON.stringify({ permissions, onRevoke }),
+    });
+  }
+
+  async revokeAllFileAccess(fileId: string) {
+    return this.request<any>(`/permissions/file/${fileId}/revoke-all`, {
+      method: 'POST',
+    });
+  }
+
+  async restoreFileAccess(fileId: string) {
+    return this.request<any>(`/permissions/file/${fileId}/restore-access`, {
+      method: 'POST',
     });
   }
 
@@ -1189,7 +1237,10 @@ class ApiClient {
    * Fetch a file as a Blob (authenticated). Caller must revoke any object URL
    * created from the result.
    */
-  async getDocumentBlob(fileId: string): Promise<{ blob: Blob; contentType: string; fileName?: string }> {
+  async getDocumentBlob(
+    fileId: string,
+    options?: { save?: boolean },
+  ): Promise<{ blob: Blob; contentType: string; fileName?: string }> {
     const blobHeaders = (): Record<string, string> => {
       const headers: Record<string, string> = {
         'X-CSRF-Token': getCSRFToken() || '',
@@ -1200,8 +1251,9 @@ class ApiClient {
       return headers;
     };
 
+    const suffix = options?.save ? '?intent=save' : '';
     const doFetch = () =>
-      fetch(`${this.baseURL}/files/${fileId}/download`, {
+      fetch(`${this.baseURL}/files/${fileId}/download${suffix}`, {
         credentials: 'include',
         headers: blobHeaders(),
       });
@@ -1273,7 +1325,7 @@ class ApiClient {
   }
 
   async downloadDocument(fileId: string): Promise<void> {
-    const { blob, fileName } = await this.getDocumentBlob(fileId);
+    const { blob, fileName } = await this.getDocumentBlob(fileId, { save: true });
     const blobUrl = window.URL.createObjectURL(blob);
 
     const link = document.createElement('a');
@@ -1301,7 +1353,7 @@ class ApiClient {
     };
 
     const doFetch = () =>
-      fetch(`${this.baseURL}/files/${fileId}/versions/${versionId}/download`, {
+      fetch(`${this.baseURL}/files/${fileId}/versions/${versionId}/download?intent=save`, {
         credentials: 'include',
         headers: blobHeaders(),
       });

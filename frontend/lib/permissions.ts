@@ -19,8 +19,10 @@ export const CAPABILITIES = [
   'documents.create',
   'documents.edit',
   'documents.delete',
+  'documents.download',
   'documents.share',
   'documents.manage_permissions',
+  'documents.inherit_domain',
   'documents.sign',
   'documents.request_signature',
   'folders.create',
@@ -185,6 +187,7 @@ export interface ScopedResource {
   divisionId?: string | null;
   createdBy?: string | null;
   permissionsJson?: unknown;
+  accessRevokedAt?: string | Date | null;
 }
 
 /** Normalise whatever shape `permissionsJson` arrives in into ACL entries. */
@@ -263,15 +266,15 @@ function entryApplies(
 
 /**
  * Mirror of `PermissionsService.decide` on the server, used to decide what to
- * render. Access is need-to-know — nothing is implied by where a resource sits:
+ * render. Prefer `resource.access` from the API when present.
  *
- *   1. An instance-wide scope reaches everything.
- *   2. Another company's resource is always refused.
+ *   1. Instance-wide scope reaches everything.
+ *   2. Another company's resource is refused.
  *   3. A matching deny beats any grant.
  *   4. The role must carry the capability for this verb.
- *   5. Company-wide roles reach their own company; everyone else needs an ACL
- *      entry naming them, their department or their division.
- *   6. Failing that, the creator keeps access to what they created.
+ *   5. Company / department / division roles reach their domain.
+ *   6. Otherwise an ACL entry must name them.
+ *   7. Failing that, the creator keeps access.
  */
 export function checkResourceAccess(
   user: any,
@@ -289,6 +292,7 @@ export type DenialReason =
   | 'explicit_deny'
   | 'missing_capability'
   | 'other_company'
+  | 'access_revoked'
   | 'no_grant';
 
 export interface AccessResult {
@@ -322,6 +326,10 @@ export function explainAccess(
 
   if (permissions.dataScope === 'all') return { allowed: true, reason: 'allowed' };
 
+  if (resourceType === 'document' && resource.accessRevokedAt) {
+    return { allowed: false, reason: 'access_revoked' };
+  }
+
   if (!resource.companyId || resource.companyId !== permissions.companyId) {
     return { allowed: false, reason: 'other_company' };
   }
@@ -349,8 +357,44 @@ export function explainAccess(
     return { allowed: true, reason: 'allowed' };
   }
 
+  // Domain inheritors only — Staff / Manager must be named on the ACL or request access.
+  const inheritsDomain = permissions.capabilities.includes(
+    'documents.inherit_domain',
+  );
+
   if (
-    applicable.some(
+    inheritsDomain &&
+    permissions.dataScope === 'department' &&
+    (resource.scopeLevel === 'department' ||
+      resource.scopeLevel === 'division' ||
+      resource.scope === 'department' ||
+      resource.scope === 'division') &&
+    resource.departmentId &&
+    permissions.departmentIds.includes(resource.departmentId)
+  ) {
+    return { allowed: true, reason: 'allowed' };
+  }
+  if (
+    inheritsDomain &&
+    permissions.dataScope === 'division' &&
+    (resource.scopeLevel === 'division' || resource.scope === 'division') &&
+    resource.divisionId &&
+    permissions.divisionIds.includes(resource.divisionId)
+  ) {
+    return { allowed: true, reason: 'allowed' };
+  }
+
+  const grantEntries = !inheritsDomain
+    ? applicable.filter((entry) => entry.subjectType === 'user')
+    : permissions.dataScope === 'division'
+      ? applicable.filter(
+          (entry) =>
+            entry.subjectType === 'user' || entry.subjectType === 'division',
+        )
+      : applicable;
+
+  if (
+    grantEntries.some(
       (entry) =>
         entry.effect !== 'deny' && entry.permissions.includes(permission),
     )
@@ -416,6 +460,8 @@ export function explainDenial(
       return 'Sign in to continue.';
     case 'explicit_deny':
       return `Your access to this ${noun} has been revoked by an administrator.`;
+    case 'access_revoked':
+      return `Access to this ${noun} has been revoked by a group administrator.`;
     case 'missing_capability':
       return `The ${permissions.role} role cannot ${VERB_LABEL[permission]} ${noun}s.`;
     case 'other_company':
@@ -444,22 +490,25 @@ export function capabilityLabel(capability: Capability): string {
 
 /**
  * One-line description of how far a user's reach extends.
- *
- * Access is need-to-know, so for everyone below company scope the honest answer
- * is "whatever has been shared with you" — nothing is implied by where a
- * document is filed. Saying otherwise would set the wrong expectation and send
- * people hunting for documents they were never granted.
  */
 export function describeScope(permissions: EffectivePermissions): string {
+  const inheritsDomain = permissions.capabilities.includes(
+    'documents.inherit_domain',
+  );
+
   switch (permissions.dataScope) {
     case 'all':
       return 'Every company on this instance';
     case 'company':
       return 'Everything in your company';
     case 'department':
-      return 'Anything shared with you or with your departments';
+      return inheritsDomain
+        ? 'Documents and folders filed under your departments'
+        : 'Only what has been shared with you directly';
     case 'division':
-      return 'Anything shared with you, your division or your department';
+      return inheritsDomain
+        ? 'Documents and folders filed under your divisions'
+        : 'Only what has been shared with you directly';
     case 'own':
     default:
       return 'Only what has been shared with you directly';

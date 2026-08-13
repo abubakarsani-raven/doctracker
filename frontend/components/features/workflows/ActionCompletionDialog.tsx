@@ -74,7 +74,7 @@ export function ActionCompletionDialog({
   const filesOnWorkflow = useMemo(() => {
     const seen = new Set<string>();
     return (workflowFiles as any[])
-      .filter((f) => f?.id)
+      .filter((f) => f?.id && f.access?.canRead !== false)
       .filter((f) => {
         if (seen.has(f.id)) return false;
         seen.add(f.id);

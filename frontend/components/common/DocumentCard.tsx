@@ -43,6 +43,7 @@ export interface Document {
   status?: string;
   modifiedAt: Date;
   createdBy?: string;
+  access?: { canRead?: boolean; reason?: string } | null;
 }
 
 interface DocumentCardProps {
@@ -51,7 +52,7 @@ interface DocumentCardProps {
   onDownload?: (id: string) => void;
   onAddToFolder?: (id: string) => void;
   className?: string;
-  /** Whether the current user may open this document. */
+  /** Whether the current user may open this document. Omit to use `document.access`. */
   hasAccess?: boolean;
   /** Optional sentence explaining why access is refused. */
   accessReason?: string | null;
@@ -71,16 +72,25 @@ export function DocumentCard({
   onDownload,
   onAddToFolder,
   className,
-  hasAccess = true,
+  hasAccess,
   accessReason,
 }: DocumentCardProps) {
   const router = useRouter();
   const [requestAccessOpen, setRequestAccessOpen] = useState(false);
   const scope = document.scopeLevel ?? document.scope;
+  const allowed =
+    typeof hasAccess === "boolean"
+      ? hasAccess
+      : typeof document.access?.canRead === "boolean"
+        ? document.access.canRead
+        : true;
+  const accessRevoked =
+    document.access?.reason === "access_revoked" ||
+    accessReason?.toLowerCase().includes("group administrator");
 
   const handleView = () => {
-    if (!hasAccess) {
-      setRequestAccessOpen(true);
+    if (!allowed) {
+      if (!accessRevoked) setRequestAccessOpen(true);
       return;
     }
     if (onView) {
@@ -92,16 +102,16 @@ export function DocumentCard({
   };
 
   const handleDownload = () => {
-    if (!hasAccess) {
-      setRequestAccessOpen(true);
+    if (!allowed) {
+      if (!accessRevoked) setRequestAccessOpen(true);
       return;
     }
     onDownload?.(document.id);
   };
 
   const handleAddToFolder = () => {
-    if (!hasAccess) {
-      setRequestAccessOpen(true);
+    if (!allowed) {
+      if (!accessRevoked) setRequestAccessOpen(true);
       return;
     }
     onAddToFolder?.(document.id);
@@ -111,7 +121,7 @@ export function DocumentCard({
     <Card
       className={cn(
         "flex h-full flex-col transition-shadow",
-        hasAccess ? "hover:shadow-md" : "bg-muted/20",
+        allowed ? "hover:shadow-md" : "bg-muted/20",
         className,
       )}
     >
@@ -120,13 +130,13 @@ export function DocumentCard({
           <div className="flex items-center gap-3 flex-1 min-w-0">
             <div className="flex-shrink-0">
               <FileText
-                className={cn("h-8 w-8", scopeIconClass(scope, !hasAccess))}
+                className={cn("h-8 w-8", scopeIconClass(scope, !allowed))}
               />
             </div>
             <div className="flex-1 min-w-0">
               {/* Not a link when the viewer cannot open it — a link to a locked
                   page is a dead end dressed up as an affordance. */}
-              {hasAccess ? (
+              {allowed ? (
                 <Link href={`/documents/${document.id}`} className="block">
                   <h3 className="break-words text-sm font-semibold leading-snug hover:text-primary">
                     {document.name}
@@ -179,7 +189,7 @@ export function DocumentCard({
       </CardHeader>
       <CardContent className="pt-0 flex-1">
         <div className="flex flex-wrap items-center gap-2">
-          {hasAccess ? <ScopeMark scope={scope} /> : <RestrictedMark />}
+          {allowed ? <ScopeMark scope={scope} /> : <RestrictedMark />}
           {document.status && (
             <StatusBadge status={document.status as any} className="text-xs" />
           )}
@@ -220,7 +230,12 @@ export function DocumentCard({
           <span className="stamp text-muted-foreground">
             {formatDistanceToNow(document.modifiedAt, { addSuffix: true })}
           </span>
-          {!hasAccess && (
+          {!allowed && (
+            accessRevoked ? (
+              <span className="text-xs text-muted-foreground">
+                Access revoked
+              </span>
+            ) : (
             <Button
               variant="outline"
               size="sm"
@@ -231,6 +246,7 @@ export function DocumentCard({
               <Lock className="mr-1 h-3 w-3" />
               Request access
             </Button>
+            )
           )}
         </div>
       </CardFooter>

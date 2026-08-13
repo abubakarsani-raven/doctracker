@@ -32,6 +32,7 @@ interface DocumentVersionsProps {
   /** Current file storage path — used to mark which snapshot is live. */
   currentStoragePath?: string | null;
   onVersionRestored?: () => void;
+  canDownload?: boolean;
 }
 
 const formatFileSize = (bytes: number): string => {
@@ -46,6 +47,7 @@ export function DocumentVersions({
   documentId,
   currentStoragePath,
   onVersionRestored,
+  canDownload = false,
 }: DocumentVersionsProps) {
   const [versions, setVersions] = useState<DocumentVersion[]>([]);
   const [loading, setLoading] = useState(true);
@@ -199,7 +201,7 @@ export function DocumentVersions({
                       </div>
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
-                      {!version.isRichTextVersion && (
+                      {!version.isRichTextVersion && canDownload && (
                         <Button
                           variant="outline"
                           size="sm"

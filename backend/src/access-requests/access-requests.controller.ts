@@ -22,14 +22,14 @@ export class AccessRequestsController {
   constructor(private accessRequestsService: AccessRequestsService) {}
 
   @Get()
-  @RequireCapability('access_requests.review')
+  @RequireCapability('access_requests.create')
   @UseGuards(JwtAuthGuard, CapabilityGuard)
   async findAll(@Request() req) {
     return this.accessRequestsService.findAll(req.user.id);
   }
 
   @Get(':id')
-  @RequireCapability('access_requests.review')
+  @RequireCapability('access_requests.create')
   @UseGuards(JwtAuthGuard, CapabilityGuard)
   async findOne(@Param('id') id: string, @Request() req: any) {
     return this.accessRequestsService.findOne(id, req.user);

@@ -2,17 +2,14 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
 
-export function useAccessRequests() {
+export function useAccessRequests(options?: { enabled?: boolean }) {
   return useQuery({
     queryKey: ["accessRequests"],
     queryFn: async () => {
-      try {
-        return await api.getAccessRequests();
-      } catch (error: any) {
-        toast.error(error.message || "Failed to load access requests");
-        throw error;
-      }
+      return await api.getAccessRequests();
     },
+    enabled: options?.enabled ?? true,
+    retry: false,
   });
 }
 

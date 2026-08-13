@@ -5,21 +5,28 @@ import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { DocumentCard, LoadingState, QueryErrorState } from "@/components/common";
-import { FileText, Workflow, CheckSquare, HardDrive } from "lucide-react";
+import { FileText, Workflow, CheckSquare, HardDrive, KeyRound, History, Clock, Target } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { useDocuments } from "@/lib/hooks/use-documents";
 import { useWorkflows } from "@/lib/hooks/use-workflows";
 import { useActions } from "@/lib/hooks/use-actions";
 import { useMyGoals } from "@/lib/hooks/use-goals";
 import { useCurrentUser } from "@/lib/hooks/use-users";
+import { usePermissions } from "@/lib/hooks/use-permissions";
 import { isAssignedToAction } from "@/lib/action-utils";
+import { useAccessRequests } from "@/lib/hooks/use-access-requests";
+import {
+  AccessRequest,
+  canApproveAccessRequest,
+} from "@/lib/access-request-utils";
+import { accessRequestDecidedAt } from "@/components/features/access-requests/AccessRequestCard";
 import { api } from "@/lib/api";
-import { Target } from "lucide-react";
-import { format } from "date-fns";
+import { format, formatDistanceToNow } from "date-fns";
 
 export default function DashboardPage() {
   const router = useRouter();
   const { data: currentUser } = useCurrentUser();
+  const { canOn, whyNot } = usePermissions();
   const {
     data: documents = [],
     isLoading: documentsLoading,
@@ -60,6 +67,9 @@ export default function DashboardPage() {
       if (!currentUser?.id) return { bytes: 0, formatted: "0 B" };
       return await api.getUserStorage();
     },
+    enabled: !!currentUser?.id,
+  });
+  const { data: accessRequests = [] } = useAccessRequests({
     enabled: !!currentUser?.id,
   });
 
@@ -151,6 +161,27 @@ export default function DashboardPage() {
       })
       .slice(0, 3);
   }, [goals]);
+
+  const pendingAccess = useMemo(() => {
+    const requests = (accessRequests as AccessRequest[]).filter(
+      (request) =>
+        request.status === "pending" &&
+        (request.requestedBy === currentUser?.id ||
+          canApproveAccessRequest(request, currentUser)),
+    );
+    return requests.slice(0, 4);
+  }, [accessRequests, currentUser]);
+
+  const accessHistory = useMemo(() => {
+    return (accessRequests as AccessRequest[])
+      .filter((request) => request.status !== "pending")
+      .sort(
+        (a, b) =>
+          new Date(accessRequestDecidedAt(b)).getTime() -
+          new Date(accessRequestDecidedAt(a)).getTime(),
+      )
+      .slice(0, 4);
+  }, [accessRequests]);
 
   const formatNumber = (num: number) => {
     return num.toLocaleString();
@@ -256,6 +287,116 @@ export default function DashboardPage() {
         </Card>
       </div>
 
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <KeyRound className="h-4 w-4" />
+              Request access
+            </CardTitle>
+            <Badge
+              variant="outline"
+              className="cursor-pointer hover:bg-accent"
+              onClick={() => router.push("/access-requests")}
+            >
+              View all
+            </Badge>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {pendingAccess.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                No open requests. Restricted documents have a Request access
+                button.
+              </p>
+            ) : (
+              pendingAccess.map((request) => (
+                <button
+                  key={request.id}
+                  type="button"
+                  className="flex w-full items-start justify-between gap-3 rounded-md border p-3 text-left hover:bg-accent"
+                  onClick={() => router.push("/access-requests")}
+                >
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium">
+                      {request.resourceName}
+                    </p>
+                    <p className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground">
+                      <Clock className="h-3 w-3 shrink-0" />
+                      {request.requestedBy === currentUser?.id
+                        ? "You requested this"
+                        : request.requestedByName}{" "}
+                      ·{" "}
+                      {formatDistanceToNow(new Date(request.createdAt), {
+                        addSuffix: true,
+                      })}
+                    </p>
+                  </div>
+                  <Badge variant="secondary" className="shrink-0">
+                    Pending
+                  </Badge>
+                </button>
+              ))
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <History className="h-4 w-4" />
+              History
+            </CardTitle>
+            <Badge
+              variant="outline"
+              className="cursor-pointer hover:bg-accent"
+              onClick={() => router.push("/access-requests")}
+            >
+              View all
+            </Badge>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {accessHistory.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                Approved and rejected requests will appear here.
+              </p>
+            ) : (
+              accessHistory.map((request) => (
+                <button
+                  key={request.id}
+                  type="button"
+                  className="flex w-full items-start justify-between gap-3 rounded-md border p-3 text-left hover:bg-accent"
+                  onClick={() => router.push("/access-requests")}
+                >
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium">
+                      {request.resourceName}
+                    </p>
+                    <p className="mt-0.5 text-xs text-muted-foreground">
+                      {request.status === "approved" ? "Approved" : "Rejected"}{" "}
+                      {formatDistanceToNow(
+                        new Date(accessRequestDecidedAt(request)),
+                        { addSuffix: true },
+                      )}
+                      {request.approvedByName || request.rejectedByName
+                        ? ` · ${request.approvedByName || request.rejectedByName}`
+                        : ""}
+                    </p>
+                  </div>
+                  <Badge
+                    variant={
+                      request.status === "approved" ? "default" : "destructive"
+                    }
+                    className="shrink-0 capitalize"
+                  >
+                    {request.status}
+                  </Badge>
+                </button>
+              ))
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
       {/* Recent Documents */}
       <div>
         <div className="flex items-center justify-between mb-4">
@@ -282,6 +423,8 @@ export default function DashboardPage() {
               <DocumentCard
                 key={doc.id}
                 document={doc}
+                hasAccess={canOn(doc, "read", "document")}
+                accessReason={whyNot(doc, "read", "document")}
                 onView={(id) => router.push(`/documents/${id}`)}
               />
             ))}

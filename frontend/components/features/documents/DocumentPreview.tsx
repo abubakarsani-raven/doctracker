@@ -19,6 +19,8 @@ interface DocumentPreviewProps {
    * Without this the blob URL stays cached and the old PDF keeps showing.
    */
   revision?: string | number | null;
+  /** Master / Group Secretary only — others preview in the app. */
+  canDownload?: boolean;
 }
 
 const PREVIEW_FONT_STEPS = [90, 100, 115, 130, 150] as const;
@@ -96,6 +98,7 @@ export function DocumentPreview({
   fileName,
   document,
   revision,
+  canDownload = false,
 }: DocumentPreviewProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -296,11 +299,12 @@ export function DocumentPreview({
             >
               Retry
             </Button>
-            {!samePathAsDownload ? (
+            {!samePathAsDownload && canDownload && (
               <Button variant="outline" onClick={handleDownload}>
                 Download instead
               </Button>
-            ) : (
+            )}
+            {samePathAsDownload && (
               <p className="w-full text-xs text-muted-foreground">
                 Download uses the same storage path — retry when storage is back.
               </p>
@@ -327,7 +331,7 @@ export function DocumentPreview({
         <div className="h-[min(70dvh,900px)] min-h-[560px] w-full overflow-hidden overscroll-contain rounded-b-lg bg-muted">
           <iframe
             title={fileName || "PDF preview"}
-            src={`${previewUrl}#toolbar=1&navpanes=0`}
+            src={`${previewUrl}#toolbar=${canDownload ? 1 : 0}&navpanes=0`}
             className="h-full w-full border-0 bg-muted"
           />
         </div>
@@ -352,12 +356,16 @@ export function DocumentPreview({
           Preview is not available for this file type
         </p>
         <p className="mt-2 text-sm text-muted-foreground">
-          Download the file to open it in another app
+          {canDownload
+            ? "Download the file to open it in another app"
+            : "This file type cannot be previewed here. Ask Master or Group Secretary if you need a copy."}
         </p>
+        {canDownload && (
         <Button variant="outline" className="mt-4" onClick={handleDownload}>
           <Download className="mr-2 h-4 w-4" />
           Download
         </Button>
+        )}
       </div>
     );
   };

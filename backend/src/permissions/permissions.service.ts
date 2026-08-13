@@ -15,6 +15,7 @@ import {
   DEFAULT_ROLE_NAME,
   DATA_SCOPE_RANK,
   EffectivePermissions,
+  hasCapability,
   parseRolePermissions,
 } from './capabilities';
 import {
@@ -85,6 +86,8 @@ interface ResourceDescriptor {
   departmentId: string | null;
   divisionId: string | null;
   createdBy: string | null;
+  /** Files only. When set, only instance-scoped roles may open the file. */
+  accessRevokedAt?: Date | null;
 }
 
 /** Why a request was allowed or refused — drives audit entries and tooltips. */
@@ -93,6 +96,8 @@ export interface AccessDecision {
   reason:
     | 'instance_scope'
     | 'company_scope'
+    | 'department_scope'
+    | 'division_scope'
     | 'explicit_grant'
     | 'signature_invite'
     | 'workflow_participant'
@@ -101,6 +106,7 @@ export interface AccessDecision {
     | 'missing_capability'
     | 'no_grant'
     | 'other_company'
+    | 'access_revoked'
     | 'not_found';
 }
 
@@ -266,6 +272,8 @@ export class PermissionsService {
         departmentId: true,
         divisionId: true,
         companyId: true,
+        accessRevokedAt: true,
+        accessRevokedBy: true,
       },
     });
 
@@ -297,9 +305,112 @@ export class PermissionsService {
       departmentId: file.departmentId,
       divisionId: file.divisionId,
       companyId: file.companyId,
+      accessRevokedAt: file.accessRevokedAt,
+      accessRevokedBy: file.accessRevokedBy,
       explicitPermissions,
       inheritedPermissions,
     };
+  }
+
+  /**
+   * Lock or unlock a file for everyone except Master / Group Secretary.
+   * ACL rows stay in place so restoring access brings the previous grants
+   * back; the lock sits above them in decide().
+   */
+  async setFileAccessRevoked(
+    fileId: string,
+    revoked: boolean,
+    currentUser: { id: string; name?: string },
+  ) {
+    const file = await this.prisma.file.findUnique({
+      where: { id: fileId },
+      select: {
+        id: true,
+        fileName: true,
+        companyId: true,
+        accessRevokedAt: true,
+      },
+    });
+    if (!file) {
+      throw new NotFoundException('File not found');
+    }
+
+    const updated = await this.prisma.file.update({
+      where: { id: fileId },
+      data: revoked
+        ? { accessRevokedAt: new Date(), accessRevokedBy: currentUser.id }
+        : { accessRevokedAt: null, accessRevokedBy: null },
+      select: {
+        id: true,
+        fileName: true,
+        accessRevokedAt: true,
+        accessRevokedBy: true,
+      },
+    });
+
+    if (revoked) {
+      await this.rejectPendingAccessRequestsForFile(
+        fileId,
+        currentUser.id,
+        currentUser.name || 'Group administrator',
+      );
+    }
+
+    return updated;
+  }
+
+  async isFileAccessRevoked(fileId: string): Promise<boolean> {
+    const file = await this.prisma.file.findUnique({
+      where: { id: fileId },
+      select: { accessRevokedAt: true },
+    });
+    return !!file?.accessRevokedAt;
+  }
+
+  private async rejectPendingAccessRequestsForFile(
+    fileId: string,
+    rejectedBy: string,
+    rejectedByName: string,
+  ) {
+    const pending = await this.prisma.accessRequest.findMany({
+      where: {
+        resourceId: fileId,
+        resourceType: { in: ['file', 'document'] },
+        status: 'pending',
+      },
+      select: { id: true, requestedBy: true, companyId: true, resourceName: true },
+    });
+    if (pending.length === 0) return;
+
+    const now = new Date();
+    await this.prisma.accessRequest.updateMany({
+      where: { id: { in: pending.map((row) => row.id) } },
+      data: {
+        status: 'rejected',
+        rejectedBy,
+        rejectedByName,
+        rejectedAt: now,
+        rejectionReason:
+          'Access to this file was revoked by a group administrator.',
+      },
+    });
+
+    for (const request of pending) {
+      try {
+        await this.notificationsService.create({
+          userId: request.requestedBy,
+          companyId: request.companyId,
+          type: 'access_request_rejected',
+          title: 'Access request closed',
+          message: `Access to "${request.resourceName}" was revoked by a group administrator, so this request was closed.`,
+          resourceType: 'file',
+          resourceId: fileId,
+          read: false,
+        });
+      } catch {
+        // A missed notice must not roll back the lock.
+      }
+    }
   }
 
   // -------------------------------------------------------------------------
@@ -989,18 +1100,19 @@ export class PermissionsService {
   /**
    * Decide whether `userId` may perform `permission` on a folder or file.
    *
-   * Access is need-to-know: nothing is implied by where a resource sits in the
-   * hierarchy. Filing a folder under a department records where it belongs; it
-   * does not by itself let that department in.
-   *
    *   1. Master reaches everything — there must always be a way back in.
    *   2. Another company's resource is refused, except temporary signature
    *      invites (ACL source `signature:<requestId>`) and active invitees.
    *   3. A matching deny beats any grant.
-   *   4. The role must carry the capability for this verb.
-   *   5. Company-wide roles reach their own company; everyone else needs an ACL
-   *      entry naming them, their department or their division.
-   *   6. Failing that, the creator keeps access to what they created.
+   *   4. The role must carry the capability for this verb. Named workflow
+   *      assignees and signature invitees may then read that one file.
+   *   5. Scope reach: company roles reach their company; roles with
+   *      `documents.inherit_domain` reach resources published into their
+   *      department or division. Staff / Manager do not inherit that way.
+   *   6. Otherwise an ACL entry must name them. Domain inheritors also honour
+   *      collective ACL, except a division-scoped inheritor ignores parent
+   *      department opening grants.
+   *   7. Failing that, the creator keeps access to what they created.
    */
   async checkPermission(
     userId: string,
@@ -1038,6 +1150,14 @@ export class PermissionsService {
     //    be a false assurance rather than a real control.
     if (permissions.dataScope === 'all') {
       return { allowed: true, reason: 'instance_scope' };
+    }
+
+    // 1b. A group-level lock beats every other grant: company scope, domain
+    //     inherit, named ACL, creator, workflow, and signature invites.
+    //     Instance-scoped roles already returned above, so they can still
+    //     recover the file and restore access.
+    if (resourceType === 'file' && resource.accessRevokedAt) {
+      return { allowed: false, reason: 'access_revoked' };
     }
 
     const subject: SubjectContext = {
@@ -1105,9 +1225,12 @@ export class PermissionsService {
       return { allowed: true, reason: 'signature_invite' };
     }
 
-    // 4c. Workflow participants may read files attached to (or primary on)
-    //     workflows they are on — so assignees can open/download without a
-    //     separate folder ACL. Non-participants still need an explicit grant.
+    // 4c. A named user currently on a workflow may read files attached to
+    //     (or primary on) that workflow — so an assignee can work without a
+    //     separate folder ACL. Department assignment and routing-history
+    //     hops are not a file-read grant: membership in Legal must not open
+    //     a Restricted board paper. Non-assignees still need an explicit
+    //     grant.
     if (
       resourceType === 'file' &&
       permission === 'read' &&
@@ -1123,11 +1246,42 @@ export class PermissionsService {
       return { allowed: true, reason: 'company_scope' };
     }
 
-    // 5b. Otherwise an explicit grant is required. This is the need-to-know
-    //     rule: being in the department a folder is filed under is not enough,
-    //     the folder has to name that department.
+    // 5b. Roles with `documents.inherit_domain` reach resources published
+    //     into their domain. Staff / Manager do not — they need a user-named
+    //     ACL grant or an approved access request.
+    const inheritsDomain = hasCapability(
+      permissions,
+      'documents.inherit_domain',
+    );
     if (
-      applicable.some(
+      inheritsDomain &&
+      !crossCompany &&
+      permissions.dataScope === 'department' &&
+      (resource.scopeLevel === 'department' ||
+        resource.scopeLevel === 'division') &&
+      resource.departmentId &&
+      permissions.departmentIds.includes(resource.departmentId)
+    ) {
+      return { allowed: true, reason: 'department_scope' };
+    }
+    if (
+      inheritsDomain &&
+      !crossCompany &&
+      permissions.dataScope === 'division' &&
+      resource.scopeLevel === 'division' &&
+      resource.divisionId &&
+      permissions.divisionIds.includes(resource.divisionId)
+    ) {
+      return { allowed: true, reason: 'division_scope' };
+    }
+
+    // 5c. Explicit grants. Without inherit_domain, only a user-named ACL
+    //     counts. Division-scoped inheritors honour user + division grants,
+    //     not parent-department opening grants (Legal memos stay Restricted
+    //     for a Contracts Division Head).
+    const grantEntries = this.grantEntriesFor(permissions, applicable);
+    if (
+      grantEntries.some(
         (entry) =>
           entry.effect !== 'deny' && entry.permissions.includes(permission),
       )
@@ -1141,6 +1295,28 @@ export class PermissionsService {
     }
 
     return { allowed: false, reason: 'no_grant' };
+  }
+
+  /**
+   * Which ACL entries this role may use as an explicit grant.
+   * Staff / Manager / Receptionist: user subjects only.
+   * Division-scoped domain inheritors: user + division (not department).
+   * Department-scoped inheritors: every applicable subject.
+   */
+  private grantEntriesFor(
+    permissions: EffectivePermissions,
+    applicable: AclEntry[],
+  ): AclEntry[] {
+    if (!hasCapability(permissions, 'documents.inherit_domain')) {
+      return applicable.filter((entry) => entry.subjectType === 'user');
+    }
+    if (permissions.dataScope === 'division') {
+      return applicable.filter(
+        (entry) =>
+          entry.subjectType === 'user' || entry.subjectType === 'division',
+      );
+    }
+    return applicable;
   }
 
   /**
@@ -1202,21 +1378,20 @@ export class PermissionsService {
   }
 
   /**
-   * True when the user is a participant on a workflow that lists this file
-   * as its primary document or an attached WorkflowFile.
+   * True when this user is a named assignee on a workflow that lists the
+   * file as its primary document or an attached WorkflowFile.
+   *
+   * Named: workflow creator, current user assignee, or an action assigned
+   * to them as a user. Department assignment, department actions, and
+   * routing-history hops (user or department) do not count — those would
+   * reopen Restricted files to everyone in the department, including after
+   * the hop has passed.
    */
   private async isActiveWorkflowFileParticipant(
     userId: string,
     fileId: string,
   ): Promise<boolean> {
     try {
-      const deptIds = (
-        await this.prisma.userDepartment.findMany({
-          where: { userId },
-          select: { departmentId: true },
-        })
-      ).map((r) => r.departmentId);
-
       const workflows = await this.prisma.workflow.findMany({
         where: {
           OR: [
@@ -1232,74 +1407,42 @@ export class PermissionsService {
             select: {
               assignedToType: true,
               assignedToId: true,
-              createdBy: true,
-            },
-          },
-          routingHistory: {
-            select: {
-              fromType: true,
-              fromId: true,
-              toType: true,
-              toId: true,
             },
           },
         },
       });
 
-      for (const workflow of workflows) {
-        if (workflow.assignedBy === userId) return true;
-        if (
-          workflow.assignedToType === 'user' &&
-          workflow.assignedToId === userId
-        ) {
-          return true;
-        }
-        if (
-          workflow.assignedToType === 'department' &&
-          workflow.assignedToId &&
-          deptIds.includes(workflow.assignedToId)
-        ) {
-          return true;
-        }
-        for (const action of workflow.actions) {
-          if (action.createdBy === userId) return true;
-          if (
-            action.assignedToType === 'user' &&
-            action.assignedToId === userId
-          ) {
-            return true;
-          }
-          if (
-            action.assignedToType === 'department' &&
-            action.assignedToId &&
-            deptIds.includes(action.assignedToId)
-          ) {
-            return true;
-          }
-        }
-        for (const hop of workflow.routingHistory) {
-          if (hop.fromType === 'user' && hop.fromId === userId) return true;
-          if (hop.toType === 'user' && hop.toId === userId) return true;
-          if (
-            hop.fromType === 'department' &&
-            hop.fromId &&
-            deptIds.includes(hop.fromId)
-          ) {
-            return true;
-          }
-          if (
-            hop.toType === 'department' &&
-            hop.toId &&
-            deptIds.includes(hop.toId)
-          ) {
-            return true;
-          }
-        }
-      }
-      return false;
+      return workflows.some((workflow) =>
+        this.isNamedWorkflowFileAssignee(userId, workflow),
+      );
     } catch {
       return false;
     }
+  }
+
+  private isNamedWorkflowFileAssignee(
+    userId: string,
+    workflow: {
+      assignedBy: string;
+      assignedToType: string | null;
+      assignedToId: string | null;
+      actions: Array<{
+        assignedToType: string | null;
+        assignedToId: string | null;
+      }>;
+    },
+  ): boolean {
+    if (workflow.assignedBy === userId) return true;
+    if (
+      workflow.assignedToType === 'user' &&
+      workflow.assignedToId === userId
+    ) {
+      return true;
+    }
+    return workflow.actions.some(
+      (action) =>
+        action.assignedToType === 'user' && action.assignedToId === userId,
+    );
   }
 
   /** Assert a permission, raising 403/404 rather than returning false. */
@@ -1406,22 +1549,31 @@ export class PermissionsService {
   ): Promise<ResourceDescriptor | null> {
     if (!resourceId) return null;
 
-    const select = {
-      id: true,
-      companyId: true,
-      scopeLevel: true,
-      departmentId: true,
-      divisionId: true,
-      createdBy: true,
-    };
-
     if (resourceType === 'folder') {
       return this.prisma.folder.findUnique({
         where: { id: resourceId },
-        select,
+        select: {
+          id: true,
+          companyId: true,
+          scopeLevel: true,
+          departmentId: true,
+          divisionId: true,
+          createdBy: true,
+        },
       });
     }
-    return this.prisma.file.findUnique({ where: { id: resourceId }, select });
+    return this.prisma.file.findUnique({
+      where: { id: resourceId },
+      select: {
+        id: true,
+        companyId: true,
+        scopeLevel: true,
+        departmentId: true,
+        divisionId: true,
+        createdBy: true,
+        accessRevokedAt: true,
+      },
+    });
   }
 
   /** Every ACL entry that applies to a resource, inheritance included. */
@@ -1468,6 +1620,8 @@ const DENIAL_MESSAGE: Partial<
   Record<AccessDecision['reason'], (resourceType: ResourceType) => string>
 > = {
   explicit_deny: (t) => `Your access to this ${t} has been revoked.`,
+  access_revoked: (t) =>
+    `Access to this ${t} has been revoked by a group administrator.`,
   missing_capability: (t) => `Your role cannot perform this action on a ${t}.`,
   other_company: (t) => `This ${t} belongs to another company.`,
   no_grant: (t) =>

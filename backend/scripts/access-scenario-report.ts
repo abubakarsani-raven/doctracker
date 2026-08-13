@@ -232,7 +232,14 @@ async function main() {
           );
           let viaWorkflow = false;
           for (const w of linked) {
-            if (participates(user.id, deptIds, w).ok) {
+            const named =
+              w.assignedBy === user.id ||
+              (w.assignedToType === 'user' && w.assignedToId === user.id) ||
+              w.actions.some(
+                (a) =>
+                  a.assignedToType === 'user' && a.assignedToId === user.id,
+              );
+            if (named) {
               viaWorkflow = true;
               trigger = `workflow_participant (via "${w.title}")`;
               break;
@@ -264,7 +271,7 @@ async function main() {
       'Reference picker: only documents that pass filterReadable (same decide() rules)',
     );
     console.log(
-      'Workflow download/open: allowed if decide(read) — including workflow_participant',
+      'Workflow download/open: allowed if decide(read) — named workflow assignee only, not department hops',
     );
   } finally {
     await prisma.$disconnect();

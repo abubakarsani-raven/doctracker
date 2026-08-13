@@ -13,14 +13,14 @@ import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { StatusBadge, LoadingState, EmptyState, PresenceIndicator, QueryErrorState } from "@/components/common";
-import { Download, Share2, MoreVertical, FileText, Clock, User, Workflow, PenTool } from "lucide-react";
+import { Download, Share2, MoreVertical, FileText, Clock, User, Workflow, PenTool, Ban } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { formatDistanceToNow } from "date-fns";
 import { useParams, useRouter } from "next/navigation";
 import { DocumentNotes } from "@/components/features/documents/DocumentNotes";
@@ -103,6 +103,7 @@ export default function DocumentDetailPage() {
       divisionId: documentData.divisionId,
       permissionsJson: (documentData as any).permissionsJson ?? null,
       access: (documentData as any).access ?? null,
+      accessRevokedAt: (documentData as any).accessRevokedAt ?? null,
       folder: folder?.name || documentData.folder || "Unknown",
       folderId: documentData.folderId,
       modifiedAt: new Date(documentData.modifiedAt),
@@ -127,7 +128,7 @@ export default function DocumentDetailPage() {
     ? can("documents.delete") && canOn(document, "delete", "document")
     : false;
   const canDownload = document
-    ? can("documents.view") &&
+    ? can("documents.download") &&
       (canOn(document, "read", "document") ||
         (document as any).access?.canRead === true)
     : false;
@@ -249,6 +250,16 @@ export default function DocumentDetailPage() {
         </BreadcrumbList>
       </Breadcrumb>
 
+      {(document as any).accessRevokedAt && (
+        <Alert variant="destructive">
+          <Ban className="h-4 w-4" />
+          <AlertDescription>
+            All access is revoked. Only Master and Group Secretary can open
+            this file. Restore access from Share.
+          </AlertDescription>
+        </Alert>
+      )}
+
       {/* Header */}
       <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
         <div className="flex min-w-0 flex-1 items-start gap-4">
@@ -299,8 +310,9 @@ export default function DocumentDetailPage() {
             variant="outline"
             allowed={canDownload}
             reason={
-              whyNot(document, "read", "document") ??
-              `The ${permissions.role} role cannot download documents.`
+              can("documents.download")
+                ? whyNot(document, "read", "document")
+                : "Only Master and Group Secretary can download a copy. You can view this document here."
             }
             onClick={handleDownload}
             disabled={downloading}
@@ -378,6 +390,7 @@ export default function DocumentDetailPage() {
                 document={document}
                 fileType={document.type || document.fileType}
                 fileName={document.name}
+                canDownload={canDownload}
                 revision={`${document.storagePath || ""}:${document.size || 0}:${document.modifiedAt?.valueOf?.() || document.modifiedAt || ""}`}
               />
             </TabsContent>
@@ -388,6 +401,7 @@ export default function DocumentDetailPage() {
               <DocumentVersions
                 documentId={documentId}
                 currentStoragePath={document.storagePath}
+                canDownload={canDownload}
                 key={document?.modifiedAt?.toString()}
                 onVersionRestored={handleVersionUploaded}
               />
@@ -559,6 +573,10 @@ export default function DocumentDetailPage() {
         documentId={documentId}
         folderId={document.folderId}
         resourceName={document.name}
+        onChanged={() => {
+          queryClient.invalidateQueries({ queryKey: ["documents", documentId] });
+          queryClient.invalidateQueries({ queryKey: ["documents"] });
+        }}
       />
 
       <ConfirmDialog

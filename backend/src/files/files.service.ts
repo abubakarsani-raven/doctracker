@@ -1441,61 +1441,80 @@ export class FilesService {
     skip: number = 0,
     take: number = 50
   ) {
-    // Build search conditions
-    const where: any = {
-      companyId,
-      deletedAt: null, // Only search non-deleted files
-      OR: [
-        {
-          fileName: {
+    // Body text is only searched for roles that already reach every file in
+    // the company. Searching htmlContent across the tenant would let Staff
+    // prove a Restricted phrase exists even when filterReadable later drops
+    // the row. Filename search is the registry list (names are already
+    // visible); readable-filter still drops files they cannot open.
+    const dataScope = user?.permissions?.dataScope;
+    const canSearchBodies =
+      dataScope === 'all' || dataScope === 'company';
+
+    const or: any[] = [
+      {
+        fileName: {
+          contains: query,
+          mode: 'insensitive',
+        },
+      },
+    ];
+    if (canSearchBodies) {
+      or.push({
+        richTextDoc: {
+          htmlContent: {
             contains: query,
             mode: 'insensitive',
           },
         },
-        {
-          richTextDoc: {
-            htmlContent: {
-              contains: query,
-              mode: 'insensitive',
-            },
-          },
-        },
-      ],
+      });
+    }
+
+    const where: any = {
+      companyId,
+      deletedAt: null,
+      OR: or,
     };
 
-    // Get total count and items
-    const [total, items] = await Promise.all([
-      this.prisma.file.count({ where }),
-      this.prisma.file.findMany({
-        where,
-        include: {
-          fileFolderLinks: {
-            include: {
-              folder: true,
-            },
-          },
-          creator: {
-            select: {
-              id: true,
-              name: true,
-              email: true,
-            },
-          },
-          richTextDoc: true,
-        },
-        orderBy: {
-          createdAt: 'desc',
-        },
-        skip,
-        take,
-      }),
-    ]);
+    const matches = await this.prisma.file.findMany({
+      where,
+      select: { id: true },
+      orderBy: { createdAt: 'desc' },
+    });
 
-    // Filter results by user's read permissions
-    const filteredItems = await this.permissionsService.filterReadable(user.id, 'file', items);
+    const readable = await this.permissionsService.filterReadable(
+      user.id,
+      'file',
+      matches,
+    );
+    const total = readable.length;
+    const pageIds = readable.slice(skip, skip + take).map((row) => row.id);
 
+    if (pageIds.length === 0) {
+      return { items: [], total };
+    }
+
+    const items = await this.prisma.file.findMany({
+      where: { id: { in: pageIds } },
+      include: {
+        fileFolderLinks: {
+          include: {
+            folder: true,
+          },
+        },
+        creator: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+          },
+        },
+        richTextDoc: true,
+      },
+    });
+
+    const byId = new Map(items.map((item) => [item.id, item]));
     return {
-      items: filteredItems,
+      items: pageIds.map((id) => byId.get(id)).filter(Boolean),
       total,
     };
   }
@@ -1526,12 +1545,22 @@ function buildOpeningGrants(data: {
       permissions: ['read', 'write', 'share'],
     });
   } else if (data.scopeLevel === 'division' && data.divisionId) {
+    // Division members get the division grant; the parent department also
+    // gets access so department heads/secretaries cover their domain.
     grants.push({
       ...base,
       subjectType: 'division',
       subjectId: data.divisionId,
       permissions: ['read', 'write', 'share'],
     });
+    if (data.departmentId) {
+      grants.push({
+        ...base,
+        subjectType: 'department',
+        subjectId: data.departmentId,
+        permissions: ['read', 'write', 'share'],
+      });
+    }
   }
 
   return grants;

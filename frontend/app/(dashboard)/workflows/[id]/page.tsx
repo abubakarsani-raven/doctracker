@@ -340,7 +340,10 @@ export default function WorkflowDetailPage() {
           <ActionResults workflowId={workflowId} />
 
           {/* Files Added */}
-          <WorkflowFiles workflowId={workflowId} />
+          <WorkflowFiles
+            workflowId={workflowId}
+            workflowTitle={workflowWithProgress.title}
+          />
 
           {/* Post-Workflow Goals */}
           <WorkflowGoalsList 

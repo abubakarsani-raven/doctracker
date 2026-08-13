@@ -192,6 +192,9 @@ model File {
   departmentId String? @map("department_id")
   divisionId  String?  @map("division_id")
   createdBy   String   @map("created_by")
+  /** When set, only instance-scoped roles (Master / Group Secretary) may open the file. */
+  accessRevokedAt DateTime? @map("access_revoked_at")
+  accessRevokedBy String?   @map("access_revoked_by")
   archivedAt  DateTime? @map("archived_at")
   deletedAt   DateTime? @map("deleted_at")
   createdAt   DateTime @default(now()) @map("created_at")

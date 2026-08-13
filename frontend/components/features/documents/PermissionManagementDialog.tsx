@@ -50,7 +50,7 @@ import { usePermissions } from "@/lib/hooks/use-permissions";
 import { api } from "@/lib/api";
 import { ApiError } from "@/lib/api-client";
 import type { AclEntry, ResourcePermission, SubjectType } from "@/lib/permissions";
-import { cn } from "@/lib/utils";
+import { ConfirmDialog } from "@/components/common/ConfirmDialog";
 
 interface PermissionManagementDialogProps {
   open: boolean;
@@ -59,6 +59,8 @@ interface PermissionManagementDialogProps {
   documentId?: string;
   /** Shown in the header so it is clear what is being edited. */
   resourceName?: string;
+  /** Called after ACL save, revoke-all, or restore. */
+  onChanged?: () => void;
 }
 
 const PERMISSION_ORDER: ResourcePermission[] = [
@@ -91,10 +93,11 @@ export function PermissionManagementDialog({
   folderId,
   documentId,
   resourceName,
+  onChanged,
 }: PermissionManagementDialogProps) {
   const { data: users = [] } = useUsers();
   const { data: companies = [] } = useCompanies();
-  const { can } = usePermissions();
+  const { can, isMaster } = usePermissions();
 
   const [entries, setEntries] = useState<AclEntry[]>([]);
   const [inherited, setInherited] = useState<AclEntry[]>([]);
@@ -112,6 +115,9 @@ export function PermissionManagementDialog({
   // What to do about work already assigned to anyone losing access. Defaults to
   // leaving it alone — dropping someone's in-progress work should be a choice.
   const [onRevoke, setOnRevoke] = useState<"leave" | "flag">("leave");
+  const [accessRevokedAt, setAccessRevokedAt] = useState<string | null>(null);
+  const [revokeConfirmOpen, setRevokeConfirmOpen] = useState(false);
+  const [locking, setLocking] = useState(false);
 
   // The reassignment prompt is only relevant when access is actually being
   // taken away, so it stays hidden until there is a deny entry.
@@ -157,6 +163,7 @@ export function PermissionManagementDialog({
           ? data.inheritedPermissions
           : []) as AclEntry[],
       );
+      setAccessRevokedAt(data.accessRevokedAt ?? null);
     } catch (error) {
       const message =
         error instanceof ApiError
@@ -308,6 +315,7 @@ export function PermissionManagementDialog({
       toast.success("Permissions updated", {
         description: "Changes take effect immediately.",
       });
+      onChanged?.();
       onOpenChange(false);
     } catch (error) {
       toast.error("Could not update permissions", {
@@ -319,7 +327,50 @@ export function PermissionManagementDialog({
     }
   };
 
+  const handleRevokeAll = async () => {
+    if (!documentId) return;
+    setLocking(true);
+    try {
+      await api.revokeAllFileAccess(documentId);
+      toast.success("All access revoked", {
+        description:
+          "Only Master and Group Secretary can open this file until access is restored.",
+      });
+      setAccessRevokedAt(new Date().toISOString());
+      setRevokeConfirmOpen(false);
+      onChanged?.();
+    } catch (error) {
+      toast.error("Could not revoke access", {
+        description:
+          error instanceof ApiError ? error.message : "Please try again.",
+      });
+    } finally {
+      setLocking(false);
+    }
+  };
+
+  const handleRestoreAccess = async () => {
+    if (!documentId) return;
+    setLocking(true);
+    try {
+      await api.restoreFileAccess(documentId);
+      toast.success("Access restored", {
+        description: "Previous grants and role reach apply again.",
+      });
+      setAccessRevokedAt(null);
+      onChanged?.();
+    } catch (error) {
+      toast.error("Could not restore access", {
+        description:
+          error instanceof ApiError ? error.message : "Please try again.",
+      });
+    } finally {
+      setLocking(false);
+    }
+  };
+
   return (
+    <>
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[760px] max-h-[90vh] overflow-y-auto">
         <DialogHeader>
@@ -357,6 +408,46 @@ export function PermissionManagementDialog({
             <AlertCircle className="h-4 w-4" />
             <AlertDescription>{loadError}</AlertDescription>
           </Alert>
+        )}
+
+        {documentId && isMaster && !loadError && (
+          <div className="space-y-3 rounded-lg border border-destructive/30 p-4">
+            <Label className="text-base font-semibold">Group lock</Label>
+            {accessRevokedAt ? (
+              <>
+                <Alert variant="destructive">
+                  <Ban className="h-4 w-4" />
+                  <AlertDescription>
+                    All access is revoked. Company admins, department
+                    leaders, creators, and named shares cannot open this
+                    file. Only Master and Group Secretary can.
+                  </AlertDescription>
+                </Alert>
+                <Button
+                  variant="outline"
+                  disabled={locking}
+                  onClick={handleRestoreAccess}
+                >
+                  {locking ? "Restoring…" : "Restore access"}
+                </Button>
+              </>
+            ) : (
+              <>
+                <p className="text-sm text-muted-foreground">
+                  Pull this file back so nobody in any company can open it,
+                  including people who already had a grant. You can restore
+                  access later; existing shares are kept, not deleted.
+                </p>
+                <Button
+                  variant="destructive"
+                  disabled={locking}
+                  onClick={() => setRevokeConfirmOpen(true)}
+                >
+                  Revoke all access
+                </Button>
+              </>
+            )}
+          </div>
         )}
 
         <div className="space-y-6 py-2">
@@ -702,5 +793,18 @@ export function PermissionManagementDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+    {documentId && isMaster && (
+      <ConfirmDialog
+        open={revokeConfirmOpen}
+        onOpenChange={setRevokeConfirmOpen}
+        title="Revoke all access?"
+        description={`“${resourceName || "This file"}” will be closed to everyone except Master and Group Secretary. Pending access requests will be closed. Existing shares stay on file and return if you restore access.`}
+        confirmLabel="Revoke all access"
+        variant="destructive"
+        loading={locking}
+        onConfirm={handleRevokeAll}
+      />
+    )}
+    </>
   );
 }

@@ -1,7 +1,12 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { FolderCard, DocumentCard, EmptyState, LoadingState, QueryErrorState } from "@/components/common";
+import {
+  ListPagination,
+  paginateItems,
+  REGISTRY_PAGE_SIZE,
+} from "@/components/common/ListPagination";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -129,6 +134,8 @@ export default function DocumentsPage() {
   const [deletingFolder, setDeletingFolder] = useState(false);
   
   const [filters, setFilters] = useState<DocumentFilterState>(EMPTY_FILTERS);
+  const [folderPage, setFolderPage] = useState(1);
+  const [documentPage, setDocumentPage] = useState(1);
 
   // Access checks come from lib/permissions, which reads the capability list
   // the API resolved for this session. Previously each of these was a bespoke
@@ -295,6 +302,20 @@ export default function DocumentsPage() {
         return sorted;
     }
   }, [filteredDocuments, sortBy]);
+
+  useEffect(() => {
+    setFolderPage(1);
+    setDocumentPage(1);
+  }, [searchQuery, filters, sortBy]);
+
+  const pagedFolders = useMemo(
+    () => paginateItems(sortedFolders, folderPage, REGISTRY_PAGE_SIZE),
+    [sortedFolders, folderPage],
+  );
+  const pagedDocuments = useMemo(
+    () => paginateItems(sortedDocuments, documentPage, REGISTRY_PAGE_SIZE),
+    [sortedDocuments, documentPage],
+  );
 
   const activeFiltersCount = countActiveFilters(filters);
 
@@ -545,7 +566,7 @@ export default function DocumentsPage() {
                     : "space-y-4"
                 }
               >
-                {sortedFolders.map((folder) => (
+                {pagedFolders.map((folder) => (
                   <FolderCard
                     key={folder.id}
                     folder={folder}
@@ -573,6 +594,12 @@ export default function DocumentsPage() {
                   />
                 ))}
               </div>
+              <ListPagination
+                page={folderPage}
+                total={sortedFolders.length}
+                onPageChange={setFolderPage}
+                label="folders"
+              />
             </div>
           )}
 
@@ -605,7 +632,7 @@ export default function DocumentsPage() {
                     : "space-y-4"
                 }
               >
-                {sortedDocuments.map((doc) => (
+                {pagedDocuments.map((doc) => (
                   <DocumentCard
                     key={doc.id}
                     document={doc}
@@ -620,6 +647,12 @@ export default function DocumentsPage() {
                   />
                 ))}
               </div>
+              <ListPagination
+                page={documentPage}
+                total={sortedDocuments.length}
+                onPageChange={setDocumentPage}
+                label="documents"
+              />
             </div>
           )}
 

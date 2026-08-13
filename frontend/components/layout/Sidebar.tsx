@@ -10,7 +10,6 @@ import {
   Users,
   Settings,
   Building2,
-  FileCheck,
   Archive,
   BarChart3,
   HardDrive,
@@ -19,6 +18,7 @@ import {
   Target,
   PanelLeftClose,
   PanelLeft,
+  KeyRound,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Separator } from "@/components/ui/separator";
@@ -50,6 +50,7 @@ const navItems: NavItem[] = [
     requires: "workflows.view",
   },
   { title: "Actions", href: "/actions", icon: CheckSquare },
+  { title: "Request access", href: "/access-requests", icon: KeyRound },
   { title: "My Goals", href: "/my-goals", icon: Target },
   {
     title: "Templates",
@@ -151,12 +152,6 @@ export function Sidebar({ className, mobile = false }: SidebarProps) {
       title: "Approvals",
       icon: ShieldCheck,
       show: can("approvals.review"),
-    },
-    {
-      href: "/access-requests",
-      title: "Access Requests",
-      icon: FileCheck,
-      show: can("access_requests.review"),
     },
     {
       href: "/admin/reports",

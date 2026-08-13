@@ -25,6 +25,8 @@ export interface AccessRequest {
   updatedAt: string;
   companyId?: string;
   departmentId?: string;
+  /** Server: true when this user may approve/reject (can open the resource). */
+  canReview?: boolean;
 }
 
 /**
@@ -38,8 +40,8 @@ export function getApproversForScope(
     return ["Company Admin", "Department Secretary"];
   }
   
-  // Department/Division scope: Department Head, Manager, Company Admin, Department Secretary
-  return ["Department Head", "Manager", "Company Admin", "Department Secretary"];
+  // Department/Division scope: leaders who can open the resource, plus company admins
+  return ["Department Head", "Company Admin", "Department Secretary"];
 }
 
 /**
@@ -51,11 +53,14 @@ export function canApproveAccessRequest(
 ): boolean {
   if (!currentUser) return false;
 
-  // Master can approve everything
-  if (seesAllCompanies(currentUser)) return true;
+  // Never let someone decide their own request.
+  if (request.requestedBy === currentUser.id) return false;
 
-  // Reviewing access requests is a capability, so a role gaining or losing it
-  // takes effect without editing this list.
+  // Prefer the server annotation: reviewer must be able to open the resource.
+  if (typeof request.canReview === "boolean") return request.canReview;
+
+  // Fallback when the payload predates canReview (localStorage helpers).
+  if (seesAllCompanies(currentUser)) return true;
   return can(currentUser, "access_requests.review");
 }
 

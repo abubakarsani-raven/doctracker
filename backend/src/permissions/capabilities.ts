@@ -30,8 +30,10 @@ export const CAPABILITIES = [
   'documents.create',
   'documents.edit',
   'documents.delete',
+  'documents.download',
   'documents.share',
   'documents.manage_permissions',
+  'documents.inherit_domain',
   'documents.sign',
   'documents.request_signature',
 
@@ -140,6 +142,7 @@ export const ROLE_DEFINITIONS: readonly RoleDefinition[] = [
     capabilities: [
       ...CONTRIBUTOR_CAPABILITIES,
       'documents.delete',
+      'documents.download',
       'documents.share',
       'documents.manage_permissions',
       'documents.sign',
@@ -218,7 +221,7 @@ export const ROLE_DEFINITIONS: readonly RoleDefinition[] = [
   {
     name: 'Department Head',
     description:
-      'Leads a department. Full control of that department’s documents and workflows.',
+      'Leads a department. Opens department- and division-published documents in that department without a separate share. Company-wide files still need a grant or request.',
     dataScope: 'department',
     canAssignDocuments: true,
     capabilities: [
@@ -226,6 +229,7 @@ export const ROLE_DEFINITIONS: readonly RoleDefinition[] = [
       'documents.delete',
       'documents.share',
       'documents.manage_permissions',
+      'documents.inherit_domain',
       'documents.sign',
       'documents.request_signature',
       'folders.edit',
@@ -245,12 +249,13 @@ export const ROLE_DEFINITIONS: readonly RoleDefinition[] = [
   {
     name: 'Department Secretary',
     description:
-      'Routes and tracks documents on behalf of a department head, but cannot delete them.',
+      'Routes department work for the head. Reaches the same department domain, but cannot delete documents.',
     dataScope: 'department',
     canAssignDocuments: true,
     capabilities: [
       ...CONTRIBUTOR_CAPABILITIES,
       'documents.share',
+      'documents.inherit_domain',
       'documents.sign',
       'folders.edit',
       'workflows.edit',
@@ -263,7 +268,7 @@ export const ROLE_DEFINITIONS: readonly RoleDefinition[] = [
   {
     name: 'Division Head',
     description:
-      'Leads a division inside a department. Controls that division’s documents.',
+      'Leads a division. Opens division-published documents in that division. Department- and company-wide files need a share or request.',
     dataScope: 'division',
     canAssignDocuments: false,
     capabilities: [
@@ -271,6 +276,7 @@ export const ROLE_DEFINITIONS: readonly RoleDefinition[] = [
       'documents.delete',
       'documents.share',
       'documents.manage_permissions',
+      'documents.inherit_domain',
       'documents.sign',
       'folders.edit',
       'folders.delete',
@@ -283,8 +289,8 @@ export const ROLE_DEFINITIONS: readonly RoleDefinition[] = [
   {
     name: 'Manager',
     description:
-      'Manages work within a division. Can create and route, but not delete or re-permission.',
-    dataScope: 'division',
+      'Creates and routes work. Does not open department or division files by membership — someone must name them on the document, or they request access.',
+    dataScope: 'own',
     canAssignDocuments: false,
     capabilities: [
       ...CONTRIBUTOR_CAPABILITIES,
@@ -297,7 +303,7 @@ export const ROLE_DEFINITIONS: readonly RoleDefinition[] = [
   {
     name: 'Staff',
     description:
-      'Standard contributor. Works on documents within their own division.',
+      'Standard contributor. Must be named on a document or request access — department or division membership is not enough.',
     dataScope: 'division',
     canAssignDocuments: false,
     capabilities: CONTRIBUTOR_CAPABILITIES,

@@ -184,15 +184,20 @@ export function CreateActionFromWorkflowDialog({
     const docs: { id: string; name: string }[] = [];
     const seen = new Set<string>();
     if (workflow?.documentId) {
-      seen.add(workflow.documentId);
-      docs.push({
-        id: workflow.documentId,
-        name: workflow.documentName || "Workflow document",
-      });
+      const primary = (workflowFiles as any[]).find(
+        (f) => (f.id || f.fileId) === workflow.documentId,
+      );
+      if (!primary || primary.access?.canRead !== false) {
+        seen.add(workflow.documentId);
+        docs.push({
+          id: workflow.documentId,
+          name: workflow.documentName || "Workflow document",
+        });
+      }
     }
     for (const f of workflowFiles as any[]) {
       const id = f.id || f.fileId;
-      if (!id || seen.has(id)) continue;
+      if (!id || seen.has(id) || f.access?.canRead === false) continue;
       seen.add(id);
       docs.push({ id, name: f.name || f.fileName || "Document" });
     }

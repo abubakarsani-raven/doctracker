@@ -1,8 +1,13 @@
 "use client";
 
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { FolderCard, DocumentCard, EmptyState, LoadingState, QueryErrorState } from "@/components/common";
+import {
+  ListPagination,
+  paginateItems,
+  REGISTRY_PAGE_SIZE,
+} from "@/components/common/ListPagination";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -93,6 +98,8 @@ export default function FolderDetailPage() {
   const [createWorkflowDialogOpen, setCreateWorkflowDialogOpen] = useState(false);
   const [deleteFolderId, setDeleteFolderId] = useState<string | undefined>(undefined);
   const [deletingFolder, setDeletingFolder] = useState(false);
+  const [folderPage, setFolderPage] = useState(1);
+  const [documentPage, setDocumentPage] = useState(1);
 
   const loading = folderLoading;
 
@@ -227,6 +234,20 @@ export default function FolderDetailPage() {
         return sorted;
     }
   }, [filteredDocuments, sortBy]);
+
+  useEffect(() => {
+    setFolderPage(1);
+    setDocumentPage(1);
+  }, [folderId, searchQuery, sortBy]);
+
+  const pagedSubfolders = useMemo(
+    () => paginateItems(sortedSubfolders, folderPage, REGISTRY_PAGE_SIZE),
+    [sortedSubfolders, folderPage],
+  );
+  const pagedDocuments = useMemo(
+    () => paginateItems(sortedDocuments, documentPage, REGISTRY_PAGE_SIZE),
+    [sortedDocuments, documentPage],
+  );
 
   if (loading) {
     return <LoadingState type="card" />;
@@ -447,7 +468,7 @@ export default function FolderDetailPage() {
                   : "space-y-4"
               }
             >
-              {sortedSubfolders.map((subfolder) => {
+              {pagedSubfolders.map((subfolder) => {
                 const subfolderPermission =
                   (subfolder as any).access?.canRead === true ||
                   hasFolderPermission(subfolder);
@@ -466,6 +487,12 @@ export default function FolderDetailPage() {
                 );
               })}
             </div>
+            <ListPagination
+              page={folderPage}
+              total={sortedSubfolders.length}
+              onPageChange={setFolderPage}
+              label="folders"
+            />
           </div>
         )}
 
@@ -496,7 +523,7 @@ export default function FolderDetailPage() {
                   : "space-y-4"
               }
             >
-              {sortedDocuments.map((doc) => {
+              {pagedDocuments.map((doc) => {
                 // A document inherits the containing folder's scope when its
                 // own scope fields are not populated.
                 const docFolder = allFolders.find((f: any) => f.id === (doc as any).folderId);
@@ -532,6 +559,12 @@ export default function FolderDetailPage() {
                 );
               })}
             </div>
+            <ListPagination
+              page={documentPage}
+              total={sortedDocuments.length}
+              onPageChange={setDocumentPage}
+              label="documents"
+            />
           </div>
         )}
 

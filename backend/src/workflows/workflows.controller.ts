@@ -6,6 +6,7 @@ import {
   CreateWorkflowDto,
   UpdateWorkflowDto,
   AttachWorkflowFileDto,
+  GrantWorkflowFileAccessDto,
   SetWorkflowEndPointDto,
 } from './dto/workflow.dto';
 import {
@@ -155,6 +156,30 @@ export class WorkflowsController {
   @UseGuards(JwtAuthGuard, CapabilityGuard)
   async listFiles(@Param('id') id: string, @Request() req: any) {
     return this.workflowsService.listFiles(id, req.user);
+  }
+
+  @Get(':id/file-access-candidates')
+  @RequireCapability('workflows.view')
+  @UseGuards(JwtAuthGuard, CapabilityGuard)
+  async listFileAccessCandidates(@Param('id') id: string, @Request() req: any) {
+    return this.workflowsService.listFileAccessCandidates(id, req.user);
+  }
+
+  @Post(':id/files/:fileId/grant')
+  @RequireCapability('workflows.view')
+  @UseGuards(JwtAuthGuard, CapabilityGuard)
+  async grantFileAccess(
+    @Param('id') id: string,
+    @Param('fileId') fileId: string,
+    @Body() body: GrantWorkflowFileAccessDto,
+    @Request() req: any,
+  ) {
+    return this.workflowsService.grantFileAccess(
+      id,
+      fileId,
+      body.userId,
+      req.user,
+    );
   }
 
   @Post(':id/files')

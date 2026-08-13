@@ -48,6 +48,7 @@
     "@types/morgan": "^1.9.10",
     "@types/node": "^24.10.1",
     "@types/passport-jwt": "^4.0.1",
+    "@types/pg": "^8.21.0",
     "@types/sanitize-html": "^2.16.1",
     "@types/uuid": "^10.0.0",
     "jest": "^30.4.2",
@@ -69,6 +70,7 @@
     "prisma:studio": "prisma studio",
     "prisma:seed": "ts-node --project tsconfig.seed.json prisma/seed.ts",
     "prisma:seed:prod": "node dist/seed/run-seed.js",
+    "prisma:seed:demo": "ts-node --transpile-only scripts/seed-demo-permissions.ts",
     "test": "jest",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage"

@@ -23,6 +23,17 @@ interface Fixture {
   files: any[];
   fileFolderLinks: any[];
   signatureParticipants?: any[];
+  workflows?: Array<{
+    documentId?: string | null;
+    files?: Array<{ fileId: string }>;
+    assignedBy: string;
+    assignedToType: string | null;
+    assignedToId: string | null;
+    actions?: Array<{
+      assignedToType: string | null;
+      assignedToId: string | null;
+    }>;
+  }>;
 }
 
 const COMPANY_A = 'company-a';
@@ -87,7 +98,11 @@ function makeFolder(
 
 function makeFile(
   id: string,
-  { companyId = COMPANY_A, createdBy = 'someone-else' } = {},
+  {
+    companyId = COMPANY_A,
+    createdBy = 'someone-else',
+    accessRevokedAt = null as Date | null,
+  } = {},
 ) {
   return {
     id,
@@ -96,6 +111,7 @@ function makeFile(
     scopeLevel: 'company',
     departmentId: null,
     divisionId: null,
+    accessRevokedAt,
   };
 }
 
@@ -116,6 +132,25 @@ function buildService(fixture: Fixture) {
     fileFolderLink: {
       findMany: async ({ where }: any) =>
         fixture.fileFolderLinks.filter((l) => l.fileId === where.fileId),
+    },
+    workflow: {
+      findMany: async ({ where }: any) => {
+        const rows = fixture.workflows ?? [];
+        const clauses = where?.OR ?? [where];
+        return rows.filter((workflow) =>
+          clauses.some((clause: any) => {
+            if (clause?.documentId) {
+              return workflow.documentId === clause.documentId;
+            }
+            if (clause?.files?.some?.fileId) {
+              return (workflow.files ?? []).some(
+                (link) => link.fileId === clause.files.some.fileId,
+              );
+            }
+            return false;
+          }),
+        );
+      },
     },
     signatureParticipant: {
       findFirst: async ({ where }: any) => {
@@ -506,17 +541,36 @@ describe('PermissionsService.decide', () => {
     });
   });
 
-  describe('need-to-know for narrower scopes', () => {
-    it('membership of the filing department alone does not grant access', async () => {
-      // The folder is filed under Legal and the user is in Legal, but no ACL
-      // entry names them — the rule is need-to-know, not proximity.
+  describe('domain reach for department and division scopes', () => {
+    it('department scope reaches resources filed under the user department', async () => {
       const service = buildService({
         users: [
           makeUser('u1', 'Department Head', { departmentIds: [DEPT_LEGAL] }),
         ],
         folders: [
           makeFolder('f1', {
-            scopeLevel: 'department',
+            scopeLevel: 'division',
+            departmentId: DEPT_LEGAL,
+            divisionId: DIV_CONTRACTS,
+          }),
+        ],
+        files: [],
+        fileFolderLinks: [],
+      });
+
+      const decision = await service.decide('u1', 'folder', 'f1', 'read');
+
+      expect(decision).toEqual({ allowed: true, reason: 'department_scope' });
+    });
+
+    it('department scope does not auto-open company-wide files', async () => {
+      const service = buildService({
+        users: [
+          makeUser('u1', 'Department Head', { departmentIds: [DEPT_LEGAL] }),
+        ],
+        folders: [
+          makeFolder('f1', {
+            scopeLevel: 'company',
             departmentId: DEPT_LEGAL,
           }),
         ],
@@ -529,7 +583,48 @@ describe('PermissionsService.decide', () => {
       expect(decision).toEqual({ allowed: false, reason: 'no_grant' });
     });
 
-    it('an explicit department grant does allow access', async () => {
+    it('department scope does not reach another department', async () => {
+      const service = buildService({
+        users: [
+          makeUser('u1', 'Department Head', { departmentIds: [DEPT_LEGAL] }),
+        ],
+        folders: [
+          makeFolder('f1', {
+            scopeLevel: 'department',
+            departmentId: 'dept-other',
+          }),
+        ],
+        files: [],
+        fileFolderLinks: [],
+      });
+
+      const decision = await service.decide('u1', 'folder', 'f1', 'read');
+
+      expect(decision).toEqual({ allowed: false, reason: 'no_grant' });
+    });
+
+    it('division scope reaches resources filed under the user division', async () => {
+      const service = buildService({
+        users: [
+          makeUser('u1', 'Division Head', { divisionIds: [DIV_CONTRACTS] }),
+        ],
+        folders: [
+          makeFolder('f1', {
+            scopeLevel: 'division',
+            departmentId: DEPT_LEGAL,
+            divisionId: DIV_CONTRACTS,
+          }),
+        ],
+        files: [],
+        fileFolderLinks: [],
+      });
+
+      const decision = await service.decide('u1', 'folder', 'f1', 'read');
+
+      expect(decision).toEqual({ allowed: true, reason: 'division_scope' });
+    });
+
+    it('an explicit department grant still allows access', async () => {
       const service = buildService({
         users: [
           makeUser('u1', 'Department Head', { departmentIds: [DEPT_LEGAL] }),
@@ -547,6 +642,56 @@ describe('PermissionsService.decide', () => {
 
       const decision = await service.decide('u1', 'folder', 'f1', 'read');
 
+      expect(decision.allowed).toBe(true);
+      expect(['department_scope', 'explicit_grant']).toContain(decision.reason);
+    });
+
+    it('Division Head cannot use a parent-department opening grant', async () => {
+      const service = buildService({
+        users: [
+          makeUser('u1', 'Division Head', {
+            departmentIds: [DEPT_LEGAL],
+            divisionIds: [DIV_CONTRACTS],
+          }),
+        ],
+        folders: [
+          makeFolder('f1', {
+            scopeLevel: 'department',
+            departmentId: DEPT_LEGAL,
+            permissionsJson: [allow('department', DEPT_LEGAL, ['read'])],
+          }),
+        ],
+        files: [],
+        fileFolderLinks: [],
+      });
+
+      const decision = await service.decide('u1', 'folder', 'f1', 'read');
+
+      expect(decision).toEqual({ allowed: false, reason: 'no_grant' });
+    });
+
+    it('Division Head can use a division opening grant', async () => {
+      const service = buildService({
+        users: [
+          makeUser('u1', 'Division Head', {
+            departmentIds: [DEPT_LEGAL],
+            divisionIds: [DIV_CONTRACTS],
+          }),
+        ],
+        folders: [
+          makeFolder('f1', {
+            scopeLevel: 'company',
+            departmentId: DEPT_LEGAL,
+            divisionId: DIV_CONTRACTS,
+            permissionsJson: [allow('division', DIV_CONTRACTS, ['read'])],
+          }),
+        ],
+        files: [],
+        fileFolderLinks: [],
+      });
+
+      const decision = await service.decide('u1', 'folder', 'f1', 'read');
+
       expect(decision).toEqual({ allowed: true, reason: 'explicit_grant' });
     });
 
@@ -556,6 +701,83 @@ describe('PermissionsService.decide', () => {
         folders: [
           makeFolder('f1', {
             permissionsJson: [allow('division', DIV_CONTRACTS, ['read'])],
+          }),
+        ],
+        files: [],
+        fileFolderLinks: [],
+      });
+
+      const decision = await service.decide('u1', 'folder', 'f1', 'read');
+
+      expect(decision).toEqual({ allowed: false, reason: 'no_grant' });
+    });
+
+    it('Staff cannot use division domain reach or division opening grants', async () => {
+      const service = buildService({
+        users: [
+          makeUser('u1', 'Staff', {
+            departmentIds: [DEPT_LEGAL],
+            divisionIds: [DIV_CONTRACTS],
+          }),
+        ],
+        folders: [
+          makeFolder('f1', {
+            scopeLevel: 'division',
+            departmentId: DEPT_LEGAL,
+            divisionId: DIV_CONTRACTS,
+            permissionsJson: [allow('division', DIV_CONTRACTS, ['read'])],
+          }),
+        ],
+        files: [],
+        fileFolderLinks: [],
+      });
+
+      const decision = await service.decide('u1', 'folder', 'f1', 'read');
+
+      expect(decision).toEqual({ allowed: false, reason: 'no_grant' });
+    });
+
+    it('Staff can open when named on a user ACL grant', async () => {
+      const service = buildService({
+        users: [
+          makeUser('u1', 'Staff', {
+            departmentIds: [DEPT_LEGAL],
+            divisionIds: [DIV_CONTRACTS],
+          }),
+        ],
+        folders: [
+          makeFolder('f1', {
+            scopeLevel: 'division',
+            departmentId: DEPT_LEGAL,
+            divisionId: DIV_CONTRACTS,
+            permissionsJson: [
+              allow('division', DIV_CONTRACTS, ['read']),
+              allow('user', 'u1', ['read']),
+            ],
+          }),
+        ],
+        files: [],
+        fileFolderLinks: [],
+      });
+
+      const decision = await service.decide('u1', 'folder', 'f1', 'read');
+
+      expect(decision).toEqual({ allowed: true, reason: 'explicit_grant' });
+    });
+
+    it('Manager cannot inherit department opening grants', async () => {
+      const service = buildService({
+        users: [
+          makeUser('u1', 'Manager', {
+            departmentIds: [DEPT_LEGAL],
+            divisionIds: [DIV_CONTRACTS],
+          }),
+        ],
+        folders: [
+          makeFolder('f1', {
+            scopeLevel: 'department',
+            departmentId: DEPT_LEGAL,
+            permissionsJson: [allow('department', DEPT_LEGAL, ['read'])],
           }),
         ],
         files: [],
@@ -710,6 +932,170 @@ describe('PermissionsService.decide', () => {
 
       expect(decision).toEqual({ allowed: false, reason: 'not_found' });
     });
+  });
+});
+
+describe('PermissionsService.decide — workflow file read', () => {
+  const restrictedFile = () => ({
+    users: [
+      makeUser('staff', 'Staff', { departmentIds: [DEPT_LEGAL] }),
+      makeUser('named', 'Staff', { departmentIds: [DEPT_LEGAL] }),
+    ],
+    folders: [makeFolder('f1')],
+    files: [makeFile('board-paper')],
+    fileFolderLinks: [
+      { fileId: 'board-paper', folderId: 'f1', permissionsJson: null },
+    ],
+  });
+
+  it('lets a named current assignee read the attached file', async () => {
+    const service = buildService({
+      ...restrictedFile(),
+      workflows: [
+        {
+          documentId: 'board-paper',
+          assignedBy: 'someone-else',
+          assignedToType: 'user',
+          assignedToId: 'named',
+          actions: [],
+        },
+      ],
+    });
+
+    await expect(
+      service.decide('named', 'file', 'board-paper', 'read'),
+    ).resolves.toEqual({ allowed: true, reason: 'workflow_participant' });
+  });
+
+  it('lets the workflow creator read the attached file', async () => {
+    const service = buildService({
+      ...restrictedFile(),
+      users: [makeUser('staff', 'Staff', { departmentIds: [DEPT_LEGAL] })],
+      workflows: [
+        {
+          documentId: 'board-paper',
+          assignedBy: 'staff',
+          assignedToType: 'department',
+          assignedToId: DEPT_LEGAL,
+          actions: [],
+        },
+      ],
+    });
+
+    await expect(
+      service.decide('staff', 'file', 'board-paper', 'read'),
+    ).resolves.toEqual({ allowed: true, reason: 'workflow_participant' });
+  });
+
+  it('lets a user named on an action read the attached file', async () => {
+    const service = buildService({
+      ...restrictedFile(),
+      workflows: [
+        {
+          documentId: 'board-paper',
+          assignedBy: 'someone-else',
+          assignedToType: 'department',
+          assignedToId: DEPT_LEGAL,
+          actions: [
+            { assignedToType: 'user', assignedToId: 'named' },
+          ],
+        },
+      ],
+    });
+
+    await expect(
+      service.decide('named', 'file', 'board-paper', 'read'),
+    ).resolves.toEqual({ allowed: true, reason: 'workflow_participant' });
+  });
+
+  it('does not let Staff in the assigned department read a Restricted file', async () => {
+    const service = buildService({
+      ...restrictedFile(),
+      workflows: [
+        {
+          documentId: 'board-paper',
+          assignedBy: 'someone-else',
+          assignedToType: 'department',
+          assignedToId: DEPT_LEGAL,
+          actions: [],
+        },
+      ],
+    });
+
+    await expect(
+      service.decide('staff', 'file', 'board-paper', 'read'),
+    ).resolves.toEqual({ allowed: false, reason: 'no_grant' });
+  });
+});
+
+describe('PermissionsService.decide — revoke all access', () => {
+  it('lets Master still open a locked file', async () => {
+    const service = buildService({
+      users: [makeUser('master', 'Master')],
+      folders: [makeFolder('f1')],
+      files: [makeFile('locked', { accessRevokedAt: new Date('2026-08-13') })],
+      fileFolderLinks: [
+        { fileId: 'locked', folderId: 'f1', permissionsJson: null },
+      ],
+    });
+
+    await expect(
+      service.decide('master', 'file', 'locked', 'read'),
+    ).resolves.toEqual({ allowed: true, reason: 'instance_scope' });
+  });
+
+  it('lets Group Secretary still open a locked file', async () => {
+    const service = buildService({
+      users: [makeUser('gs', 'Group Secretary')],
+      folders: [makeFolder('f1')],
+      files: [makeFile('locked', { accessRevokedAt: new Date('2026-08-13') })],
+      fileFolderLinks: [
+        { fileId: 'locked', folderId: 'f1', permissionsJson: null },
+      ],
+    });
+
+    await expect(
+      service.decide('gs', 'file', 'locked', 'read'),
+    ).resolves.toEqual({ allowed: true, reason: 'instance_scope' });
+  });
+
+  it('blocks Company Admin even though they have company_scope', async () => {
+    const service = buildService({
+      users: [makeUser('admin', 'Company Admin')],
+      folders: [makeFolder('f1')],
+      files: [makeFile('locked', { accessRevokedAt: new Date('2026-08-13') })],
+      fileFolderLinks: [
+        { fileId: 'locked', folderId: 'f1', permissionsJson: null },
+      ],
+    });
+
+    await expect(
+      service.decide('admin', 'file', 'locked', 'read'),
+    ).resolves.toEqual({ allowed: false, reason: 'access_revoked' });
+  });
+
+  it('blocks the creator and named ACL grants', async () => {
+    const service = buildService({
+      users: [makeUser('staff', 'Staff')],
+      folders: [
+        makeFolder('f1', {
+          permissionsJson: [allow('user', 'staff', ['read'])],
+        }),
+      ],
+      files: [
+        makeFile('locked', {
+          createdBy: 'staff',
+          accessRevokedAt: new Date('2026-08-13'),
+        }),
+      ],
+      fileFolderLinks: [
+        { fileId: 'locked', folderId: 'f1', permissionsJson: null },
+      ],
+    });
+
+    await expect(
+      service.decide('staff', 'file', 'locked', 'read'),
+    ).resolves.toEqual({ allowed: false, reason: 'access_revoked' });
   });
 });
 

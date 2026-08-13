@@ -26,11 +26,17 @@ import {
 } from "@/lib/font-scale";
 import { cn } from "@/lib/utils";
 import { ManageSavedSignatures } from "@/components/features/signatures/ManageSavedSignatures";
+import { PermissionsPanel } from "@/components/common/PermissionsPanel";
+import { getPermissions } from "@/lib/permissions";
 
 export default function SettingsPage() {
   const { data: currentUser } = useCurrentUser();
   const { data: companies = [] } = useCompanies();
   const updateOwnProfile = useUpdateOwnProfile();
+  const permissions = useMemo(
+    () => getPermissions(currentUser),
+    [currentUser],
+  );
   const [profileData, setProfileData] = useState({
     name: "",
     email: "",
@@ -107,6 +113,7 @@ export default function SettingsPage() {
       <Tabs defaultValue="profile" className="space-y-6">
         <TabsList>
           <TabsTrigger value="profile">Profile</TabsTrigger>
+          <TabsTrigger value="role">Role & access</TabsTrigger>
           <TabsTrigger value="signatures">Signatures</TabsTrigger>
           <TabsTrigger value="appearance">Appearance</TabsTrigger>
           <TabsTrigger value="notifications">Notifications</TabsTrigger>
@@ -139,6 +146,19 @@ export default function SettingsPage() {
                 <Input id="email" type="email" value={profileData.email} disabled />
                 <p className="text-xs text-muted-foreground">
                   Email cannot be changed
+                </p>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="role">Role</Label>
+                <Input
+                  id="role"
+                  value={permissions.role || "Not assigned"}
+                  disabled
+                  className="bg-muted"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Your role is set by an administrator. See Role & access for
+                  what you can do.
                 </p>
               </div>
               <div className="space-y-2">
@@ -182,6 +202,10 @@ export default function SettingsPage() {
               </Button>
             </CardContent>
           </Card>
+        </TabsContent>
+
+        <TabsContent value="role" className="space-y-4">
+          <PermissionsPanel />
         </TabsContent>
 
         <TabsContent value="signatures">

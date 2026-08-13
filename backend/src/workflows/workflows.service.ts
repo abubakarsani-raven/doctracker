@@ -1492,6 +1492,7 @@ export class WorkflowsService {
         id: true,
         companyId: true,
         documentId: true,
+        assignedBy: true,
         document: {
           select: {
             id: true,
@@ -1501,6 +1502,9 @@ export class WorkflowsService {
             createdBy: true,
             creator: { select: { name: true, email: true } },
             deletedAt: true,
+            scopeLevel: true,
+            departmentId: true,
+            accessRevokedAt: true,
           },
         },
       },
@@ -1519,6 +1523,9 @@ export class WorkflowsService {
             fileName: true,
             fileSize: true,
             deletedAt: true,
+            scopeLevel: true,
+            departmentId: true,
+            accessRevokedAt: true,
           },
         },
         adder: { select: { id: true, name: true, email: true } },
@@ -1545,6 +1552,9 @@ export class WorkflowsService {
         actionTitle: row.action?.title ?? null,
         note: row.note,
         isPrimary: row.fileId === workflow.documentId,
+        scopeLevel: row.file.scopeLevel,
+        departmentId: row.file.departmentId,
+        accessRevokedAt: row.file.accessRevokedAt,
       });
     }
 
@@ -1569,15 +1579,189 @@ export class WorkflowsService {
         actionTitle: null,
         note: 'Primary workflow document',
         isPrimary: true,
+        scopeLevel: workflow.document.scopeLevel,
+        departmentId: workflow.document.departmentId,
+        accessRevokedAt: workflow.document.accessRevokedAt,
       });
     }
 
-    // Participants may open/download these via workflow membership; still hide
-    // anything they cannot read (e.g. company admins listing is fine).
-    return this.permissionsService.filterReadable(
+    // Show Restricted files so people on the workflow can request (or be
+    // granted) access. Do not hide them — that made the request path unreachable.
+    const annotated = await this.permissionsService.annotateAccess(
       currentUser.id,
       'file',
       files,
+    );
+
+    const isCreator = workflow.assignedBy === currentUser.id;
+    const isAdmin = this.seesAllCompanyWorkflows(currentUser);
+
+    return Promise.all(
+      annotated.map(async (file) => {
+        const revoked = file.access?.reason === 'access_revoked';
+        const canRead = !!file.access?.canRead;
+        let canGrant = false;
+        if (canRead && !revoked) {
+          canGrant =
+            isCreator ||
+            isAdmin ||
+            (await this.permissionsService.checkPermission(
+              currentUser.id,
+              'file',
+              file.id,
+              'manage',
+            ));
+        }
+        return { ...file, canGrant };
+      }),
+    );
+  }
+
+  /**
+   * People currently on this workflow who may need a named file grant:
+   * the current user assignee, members of the assigned department, and
+   * anyone named on an action. Routing-history hops are not included.
+   */
+  async listFileAccessCandidates(workflowId: string, currentUser: any) {
+    const workflow = await this.assertCanAccessWorkflow(workflowId, currentUser);
+    const userIds = new Set<string>();
+
+    if (workflow.assignedToType === 'user' && workflow.assignedToId) {
+      userIds.add(workflow.assignedToId);
+    }
+    if (workflow.assignedToType === 'department' && workflow.assignedToId) {
+      const members = await this.prisma.userDepartment.findMany({
+        where: { departmentId: workflow.assignedToId },
+        select: { userId: true },
+      });
+      for (const row of members) userIds.add(row.userId);
+    }
+    for (const action of workflow.actions || []) {
+      if (action.assignedToType === 'user' && action.assignedToId) {
+        userIds.add(action.assignedToId);
+      }
+      if (action.assignedToType === 'department' && action.assignedToId) {
+        const members = await this.prisma.userDepartment.findMany({
+          where: { departmentId: action.assignedToId },
+          select: { userId: true },
+        });
+        for (const row of members) userIds.add(row.userId);
+      }
+    }
+
+    userIds.delete(currentUser.id);
+    if (userIds.size === 0) return [];
+
+    const users = await this.prisma.user.findMany({
+      where: {
+        id: { in: [...userIds] },
+        status: 'active',
+        ...(currentUser.permissions?.dataScope === 'all'
+          ? {}
+          : { companyId: workflow.companyId }),
+      },
+      select: { id: true, name: true, email: true },
+      orderBy: { name: 'asc' },
+    });
+    return users;
+  }
+
+  /**
+   * Give a named person on this workflow read access to an attached file.
+   * Does not open the file to their whole department.
+   */
+  async grantFileAccess(
+    workflowId: string,
+    fileId: string,
+    targetUserId: string,
+    currentUser: any,
+  ) {
+    if (!targetUserId) {
+      throw new BadRequestException('userId is required');
+    }
+    if (targetUserId === currentUser.id) {
+      throw new BadRequestException(
+        'Request access for yourself instead of granting it.',
+      );
+    }
+
+    const workflow = await this.assertCanAccessWorkflow(workflowId, currentUser);
+    await this.assertFileOnWorkflow(workflowId, fileId);
+
+    if (await this.permissionsService.isFileAccessRevoked(fileId)) {
+      throw new ForbiddenException(
+        'Access to this file has been revoked by a group administrator.',
+      );
+    }
+
+    await this.permissionsService.assertPermission(
+      currentUser.id,
+      'file',
+      fileId,
+      'read',
+    );
+
+    const isCreator = workflow.assignedBy === currentUser.id;
+    const isAdmin = this.seesAllCompanyWorkflows(currentUser);
+    const canManage = await this.permissionsService.checkPermission(
+      currentUser.id,
+      'file',
+      fileId,
+      'manage',
+    );
+    if (!isCreator && !isAdmin && !canManage) {
+      throw new ForbiddenException(
+        'You cannot grant access to this file from the workflow.',
+      );
+    }
+
+    const targetDeptIds = await this.userDepartmentIds(targetUserId);
+    if (
+      !this.userParticipatesInWorkflow(targetUserId, targetDeptIds, workflow)
+    ) {
+      throw new BadRequestException(
+        'That person is not on this workflow. Assign the work to them first, or pick someone in the assigned department.',
+      );
+    }
+
+    const target = await this.prisma.user.findUnique({
+      where: { id: targetUserId },
+      select: { id: true, name: true, email: true, companyId: true },
+    });
+    if (!target) {
+      throw new NotFoundException('User not found');
+    }
+
+    const granted = await this.permissionsService.grantUserFileAccess(
+      fileId,
+      targetUserId,
+      ['read'],
+      { id: currentUser.id, name: currentUser.name, email: currentUser.email },
+      {
+        source: `workflow:${workflowId}`,
+        subjectName: target.name || target.email || targetUserId,
+        notify: true,
+      },
+    );
+
+    return { granted: granted || true, userId: targetUserId };
+  }
+
+  private async assertFileOnWorkflow(workflowId: string, fileId: string) {
+    const workflow = await this.prisma.workflow.findUnique({
+      where: { id: workflowId },
+      select: {
+        documentId: true,
+        files: { where: { fileId }, select: { fileId: true } },
+      },
+    });
+    if (!workflow) {
+      throw new NotFoundException('Workflow not found');
+    }
+    if (workflow.documentId === fileId) return;
+    if (workflow.files.length > 0) return;
+    throw new BadRequestException(
+      'That file is not attached to this workflow.',
     );
   }
 
