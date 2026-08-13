@@ -139,7 +139,11 @@ export function WorkflowActionsList({
         <EmptyState
           icon={CheckCircle2}
           title="No actions yet"
-          description="Create actions to track work that needs to be done for this workflow"
+          description={
+            onCreateAction
+              ? "Create actions to track work that needs to be done for this workflow"
+              : "No actions have been assigned on this workflow yet."
+          }
           action={
             onCreateAction
               ? {

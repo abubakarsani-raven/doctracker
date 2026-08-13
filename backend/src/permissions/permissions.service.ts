@@ -37,6 +37,19 @@ export { signatureAclSource } from './acl';
 
 export type ResourceType = 'folder' | 'file';
 
+/** Workflows that no longer confer file-read via named participation. */
+const CLOSED_WORKFLOW_STATUSES: string[] = ['completed', 'cancelled', 'filed'];
+/** Actions that no longer confer file-read via named assignment. */
+const CLOSED_ACTION_STATUSES: string[] = ['completed', 'cancelled', 'blocked'];
+
+function isClosedWorkflowStatus(status?: string | null): boolean {
+  return !!status && CLOSED_WORKFLOW_STATUSES.includes(status);
+}
+
+function isClosedActionStatus(status?: string | null): boolean {
+  return !!status && CLOSED_ACTION_STATUSES.includes(status);
+}
+
 /** Caller's choices about the side effects of a permission change. */
 export interface PermissionUpdateOptions {
   /**
@@ -1225,12 +1238,13 @@ export class PermissionsService {
       return { allowed: true, reason: 'signature_invite' };
     }
 
-    // 4c. A named user currently on a workflow may read files attached to
-    //     (or primary on) that workflow — so an assignee can work without a
-    //     separate folder ACL. Department assignment and routing-history
-    //     hops are not a file-read grant: membership in Legal must not open
-    //     a Restricted board paper. Non-assignees still need an explicit
-    //     grant.
+    // 4c. A named user currently on an open workflow may read files attached
+    //     to (or primary on) that workflow — so an assignee can work without
+    //     a separate folder ACL. Completed / cancelled / filed workflows, and
+    //     completed / cancelled / blocked actions, do not count. Department
+    //     assignment and routing-history hops are not a file-read grant:
+    //     membership in Legal must not open a Restricted board paper.
+    //     Non-assignees still need an explicit grant.
     if (
       resourceType === 'file' &&
       permission === 'read' &&
@@ -1378,14 +1392,14 @@ export class PermissionsService {
   }
 
   /**
-   * True when this user is a named assignee on a workflow that lists the
-   * file as its primary document or an attached WorkflowFile.
+   * True when this user is a named assignee on an *open* workflow that lists
+   * the file as its primary document or an attached WorkflowFile.
    *
-   * Named: workflow creator, current user assignee, or an action assigned
-   * to them as a user. Department assignment, department actions, and
-   * routing-history hops (user or department) do not count — those would
-   * reopen Restricted files to everyone in the department, including after
-   * the hop has passed.
+   * Named: workflow creator, current user assignee, or an *open* action
+   * assigned to them as a user. Closed workflows, finished actions,
+   * department assignment, department actions, and routing-history hops
+   * do not count — those would reopen Restricted files after the hop has
+   * passed, or to everyone in the department.
    */
   private async isActiveWorkflowFileParticipant(
     userId: string,
@@ -1394,6 +1408,7 @@ export class PermissionsService {
     try {
       const workflows = await this.prisma.workflow.findMany({
         where: {
+          status: { notIn: CLOSED_WORKFLOW_STATUSES },
           OR: [
             { documentId: fileId },
             { files: { some: { fileId } } },
@@ -1403,17 +1418,22 @@ export class PermissionsService {
           assignedBy: true,
           assignedToType: true,
           assignedToId: true,
+          status: true,
           actions: {
+            where: { status: { notIn: CLOSED_ACTION_STATUSES } },
             select: {
               assignedToType: true,
               assignedToId: true,
+              status: true,
             },
           },
         },
       });
 
-      return workflows.some((workflow) =>
-        this.isNamedWorkflowFileAssignee(userId, workflow),
+      return workflows.some(
+        (workflow) =>
+          !isClosedWorkflowStatus(workflow.status) &&
+          this.isNamedWorkflowFileAssignee(userId, workflow),
       );
     } catch {
       return false;
@@ -1429,6 +1449,7 @@ export class PermissionsService {
       actions: Array<{
         assignedToType: string | null;
         assignedToId: string | null;
+        status?: string | null;
       }>;
     },
   ): boolean {
@@ -1441,7 +1462,9 @@ export class PermissionsService {
     }
     return workflow.actions.some(
       (action) =>
-        action.assignedToType === 'user' && action.assignedToId === userId,
+        !isClosedActionStatus(action.status) &&
+        action.assignedToType === 'user' &&
+        action.assignedToId === userId,
     );
   }
 

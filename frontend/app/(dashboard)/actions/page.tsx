@@ -21,10 +21,13 @@ import { useCurrentUser } from "@/lib/hooks/use-users";
 import { useUIStore } from "@/lib/stores";
 import { canViewAction } from "@/lib/action-utils";
 import { isCompanyAdmin } from "@/lib/cross-company-utils";
+import { usePermissions } from "@/lib/hooks/use-permissions";
 
 export default function ActionsPage() {
   const router = useRouter();
   const { data: currentUser } = useCurrentUser();
+  const { can } = usePermissions();
+  const canAssignActions = can("actions.assign");
   const {
     data: actions = [],
     isLoading: actionsLoading,
@@ -124,10 +127,12 @@ export default function ActionsPage() {
             Track and manage workflow actions
           </p>
         </div>
-        <Button onClick={() => setCreateActionDialogOpen(true)}>
-          <Plus className="mr-2 h-4 w-4" />
-          Create Action
-        </Button>
+        {canAssignActions && (
+          <Button onClick={() => setCreateActionDialogOpen(true)}>
+            <Plus className="mr-2 h-4 w-4" />
+            Create Action
+          </Button>
+        )}
       </div>
 
       {/* Tabs and Filters */}
@@ -186,7 +191,9 @@ export default function ActionsPage() {
                   : "No actions have been created yet"
               }
               action={
-                !actionSearchQuery && actionStatusFilter === "all"
+                canAssignActions &&
+                !actionSearchQuery &&
+                actionStatusFilter === "all"
                   ? {
                       label: "Create Action",
                       onClick: () => setCreateActionDialogOpen(true),

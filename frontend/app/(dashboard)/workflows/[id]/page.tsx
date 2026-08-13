@@ -47,6 +47,7 @@ import { useWorkflow } from "@/lib/hooks/use-workflows";
 import { useActionsByWorkflow } from "@/lib/hooks/use-actions";
 import { useUsers, useCurrentUser } from "@/lib/hooks/use-users";
 import { calculateProgressFromActions, canCloseWorkflow } from "@/lib/workflow-utils";
+import { usePermissions } from "@/lib/hooks/use-permissions";
 import Link from "next/link";
 import { CompanyBadge } from "@/components/features/workflows/CompanyBadge";
 
@@ -59,6 +60,10 @@ export default function WorkflowDetailPage() {
   const { data: actions = [] } = useActionsByWorkflow(workflowId);
   const { data: users = [] } = useUsers();
   const { data: currentUser } = useCurrentUser();
+  const { can } = usePermissions();
+  const canAssignActions = can("actions.assign");
+  const canEditWorkflow = can("workflows.edit");
+  const canCreateGoals = can("workflows.create");
 
   // Helper to get creator name with fallback — never show a raw user id.
   const creatorName = useMemo(() => {
@@ -95,8 +100,8 @@ export default function WorkflowDetailPage() {
   }, [workflow, progress, actions]);
 
   const canCompleteWorkflow = useMemo(() => {
-    return canCloseWorkflow(workflow, currentUser);
-  }, [currentUser, workflow]);
+    return canEditWorkflow && canCloseWorkflow(workflow, currentUser);
+  }, [canEditWorkflow, currentUser, workflow]);
 
   const canSetEndPoint = useMemo(() => {
     if (!currentUser || !workflow) return false;
@@ -242,13 +247,15 @@ export default function WorkflowDetailPage() {
           role="group"
           aria-label="Workflow actions"
         >
-          <Button
-            className="w-full sm:w-auto"
-            onClick={() => setRoutingSheetOpen(true)}
-          >
-            <Send className="h-4 w-4" />
-            Route
-          </Button>
+          {canEditWorkflow && (
+            <Button
+              className="w-full sm:w-auto"
+              onClick={() => setRoutingSheetOpen(true)}
+            >
+              <Send className="h-4 w-4" />
+              Route
+            </Button>
+          )}
           {canCompleteWorkflow && (
             <Button
               variant="outline"
@@ -321,7 +328,7 @@ export default function WorkflowDetailPage() {
           <WorkflowActionsList
             workflowId={workflowId}
             onCreateAction={
-              workflowWithProgress?.status !== "completed"
+              canAssignActions && workflowWithProgress?.status !== "completed"
                 ? () => setCreateActionDialogOpen(true)
                 : undefined
             }
@@ -563,7 +570,7 @@ export default function WorkflowDetailPage() {
                 <Plus className="mr-2 h-4 w-4" />
                 Add File
               </Button>
-              {workflowWithProgress.status !== "completed" && (
+              {canAssignActions && workflowWithProgress.status !== "completed" && (
                 <Button
                   variant="outline"
                   className="w-full"
@@ -574,8 +581,9 @@ export default function WorkflowDetailPage() {
                   Create Action
                 </Button>
               )}
-              {(workflowWithProgress.status === "ready_for_review" || 
-                workflowWithProgress.status === "completed") && (
+              {canCreateGoals &&
+                (workflowWithProgress.status === "ready_for_review" ||
+                  workflowWithProgress.status === "completed") && (
                 <Button
                   variant="outline"
                   className="w-full"
@@ -596,7 +604,9 @@ export default function WorkflowDetailPage() {
         open={routingSheetOpen}
         onOpenChange={setRoutingSheetOpen}
         workflowId={workflowId}
-        onRequestCreateAction={() => setCreateActionDialogOpen(true)}
+        onRequestCreateAction={
+          canAssignActions ? () => setCreateActionDialogOpen(true) : undefined
+        }
       />
 
       {/* Add File Dialog */}

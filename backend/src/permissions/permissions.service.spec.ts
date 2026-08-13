@@ -29,9 +29,11 @@ interface Fixture {
     assignedBy: string;
     assignedToType: string | null;
     assignedToId: string | null;
+    status?: string;
     actions?: Array<{
       assignedToType: string | null;
       assignedToId: string | null;
+      status?: string;
     }>;
   }>;
 }
@@ -134,22 +136,41 @@ function buildService(fixture: Fixture) {
         fixture.fileFolderLinks.filter((l) => l.fileId === where.fileId),
     },
     workflow: {
-      findMany: async ({ where }: any) => {
+      findMany: async ({ where, select }: any) => {
         const rows = fixture.workflows ?? [];
         const clauses = where?.OR ?? [where];
-        return rows.filter((workflow) =>
-          clauses.some((clause: any) => {
-            if (clause?.documentId) {
-              return workflow.documentId === clause.documentId;
+        const workflowStatusNotIn: string[] | undefined = where?.status?.notIn;
+        const actionStatusNotIn: string[] | undefined =
+          select?.actions?.where?.status?.notIn;
+
+        return rows
+          .filter((workflow) => {
+            if (
+              workflowStatusNotIn &&
+              workflow.status &&
+              workflowStatusNotIn.includes(workflow.status)
+            ) {
+              return false;
             }
-            if (clause?.files?.some?.fileId) {
-              return (workflow.files ?? []).some(
-                (link) => link.fileId === clause.files.some.fileId,
-              );
-            }
-            return false;
-          }),
-        );
+            return clauses.some((clause: any) => {
+              if (clause?.documentId) {
+                return workflow.documentId === clause.documentId;
+              }
+              if (clause?.files?.some?.fileId) {
+                return (workflow.files ?? []).some(
+                  (link) => link.fileId === clause.files.some.fileId,
+                );
+              }
+              return false;
+            });
+          })
+          .map((workflow) => ({
+            ...workflow,
+            actions: (workflow.actions ?? []).filter((action) => {
+              if (!actionStatusNotIn || !action.status) return true;
+              return !actionStatusNotIn.includes(action.status);
+            }),
+          }));
       },
     },
     signatureParticipant: {
@@ -1025,6 +1046,99 @@ describe('PermissionsService.decide — workflow file read', () => {
     await expect(
       service.decide('staff', 'file', 'board-paper', 'read'),
     ).resolves.toEqual({ allowed: false, reason: 'no_grant' });
+  });
+
+  it('does not let a named assignee keep reading after the workflow is closed', async () => {
+    const service = buildService({
+      ...restrictedFile(),
+      workflows: [
+        {
+          documentId: 'board-paper',
+          assignedBy: 'someone-else',
+          assignedToType: 'user',
+          assignedToId: 'named',
+          status: 'completed',
+          actions: [],
+        },
+      ],
+    });
+
+    await expect(
+      service.decide('named', 'file', 'board-paper', 'read'),
+    ).resolves.toEqual({ allowed: false, reason: 'no_grant' });
+  });
+
+  it('does not let the workflow creator keep reading after the workflow is filed', async () => {
+    const service = buildService({
+      ...restrictedFile(),
+      users: [makeUser('staff', 'Staff', { departmentIds: [DEPT_LEGAL] })],
+      workflows: [
+        {
+          documentId: 'board-paper',
+          assignedBy: 'staff',
+          assignedToType: 'department',
+          assignedToId: DEPT_LEGAL,
+          status: 'filed',
+          actions: [],
+        },
+      ],
+    });
+
+    await expect(
+      service.decide('staff', 'file', 'board-paper', 'read'),
+    ).resolves.toEqual({ allowed: false, reason: 'no_grant' });
+  });
+
+  it('does not let a past action assignee keep reading after that action is done', async () => {
+    const service = buildService({
+      ...restrictedFile(),
+      workflows: [
+        {
+          documentId: 'board-paper',
+          assignedBy: 'someone-else',
+          assignedToType: 'department',
+          assignedToId: DEPT_LEGAL,
+          status: 'in_progress',
+          actions: [
+            {
+              assignedToType: 'user',
+              assignedToId: 'named',
+              status: 'completed',
+            },
+          ],
+        },
+      ],
+    });
+
+    await expect(
+      service.decide('named', 'file', 'board-paper', 'read'),
+    ).resolves.toEqual({ allowed: false, reason: 'no_grant' });
+  });
+
+  it('still lets a current user assignee read while an old action is completed', async () => {
+    const service = buildService({
+      ...restrictedFile(),
+      workflows: [
+        {
+          documentId: 'board-paper',
+          assignedBy: 'someone-else',
+          assignedToType: 'user',
+          assignedToId: 'named',
+          status: 'in_progress',
+          actions: [
+            {
+              assignedToType: 'user',
+              assignedToId: 'named',
+              status: 'completed',
+            },
+          ],
+        },
+      ],
+    });
+
+    await expect(
+      service.decide('named', 'file', 'board-paper', 'read'),
+    ).resolves.toEqual({ allowed: true, reason: 'workflow_participant' });
   });
 });
 

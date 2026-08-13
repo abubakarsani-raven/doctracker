@@ -34,6 +34,7 @@ import { useCreateAction } from "@/lib/hooks/use-actions";
 import { useWorkflows } from "@/lib/hooks/use-workflows";
 import { useUsers } from "@/lib/hooks/use-users";
 import { useCompanies } from "@/lib/hooks/use-companies";
+import { usePermissions } from "@/lib/hooks/use-permissions";
 import {
   clampDateToWorkflowEnd,
   isAfterWorkflowEnd,
@@ -53,6 +54,7 @@ export function CreateActionDialog({
   const { data: users = [] } = useUsers();
   const { data: companies = [] } = useCompanies();
   const createAction = useCreateAction();
+  const { can } = usePermissions();
 
   const [workflowId, setWorkflowId] = useState("");
   const [title, setTitle] = useState("");
@@ -113,6 +115,11 @@ export function CreateActionDialog({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    if (!can("actions.assign")) {
+      sonnerToast.error("Your role cannot assign actions.");
+      return;
+    }
 
     if (!title.trim()) {
       sonnerToast.error("Please enter an action title");

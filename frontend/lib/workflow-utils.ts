@@ -66,12 +66,28 @@ export function canCloseWorkflow(workflow: any, currentUser: any): boolean {
   const isAssignee =
     (workflow.assignedTo?.type === "user" &&
       workflow.assignedTo?.id === currentUser.id) ||
-    (workflow.assignedTo?.type === "department" &&
-      currentUser.department &&
-      (workflow.assignedTo?.name === currentUser.department ||
-        workflow.assignedTo?.id === currentUser.department));
+    isAssignedToUserDepartment(workflow, currentUser);
 
   return isCreator || isAssignee;
+}
+
+/** True when the workflow is assigned to a department the user belongs to. */
+function isAssignedToUserDepartment(workflow: any, currentUser: any): boolean {
+  if (workflow?.assignedTo?.type !== "department") return false;
+
+  const assignedId = workflow.assignedTo?.id as string | undefined;
+  const deptIds: string[] =
+    currentUser.departmentIds ?? currentUser.permissions?.departmentIds ?? [];
+
+  if (assignedId && deptIds.includes(assignedId)) return true;
+
+  // Legacy sessions stored a department name (or id) on `currentUser.department`.
+  const legacy = currentUser.department as string | undefined;
+  if (!legacy) return false;
+  if (assignedId && assignedId === legacy) return true;
+  const assignedName = workflow.assignedTo?.name as string | undefined;
+  if (!assignedName) return false;
+  return assignedName === legacy || assignedName.toLowerCase() === legacy.toLowerCase();
 }
 
 /**

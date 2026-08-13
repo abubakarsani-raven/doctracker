@@ -116,6 +116,13 @@ export function CommandDialogComponent({
         requires: "workflows.create",
       },
       {
+        id: "create-action",
+        label: "Create action",
+        icon: CheckSquare,
+        href: "/actions",
+        requires: "actions.assign",
+      },
+      {
         id: "invite-user",
         label: "Invite user",
         icon: Users,

@@ -9,6 +9,7 @@ import { CreateGoalDialog } from "./CreateGoalDialog";
 import { useState } from "react";
 import { useWorkflow } from "@/lib/hooks/use-workflows";
 import { LoadingState } from "@/components/common/LoadingState";
+import { usePermissions } from "@/lib/hooks/use-permissions";
 
 interface WorkflowGoalsListProps {
   workflowId: string;
@@ -23,6 +24,8 @@ export function WorkflowGoalsList({
 }: WorkflowGoalsListProps) {
   const { data: goals = [], isLoading } = useWorkflowGoals(workflowId);
   const { data: workflow } = useWorkflow(workflowId);
+  const { can } = usePermissions();
+  const canCreateGoal = can("workflows.create");
   const [internalDialogOpen, setInternalDialogOpen] = useState(false);
   
   // Use external dialog state if provided, otherwise use internal
@@ -57,6 +60,7 @@ export function WorkflowGoalsList({
               <Target className="h-5 w-5" />
               <CardTitle>Post-Workflow Goals</CardTitle>
             </div>
+            {canCreateGoal && (
             <Button
               size="sm"
               onClick={handleOpenDialog}
@@ -64,6 +68,7 @@ export function WorkflowGoalsList({
               <Plus className="h-4 w-4 mr-2" />
               Create Goal
             </Button>
+            )}
           </div>
         </CardHeader>
         <CardContent>

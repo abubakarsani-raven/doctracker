@@ -46,6 +46,7 @@ import { useCreateApprovalRequest } from "@/lib/hooks/use-approval-requests";
 import { useWorkflow } from "@/lib/hooks/use-workflows";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
+import { usePermissions } from "@/lib/hooks/use-permissions";
 import {
   clampDateToWorkflowEnd,
   isAfterWorkflowEnd,
@@ -78,6 +79,8 @@ export function CreateActionFromWorkflowDialog({
   const { data: users = [] } = useUsers();
   const { data: companies = [] } = useCompanies();
   const { data: currentUser } = useCurrentUser();
+  const { can } = usePermissions();
+  const canRequestSignature = can("documents.request_signature");
   const { data: workflowData } = useWorkflow(workflowId);
   const createAction = useCreateAction();
   const createApprovalRequest = useCreateApprovalRequest();
@@ -317,6 +320,11 @@ export function CreateActionFromWorkflowDialog({
   };
 
   const handleCreate = async () => {
+    if (!can("actions.assign")) {
+      toast.error("Your role cannot assign actions.");
+      return;
+    }
+
     if (!actionTitle.trim()) {
       toast.error("Please enter an action title");
       return;
@@ -505,8 +513,19 @@ export function CreateActionFromWorkflowDialog({
           {/* Action Type Selection */}
           <div className="space-y-2">
             <Label>Action Type *</Label>
-            <Tabs value={actionType} onValueChange={(v) => setActionType(v as any)} className="w-full">
-              <TabsList className="grid w-full grid-cols-2 sm:grid-cols-4 h-auto gap-1">
+            <Tabs
+              value={actionType}
+              onValueChange={(v) => setActionType(v as any)}
+              className="w-full"
+            >
+              <TabsList
+                className={cn(
+                  "grid w-full h-auto gap-1",
+                  canRequestSignature
+                    ? "grid-cols-2 sm:grid-cols-4"
+                    : "grid-cols-3",
+                )}
+              >
                 <TabsTrigger value="regular" className="text-xs sm:text-sm">
                   <CheckCircle2 className="mr-1 h-3.5 w-3.5" />
                   Regular
@@ -519,10 +538,12 @@ export function CreateActionFromWorkflowDialog({
                   <MessageSquare className="mr-1 h-3.5 w-3.5" />
                   Request
                 </TabsTrigger>
-                <TabsTrigger value="signature" className="text-xs sm:text-sm">
-                  <PenLine className="mr-1 h-3.5 w-3.5" />
-                  Signature
-                </TabsTrigger>
+                {canRequestSignature && (
+                  <TabsTrigger value="signature" className="text-xs sm:text-sm">
+                    <PenLine className="mr-1 h-3.5 w-3.5" />
+                    Signature
+                  </TabsTrigger>
+                )}
               </TabsList>
             </Tabs>
             <p className="text-xs text-muted-foreground">

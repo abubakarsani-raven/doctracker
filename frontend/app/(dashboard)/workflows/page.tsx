@@ -20,10 +20,13 @@ import { useWorkflows } from "@/lib/hooks/use-workflows";
 import { useCurrentUser } from "@/lib/hooks/use-users";
 import { useUIStore } from "@/lib/stores";
 import { isCompanyAdmin } from "@/lib/cross-company-utils";
+import { usePermissions } from "@/lib/hooks/use-permissions";
 
 export default function WorkflowsPage() {
   const router = useRouter();
   const { data: currentUser } = useCurrentUser();
+  const { can } = usePermissions();
+  const canCreateWorkflow = can("workflows.create");
   const { data: workflows = [], isLoading, isError, error, refetch } = useWorkflows();
   const {
     createWorkflowDialogOpen,
@@ -123,13 +126,15 @@ export default function WorkflowsPage() {
             Track and manage document workflows
           </p>
         </div>
-        <Button
-          className="w-full shrink-0 sm:w-auto"
-          onClick={() => setCreateWorkflowDialogOpen(true)}
-        >
-          <Plus className="mr-2 h-4 w-4" />
-          Create Workflow
-        </Button>
+        {canCreateWorkflow && (
+          <Button
+            className="w-full shrink-0 sm:w-auto"
+            onClick={() => setCreateWorkflowDialogOpen(true)}
+          >
+            <Plus className="mr-2 h-4 w-4" />
+            Create Workflow
+          </Button>
+        )}
       </div>
 
       {/* Tabs and Filters */}
@@ -189,7 +194,9 @@ export default function WorkflowsPage() {
                   : "No workflows have been created yet"
               }
               action={
-                !workflowSearchQuery && workflowStatusFilter === "all"
+                canCreateWorkflow &&
+                !workflowSearchQuery &&
+                workflowStatusFilter === "all"
                   ? {
                       label: "Create Workflow",
                       onClick: () => setCreateWorkflowDialogOpen(true),

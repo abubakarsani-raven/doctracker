@@ -37,6 +37,7 @@ import { useCompanies } from "@/lib/hooks/use-companies";
 import { useCurrentUser } from "@/lib/hooks/use-users";
 import { useUpdateWorkflow } from "@/lib/hooks/use-workflows";
 import { useCreateApprovalRequest } from "@/lib/hooks/use-approval-requests";
+import { usePermissions } from "@/lib/hooks/use-permissions";
 
 interface WorkflowRoutingSheetProps {
   open: boolean;
@@ -57,6 +58,8 @@ export function WorkflowRoutingSheet({
   const { data: users = [] } = useUsers();
   const { data: companies = [] } = useCompanies();
   const { data: currentUser } = useCurrentUser();
+  const { can } = usePermissions();
+  const canAssignActions = can("actions.assign");
   const updateWorkflow = useUpdateWorkflow();
   const createApprovalRequest = useCreateApprovalRequest();
 
@@ -526,6 +529,7 @@ export function WorkflowRoutingSheet({
                 </div>
               </div>
 
+              {canAssignActions && (
               <div className="flex items-start gap-3 rounded-md border p-4">
                 <RadioGroupItem value="actions" id="actions" className="mt-1" />
                 <div className="space-y-1 leading-none flex-1">
@@ -537,6 +541,7 @@ export function WorkflowRoutingSheet({
                   </p>
                 </div>
               </div>
+              )}
                 </>
               )}
             </RadioGroup>
