@@ -4,9 +4,14 @@ import { useEffect, useMemo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { PenTool, Loader2, Pencil, Trash2, Timer } from "lucide-react";
+import { PenTool, Loader2, Pencil, Trash2, Timer, FileWarning } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
+import {
+  documentTypeLabel,
+  isSignableDocument,
+  type SignableDocument,
+} from "@/lib/signable-document";
 import { useCurrentUser } from "@/lib/hooks/use-users";
 import { usePermissions } from "@/lib/hooks/use-permissions";
 import { PermissionButton } from "@/components/common/PermissionButton";
@@ -27,6 +32,8 @@ interface DocumentSignaturesPanelProps {
   fileId: string;
   fileName?: string;
   isRichText?: boolean;
+  /** Extension / MIME of the file — decides whether it can be stamped at all. */
+  fileType?: string | null;
   pageCount?: number;
   /** Bump to force-reload requests (e.g. after header Request signature). */
   refreshKey?: number;
@@ -37,6 +44,7 @@ export function DocumentSignaturesPanel({
   fileId,
   fileName,
   isRichText = false,
+  fileType = null,
   pageCount = 3,
   refreshKey = 0,
   onChanged,
@@ -90,6 +98,10 @@ export function DocumentSignaturesPanel({
     const id = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(id);
   }, [needsTicker]);
+
+  const documentShape: SignableDocument = { fileType, fileName, isRichText };
+  const signable = isSignableDocument(documentShape);
+  const unsupportedReason = `${documentTypeLabel(documentShape)} can’t be signed — convert to PDF first.`;
 
   const isMine = (p: any) =>
     p.userId === currentUser?.id || p.email === currentUser?.email;
@@ -146,11 +158,13 @@ export function DocumentSignaturesPanel({
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
           <CardTitle className="text-base">Signatures</CardTitle>
           <PermissionButton
-            allowed={can("documents.request_signature")}
+            allowed={can("documents.request_signature") && signable}
             reason={
-              can("documents.request_signature")
-                ? null
-                : `The ${permissions.role} role cannot request signatures.`
+              !can("documents.request_signature")
+                ? `The ${permissions.role} role cannot request signatures.`
+                : !signable
+                  ? unsupportedReason
+                  : null
             }
             size="sm"
             variant="outline"
@@ -161,6 +175,22 @@ export function DocumentSignaturesPanel({
           </PermissionButton>
         </CardHeader>
         <CardContent className="space-y-3">
+          {!signable && (
+            <div className="flex gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
+              <FileWarning className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
+              <div className="min-w-0 space-y-1">
+                <p className="font-medium">
+                  {documentTypeLabel(documentShape)} can’t be signed
+                </p>
+                <p className="text-muted-foreground">
+                  Signatures are stamped onto the file itself, which only works
+                  for PDFs and documents written in the app. Convert this file
+                  to PDF and upload it as a new version, then request
+                  signatures on that.
+                </p>
+              </div>
+            </div>
+          )}
           {loading ? (
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <Loader2 className="h-4 w-4 animate-spin" />
@@ -209,11 +239,13 @@ export function DocumentSignaturesPanel({
                   </ul>
                   {pending && (
                     <PermissionButton
-                      allowed={can("documents.sign")}
+                      allowed={can("documents.sign") && signable}
                       reason={
-                        can("documents.sign")
-                          ? null
-                          : `Your role (${permissions.role}) can’t sign — ask an admin.`
+                        !can("documents.sign")
+                          ? `Your role (${permissions.role}) can’t sign — ask an admin.`
+                          : !signable
+                            ? unsupportedReason
+                            : null
                       }
                       size="sm"
                       className="w-full"
@@ -240,11 +272,13 @@ export function DocumentSignaturesPanel({
                       </p>
                       <div className="flex gap-2">
                         <PermissionButton
-                          allowed={can("documents.sign")}
+                          allowed={can("documents.sign") && signable}
                           reason={
-                            can("documents.sign")
-                              ? null
-                              : `Your role (${permissions.role}) can’t sign — ask an admin.`
+                            !can("documents.sign")
+                              ? `Your role (${permissions.role}) can’t sign — ask an admin.`
+                              : !signable
+                                ? unsupportedReason
+                                : null
                           }
                           size="sm"
                           variant="outline"

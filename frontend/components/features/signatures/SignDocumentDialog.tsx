@@ -71,6 +71,21 @@ function clamp(n: number, min: number, max: number) {
   return Math.max(min, Math.min(max, n));
 }
 
+/**
+ * The placement preview renders with pdf.js, so anything that is not really a
+ * PDF (a DOCX served under a generic content type, an HTML error body) used to
+ * surface as "Invalid PDF structure" with a Retry button that could never
+ * succeed. Sniff the magic bytes and say what is actually wrong.
+ */
+async function looksLikePdf(blob: Blob): Promise<boolean> {
+  if (blob.size < 5) return false;
+  const head = new Uint8Array(await blob.slice(0, 5).arrayBuffer());
+  return String.fromCharCode(...head).startsWith("%PDF");
+}
+
+const NOT_A_PDF_MESSAGE =
+  "This document isn’t a PDF, so it can’t be signed here. Convert it to PDF and upload it as a new version, then sign that.";
+
 export function SignDocumentDialog({
   open,
   onOpenChange,
@@ -209,6 +224,13 @@ export function SignDocumentDialog({
       setPreviewError(null);
       try {
         const { blob } = await api.getDocumentBlob(fileId);
+        if (!(await looksLikePdf(blob))) {
+          if (!cancelled) {
+            setPreviewError(NOT_A_PDF_MESSAGE);
+            setPreviewUrl(null);
+          }
+          return;
+        }
         objectUrl = URL.createObjectURL(blob);
         if (cancelled) {
           URL.revokeObjectURL(objectUrl);
@@ -592,35 +614,42 @@ export function SignDocumentDialog({
                 )}
                 {previewError && (
                   <div className="absolute inset-0 z-[1] flex flex-col items-center justify-center gap-3 p-6 text-center text-sm text-muted-foreground">
-                    <p>{previewError}</p>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        // remount preview by clearing error and re-fetching via effect deps
-                        setPreviewError(null);
-                        setPreviewUrl(null);
-                        // bump by resetting file fetch — use a key via re-running effect
-                        void (async () => {
-                          setPreviewLoading(true);
-                          try {
-                            const { blob } = await api.getDocumentBlob(fileId);
-                            const objectUrl = URL.createObjectURL(blob);
-                            setPreviewUrl(objectUrl);
-                          } catch (err: any) {
-                            setPreviewError(
-                              err?.message || "Could not load document preview",
-                            );
-                          } finally {
-                            setPreviewLoading(false);
-                          }
-                        })();
-                      }}
-                    >
-                      Retry preview
-                    </Button>
+                    <p className="max-w-md">{previewError}</p>
+                    {/* Retrying a file that simply isn't a PDF can never work. */}
+                    {previewError !== NOT_A_PDF_MESSAGE && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          // remount preview by clearing error and re-fetching via effect deps
+                          setPreviewError(null);
+                          setPreviewUrl(null);
+                          // bump by resetting file fetch — use a key via re-running effect
+                          void (async () => {
+                            setPreviewLoading(true);
+                            try {
+                              const { blob } = await api.getDocumentBlob(fileId);
+                              if (!(await looksLikePdf(blob))) {
+                                setPreviewError(NOT_A_PDF_MESSAGE);
+                                return;
+                              }
+                              const objectUrl = URL.createObjectURL(blob);
+                              setPreviewUrl(objectUrl);
+                            } catch (err: any) {
+                              setPreviewError(
+                                err?.message || "Could not load document preview",
+                              );
+                            } finally {
+                              setPreviewLoading(false);
+                            }
+                          })();
+                        }}
+                      >
+                        Retry preview
+                      </Button>
+                    )}
                   </div>
                 )}
                 {previewUrl && !isRichText && (
