@@ -7,6 +7,12 @@ import { ActivityService } from '../activity/activity.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import * as crypto from 'crypto';
 import { PDFDocument } from 'pdf-lib';
+import {
+  isPdfFile,
+  isRichTextFile,
+  isSignableFile,
+  UNSUPPORTED_SIGNATURE_TYPE_MESSAGE,
+} from './signable-file';
 
 export interface SignatureParticipant {
   email: string;
@@ -53,10 +59,17 @@ export class SignaturesService {
 
     const file = await this.prisma.file.findUnique({
       where: { id: fileId },
+      include: { richTextDoc: { select: { id: true } } },
     });
 
     if (!file) {
       throw new NotFoundException('File not found');
+    }
+
+    // Fail here rather than at signing time, so nobody chases down signers for
+    // a document that can never be stamped.
+    if (!isSignableFile(file)) {
+      throw new BadRequestException(UNSUPPORTED_SIGNATURE_TYPE_MESSAGE);
     }
 
     // Masters / Group Secretaries have no home company — use the file's company.
@@ -667,15 +680,14 @@ export class SignaturesService {
       unknown
     > | null;
 
-    const isPdf =
-      request.file.fileType === 'pdf' ||
-      request.file.fileType === 'application/pdf' ||
-      request.file.fileName?.toLowerCase().endsWith('.pdf');
+    const isPdf = isPdfFile(request.file);
+    const isRichText = isRichTextFile(request.file);
 
-    const isRichText =
-      !!request.file.richTextDoc ||
-      request.file.fileType === 'html' ||
-      request.file.fileType === 'text/html';
+    // Older requests may predate the create-time check, and a file can change
+    // type via a new version — so re-check before stamping.
+    if (!isPdf && !isRichText) {
+      throw new BadRequestException(UNSUPPORTED_SIGNATURE_TYPE_MESSAGE);
+    }
 
     // Restore the pre-stamp file so a corrected signature replaces the old one
     // instead of stacking a second stamp.
@@ -772,18 +784,12 @@ export class SignaturesService {
               }`,
         });
       } else {
-        contentHash = crypto
-          .createHash('sha256')
-          .update(
-            JSON.stringify({
-              requestId,
-              participantId,
-              timestamp: new Date().toISOString(),
-              placement,
-              signatureData: signatureImageData.slice(0, 64),
-            }),
-          )
-          .digest('hex');
+        // Type says signable but the content to stamp is missing (PDF with no
+        // stored object, rich text with no document row). Recording a hash here
+        // would mark the request signed against an untouched document.
+        throw new BadRequestException(
+          'This document cannot be signed because its stored content is unavailable. Upload a new version and try again.',
+        );
       }
 
       await tx.signatureParticipant.update({
@@ -1041,14 +1047,8 @@ export class SignaturesService {
       unknown
     > | null;
 
-    const isPdf =
-      request.file.fileType === 'pdf' ||
-      request.file.fileType === 'application/pdf' ||
-      request.file.fileName?.toLowerCase().endsWith('.pdf');
-    const isRichText =
-      !!request.file.richTextDoc ||
-      request.file.fileType === 'html' ||
-      request.file.fileType === 'text/html';
+    const isPdf = isPdfFile(request.file);
+    const isRichText = isRichTextFile(request.file);
 
     let restorePath: string | null =
       typeof priorMeta?.preSignStoragePath === 'string'

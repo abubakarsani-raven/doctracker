@@ -39,6 +39,10 @@ import { WorkflowList } from "@/components/features/workflows/WorkflowList";
 import { usePermissions } from "@/lib/hooks/use-permissions";
 import { PermissionButton } from "@/components/common/PermissionButton";
 import { RequestSignatureDialog } from "@/components/features/signatures/RequestSignatureDialog";
+import {
+  documentTypeLabel,
+  isSignableDocument,
+} from "@/lib/signable-document";
 import { ConfirmDialog } from "@/components/common/ConfirmDialog";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
@@ -133,6 +137,9 @@ export default function DocumentDetailPage() {
       (canOn(document, "read", "document") ||
         (document as any).access?.canRead === true)
     : false;
+  // Signatures are stamped into the file, so only PDFs and in-app rich text
+  // can carry one — see lib/signable-document.ts.
+  const isSignable = document ? isSignableDocument(document) : false;
 
   const handleMoveComplete = () => {
     queryClient.invalidateQueries({ queryKey: ["documents", documentId] });
@@ -283,11 +290,13 @@ export default function DocumentDetailPage() {
         </div>
         <div className="flex min-w-0 flex-wrap items-center gap-2">
           <PermissionButton
-            allowed={can("documents.request_signature")}
+            allowed={can("documents.request_signature") && isSignable}
             reason={
-              can("documents.request_signature")
-                ? null
-                : `The ${permissions.role} role cannot request signatures.`
+              !can("documents.request_signature")
+                ? `The ${permissions.role} role cannot request signatures.`
+                : !isSignable
+                  ? `${documentTypeLabel(document)} can’t be signed — convert to PDF first.`
+                  : null
             }
             variant="outline"
             onClick={() => setRequestSignatureOpen(true)}
@@ -423,6 +432,7 @@ export default function DocumentDetailPage() {
             fileId={documentId}
             fileName={document.name}
             isRichText={!!document.isRichText}
+            fileType={document.type || document.fileType}
             pageCount={document.pageCount || 1}
             refreshKey={signaturesRefreshKey}
             onChanged={() => {
